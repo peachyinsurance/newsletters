@@ -27,7 +27,7 @@ ZYTE_API_KEY            = os.environ["ZYTE_API_KEY"]
 GOOGLE_CREDENTIALS_JSON = os.environ["GOOGLE_CREDENTIALS_JSON"]
 GSHEET_ID               = os.environ["GSHEET_ID"]
 GSHEET_TAB              = "Pets"
-SKILL_PROMPT_PATH       = Path(__file__).parent / "Skills" / "newsletter-pet-adoption-skill_auto.md"
+SKILL_PROMPT_PATH       = Path(__file__).parent.parent / "Skills" / "newsletter-pet-adoption-skill_auto.md"
 
 # ---------------------------------------------------------------------------
 # 2. GOOGLE AUTH (service account — headless, no browser required)
