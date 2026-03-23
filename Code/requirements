@@ -1,0 +1,30 @@
+name: Generate Newsletter - Pet Adoption
+ 
+on:
+  schedule:
+    - cron: '0 9 * * 1'   # Every Monday at 9am UTC
+  workflow_dispatch:        # Allows manual trigger from GitHub UI
+ 
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+ 
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+ 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+ 
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+ 
+      - name: Run newsletter script
+        env:
+          CLAUDE_API_KEY:          ${{ secrets.CLAUDE_API_KEY }}
+          ZYTE_API_KEY:            ${{ secrets.ZYTE_API_KEY }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          GSHEET_ID:               ${{ secrets.GSHEET_ID }}
+        run: python newsletter.py
