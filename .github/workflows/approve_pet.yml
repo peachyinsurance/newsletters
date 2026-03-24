@@ -1,0 +1,30 @@
+name: Approve Pet Blurb
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_url:
+        description: 'URL of the approved pet'
+        required: true
+
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r Code/requirements.txt
+
+      - name: Run approval script
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          GSHEET_ID:               ${{ secrets.GSHEET_ID }}
+          APPROVED_URL:            ${{ inputs.source_url }}
+        run: python Code/approve_pet.py
