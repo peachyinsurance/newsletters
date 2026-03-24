@@ -243,36 +243,38 @@ Profile:
 """
     return combined
 
-
-def generate_blurb(pets: list[dict], skill_prompt: str) -> dict:
+def generate_blurb(pets: list[dict], skill_prompt: str) -> list[dict]:
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
     combined_profiles = build_combined_profiles(pets)
 
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=2000,
+        max_tokens=4000,
         system=skill_prompt,
         messages=[{
             "role": "user",
             "content": f"""
-Here are up to 7 adoptable cats from shelters near East Cobb, GA.
-Review all of them and pick the one with the best story potential.
-Write the East Cobb Connect adoption blurb for that pet only.
+Here are adoptable cats from shelters near East Cobb, GA.
+Pick the TOP 3 with the best story potential and write a blurb for each.
 Use the pet's actual description -- do not invent details.
 
-Return ONLY a JSON object with no preamble, explanation, or markdown.
+Return ONLY a JSON array with exactly 3 objects, no preamble or markdown.
 Exact format:
-{{
-  "pet_name": "Patrick Star",
-  "shelter_name": "Good Mews Animal Foundation",
-  "blurb": "Full blurb text here...",
-  "shelter_address": "3805 Robinson Road NW, Marietta, GA 30067",
-  "shelter_phone": "(770) 499-2287",
-  "shelter_email": "adopt@goodmews.org",
-  "shelter_hours": "Mon-Fri 12-6pm, Sat-Sun 11am-5pm",
-  "source_url": "https://...",
-  "photo_url": "https://... or null"
-}}
+[
+  {{
+    "pet_name": "Patrick Star",
+    "shelter_name": "Good Mews Animal Foundation",
+    "blurb": "Full blurb text here...",
+    "shelter_address": "3805 Robinson Road NW, Marietta, GA 30067",
+    "shelter_phone": "(770) 499-2287",
+    "shelter_email": "adopt@goodmews.org",
+    "shelter_hours": "Mon-Fri 12-6pm, Sat-Sun 11am-5pm",
+    "source_url": "https://...",
+    "photo_url": "https://... or null"
+  }},
+  {{...}},
+  {{...}}
+]
 
 {combined_profiles}
 
@@ -290,35 +292,36 @@ Mon-Fri 12-6pm, Sat-Sun 11am-5pm
 
     raw = next(block.text for block in response.content if block.type == "text")
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
-    data = json.loads(clean)
-    print(f"Generated blurb for: {data['pet_name']} from {data['shelter_name']}")
-    return data
-
+    results = json.loads(clean)
+    print(f"Generated {len(results)} blurbs")
+    return results
 # ---------------------------------------------------------------------------
 # 9. SAVE RESULT TO GOOGLE SHEETS
 # ---------------------------------------------------------------------------
 
-def save_to_sheets(data: dict) -> None:
-    row = [
-        data["source_url"],
-        data["pet_name"],
-        data["shelter_name"],
-        data["blurb"],
-        data["shelter_address"],
-        data["shelter_phone"],
-        data["shelter_email"],
-        data["shelter_hours"],
-        data.get("photo_url") or "",
-        datetime.today().strftime("%Y-%m-%d"),
-        "available"
-    ]
+def save_to_sheets(results: list[dict]) -> None:
+    rows = []
+    for data in results:
+        rows.append([
+            data["source_url"],
+            data["pet_name"],
+            data["shelter_name"],
+            data["blurb"],
+            data["shelter_address"],
+            data["shelter_phone"],
+            data["shelter_email"],
+            data["shelter_hours"],
+            data.get("photo_url") or "",
+            datetime.today().strftime("%Y-%m-%d"),
+            "pending"
+        ])
     sheets_service.spreadsheets().values().append(
         spreadsheetId=GSHEET_ID,
         range=f"{GSHEET_TAB}!A:K",
         valueInputOption="RAW",
-        body={"values": [row]}
+        body={"values": rows}
     ).execute()
-    print(f"Saved to Google Sheets: {data['pet_name']}")
+    print(f"Saved {len(rows)} rows to Google Sheets")
 
 # ---------------------------------------------------------------------------
 # 10. MAIN
@@ -348,11 +351,11 @@ if __name__ == "__main__":
     if not fresh_pets:
         print("All scraped pets have been featured before. Exiting.")
         exit(1)
-
+    
     # Generate blurb via Claude
-    result = generate_blurb(fresh_pets, skill_prompt)
-
+    results = generate_blurb(fresh_pets, skill_prompt)
+    
     # Save to Google Sheets
-    save_to_sheets(result)
+    save_to_sheets(results)
 
     print("\nDone.")
