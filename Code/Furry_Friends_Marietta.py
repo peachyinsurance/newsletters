@@ -26,6 +26,7 @@ NEWSLETTER_NAME = "East_Cobb_Connect"
 # ---------------------------------------------------------------------------
 CLAUDE_API_KEY          = os.environ["CLAUDE_API_KEY"]
 APIFY_API_KEY           = os.environ["APIFY_API_KEY"]
+ZYTE_API_KEY             = os.environ["ZYTE_API_KEY"]
 GOOGLE_CREDENTIALS_JSON = os.environ["GOOGLE_CREDENTIALS_JSON"]
 GSHEET_ID               = os.environ["GSHEET_ID"]
 GSHEET_TAB              = "Pets"
@@ -54,51 +55,16 @@ def load_skill_prompt() -> str:
 # ---------------------------------------------------------------------------
 # 4. APIFY SCRAPING
 # ---------------------------------------------------------------------------
-def fetch_with_apify(url: str, retries: int = 2) -> str | None:
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {APIFY_API_KEY}"
-    }
+def fetch_with_zyte(url: str, retries: int = 2) -> str | None:
     for attempt in range(retries):
         try:
-            run_res = requests.post(
-                "https://api.apify.com/v2/acts/apify~web-scraper/run-sync-get-dataset-items",
-                headers=headers,
-                json={
-                    "startUrls": [{"url": url}],
-                    "pageFunction": """
-async function pageFunction(context) {
-    return {
-        url: context.request.url,
-        html: document.documentElement.outerHTML
-    };
-}
-""",
-                    "maxConcurrency": 1,
-                    "maxRequestsPerCrawl": 1
-                },
+            response = requests.post(
+                "https://api.zyte.com/v1/extract",
+                auth=(ZYTE_API_KEY, ""),
+                json={"url": url, "browserHtml": True},
                 timeout=120
             )
-
-            # Accept both 200 and 201 as success
-            if run_res.status_code in [200, 201]:
-                items = run_res.json()
-                if items and len(items) > 0:
-                    return items[0].get("html")
-                return None
-
-            # Handle memory limit -- wait and retry
-            if run_res.status_code == 402:
-                print(f"Apify memory limit hit, waiting 30s before retry...")
-                time.sleep(30)
-                continue
-
-            print(f"Apify error {run_res.status_code}: {run_res.text[:200]}")
-            if attempt < retries - 1:
-                time.sleep(5)
-                continue
-            return None
-
+            return response.json()["browserHtml"]
         except requests.exceptions.ReadTimeout:
             print(f"Timeout on attempt {attempt + 1} for {url}")
             if attempt < retries - 1:
