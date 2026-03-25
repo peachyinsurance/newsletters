@@ -27,17 +27,9 @@ Error generating stack: `+e.message+`
     min-height: 100vh;
   }
 
-  .app {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 48px 24px;
-  }
+  .app { max-width: 1200px; margin: 0 auto; padding: 48px 24px; }
 
-  .header {
-    text-align: center;
-    margin-bottom: 56px;
-  }
-
+  .header { text-align: center; margin-bottom: 56px; }
   .header-eyebrow {
     font-family: 'DM Sans', sans-serif;
     font-weight: 300;
@@ -47,7 +39,6 @@ Error generating stack: `+e.message+`
     color: var(--rust);
     margin-bottom: 12px;
   }
-
   .header h1 {
     font-family: 'Playfair Display', serif;
     font-size: clamp(2rem, 5vw, 3.5rem);
@@ -55,12 +46,7 @@ Error generating stack: `+e.message+`
     line-height: 1.1;
     color: var(--bark);
   }
-
-  .header h1 em {
-    font-style: italic;
-    color: var(--rust);
-  }
-
+  .header h1 em { font-style: italic; color: var(--rust); }
   .header-sub {
     margin-top: 16px;
     font-size: 15px;
@@ -81,19 +67,8 @@ Error generating stack: `+e.message+`
     box-shadow: 0 4px 32px var(--shadow);
     text-align: center;
   }
-
-  .token-gate h2 {
-    font-family: 'Playfair Display', serif;
-    font-size: 1.5rem;
-    margin-bottom: 8px;
-  }
-
-  .token-gate p {
-    font-size: 14px;
-    color: #6B5744;
-    margin-bottom: 24px;
-    line-height: 1.6;
-  }
+  .token-gate h2 { font-family: 'Playfair Display', serif; font-size: 1.5rem; margin-bottom: 8px; }
+  .token-gate p { font-size: 14px; color: #6B5744; margin-bottom: 24px; line-height: 1.6; }
 
   .token-input {
     width: 100%;
@@ -108,7 +83,6 @@ Error generating stack: `+e.message+`
     outline: none;
     transition: border-color 0.2s;
   }
-
   .token-input:focus { border-color: var(--rust); }
 
   .btn {
@@ -124,14 +98,7 @@ Error generating stack: `+e.message+`
     border: none;
     transition: all 0.2s;
   }
-
-  .btn-primary {
-    background: var(--rust);
-    color: white;
-    width: 100%;
-    justify-content: center;
-  }
-
+  .btn-primary { background: var(--rust); color: white; width: 100%; justify-content: center; }
   .btn-primary:hover { background: #A8441A; transform: translateY(-1px); }
   .btn-primary:disabled { background: #C4A090; cursor: not-allowed; transform: none; }
 
@@ -144,7 +111,6 @@ Error generating stack: `+e.message+`
     padding: 14px 28px;
     font-size: 15px;
   }
-
   .btn-approve:hover { background: #5F8563; transform: translateY(-1px); }
   .btn-approve:disabled { background: #A8C4AA; cursor: not-allowed; transform: none; }
 
@@ -164,21 +130,9 @@ Error generating stack: `+e.message+`
     flex-direction: column;
     position: relative;
   }
-
-  .tile:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 12px 40px var(--shadow);
-  }
-
-  .tile.approved {
-    outline: 3px solid var(--sage);
-    outline-offset: -3px;
-  }
-
-  .tile.rejected {
-    opacity: 0.4;
-    pointer-events: none;
-  }
+  .tile:hover { transform: translateY(-4px); box-shadow: 0 12px 40px var(--shadow); }
+  .tile.approved { outline: 3px solid var(--sage); outline-offset: -3px; }
+  .tile.rejected { opacity: 0.4; pointer-events: none; }
 
   .tile-badge {
     position: absolute;
@@ -198,7 +152,6 @@ Error generating stack: `+e.message+`
   .tile-photo {
     width: 100%;
     height: 240px;
-    object-fit: cover;
     background: var(--sand);
     display: flex;
     align-items: center;
@@ -207,40 +160,17 @@ Error generating stack: `+e.message+`
     font-size: 13px;
     flex-shrink: 0;
   }
+  .tile-photo img { width: 100%; height: 100%; object-fit: cover; }
 
-  .tile-photo img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
+  .tile-body { padding: 28px; flex: 1; display: flex; flex-direction: column; }
 
-  .tile-body {
-    padding: 28px;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .tile-meta {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 12px;
-  }
-
+  .tile-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
   .tile-shelter {
     font-size: 11px;
     font-weight: 500;
     letter-spacing: 0.15em;
     text-transform: uppercase;
     color: var(--rust);
-  }
-
-  .tile-dot {
-    width: 3px;
-    height: 3px;
-    border-radius: 50%;
-    background: var(--sand);
   }
 
   .tile-name {
@@ -251,6 +181,58 @@ Error generating stack: `+e.message+`
     margin-bottom: 16px;
     line-height: 1.2;
   }
+
+  .score-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding: 12px 16px;
+    background: var(--cream);
+    border-radius: 10px;
+  }
+  .score-total {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--rust);
+    white-space: nowrap;
+  }
+  .score-total span {
+    font-size: 0.8rem;
+    color: #A89080;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 300;
+  }
+  .score-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .score-pill {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 8px;
+    border-radius: 99px;
+    background: white;
+    border: 1px solid var(--sand);
+    color: #6B5744;
+    white-space: nowrap;
+  }
+
+  .scoring-notes {
+    margin-bottom: 16px;
+    padding: 14px 16px;
+    background: #F0F7F1;
+    border-radius: 10px;
+    border-left: 3px solid var(--sage);
+  }
+  .scoring-notes-label {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--sage);
+    margin-bottom: 8px;
+  }
+  .scoring-notes ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+  .scoring-notes li { font-size: 13px; line-height: 1.5; color: #3A5C3E; }
 
   .tile-blurb {
     font-size: 14px;
@@ -269,16 +251,7 @@ Error generating stack: `+e.message+`
     color: #6B5744;
     line-height: 1.8;
   }
-
-  .tile-link {
-    display: inline-block;
-    margin-top: 8px;
-    font-size: 12px;
-    color: var(--rust);
-    text-decoration: none;
-    font-weight: 500;
-  }
-
+  .tile-link { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--rust); text-decoration: none; font-weight: 500; }
   .tile-link:hover { text-decoration: underline; }
 
   .status-bar {
@@ -291,27 +264,12 @@ Error generating stack: `+e.message+`
     font-size: 14px;
     color: #6B5744;
   }
-
   .status-bar strong { color: var(--bark); }
 
-  .empty {
-    text-align: center;
-    padding: 80px 24px;
-    color: #6B5744;
-  }
+  .empty { text-align: center; padding: 80px 24px; color: #6B5744; }
+  .empty h2 { font-family: 'Playfair Display', serif; font-size: 1.8rem; margin-bottom: 12px; }
 
-  .empty h2 {
-    font-family: 'Playfair Display', serif;
-    font-size: 1.8rem;
-    margin-bottom: 12px;
-  }
-
-  .loading {
-    text-align: center;
-    padding: 80px 24px;
-    color: #6B5744;
-    font-size: 15px;
-  }
+  .loading { text-align: center; padding: 80px 24px; color: #6B5744; font-size: 15px; }
 
   .error-msg {
     background: #FFF0ED;
@@ -334,12 +292,12 @@ Error generating stack: `+e.message+`
     font-size: 15px;
     color: #3A6B3E;
   }
-
   .success-banner strong {
     display: block;
     font-family: 'Playfair Display', serif;
     font-size: 1.2rem;
     margin-bottom: 4px;
   }
-`;function v(){let[e,t]=(0,l.useState)(()=>localStorage.getItem(`gh_token`)||``),[n,r]=(0,l.useState)(``),[i,a]=(0,l.useState)([]),[o,s]=(0,l.useState)(!1),[c,u]=(0,l.useState)(null),[v,y]=(0,l.useState)(null),[b,x]=(0,l.useState)(``),[ee,S]=(0,l.useState)(``),C=!!e,te=`https://docs.google.com/spreadsheets/d/${h}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(g)}`;(0,l.useEffect)(()=>{C&&ne()},[C]);async function ne(){s(!0),x(``);try{a(re(await(await fetch(te)).text()).filter(e=>e.status===`pending`))}catch{x(`Could not load pets from Google Sheets. Make sure the sheet is shared with the service account.`)}finally{s(!1)}}function re(e){let t=[],n=``,r=!1;for(let i=0;i<e.length;i++){let a=e[i];a===`"`?r=!r:a===`,`&&!r?n+=`\0`:a===`
-`&&!r?(t.push(n.split(`\0`).map(e=>e.replace(/"/g,``).trim())),n=``):n+=a}if(n&&t.push(n.split(`\0`).map(e=>e.replace(/"/g,``).trim())),t.length<2)return[];let i=t[0];return t.slice(1).map(e=>{let t={};return i.forEach((n,r)=>{t[n]=e[r]||``}),t})}async function w(t){if(e){u(t.source_url),x(``);try{let n=await fetch(`https://api.github.com/repos/${f}/${p}/actions/workflows/${m}/dispatches`,{method:`POST`,headers:{Authorization:`Bearer ${e}`,Accept:`application/vnd.github+json`,"Content-Type":`application/json`},body:JSON.stringify({ref:`main`,inputs:{source_url:t.source_url}})});if(!n.ok){let e=await n.json();throw Error(e.message||`GitHub API error`)}y(t.source_url),S(`${t.pet_name} approved! The workflow is updating the sheet now.`),a(e=>e.map(e=>({...e,_localStatus:e.source_url===t.source_url?`approved`:`rejected`})))}catch(e){x(`Approval failed: ${e.message}`)}finally{u(null)}}}function ie(){n.trim()&&(localStorage.setItem(`gh_token`,n.trim()),t(n.trim()),r(``))}return(0,d.jsxs)(d.Fragment,{children:[(0,d.jsx)(`style`,{children:_}),(0,d.jsxs)(`div`,{className:`app`,children:[(0,d.jsxs)(`div`,{className:`header`,children:[(0,d.jsx)(`p`,{className:`header-eyebrow`,children:`East Cobb Connect`}),(0,d.jsxs)(`h1`,{children:[`Pick This Week's`,(0,d.jsx)(`br`,{}),(0,d.jsx)(`em`,{children:`Featured Friend`})]}),(0,d.jsx)(`p`,{className:`header-sub`,children:`Review the three candidates and approve the one that best fits the newsletter.`})]}),C?o?(0,d.jsx)(`div`,{className:`loading`,children:`Loading this week's candidates...`}):i.length===0?(0,d.jsxs)(`div`,{className:`empty`,children:[(0,d.jsx)(`h2`,{children:`All clear!`}),(0,d.jsx)(`p`,{children:`No pending pets found. Run the pipeline to generate new candidates.`})]}):(0,d.jsxs)(d.Fragment,{children:[ee&&(0,d.jsxs)(`div`,{className:`success-banner`,children:[(0,d.jsx)(`strong`,{children:`Approved!`}),ee]}),b&&(0,d.jsx)(`div`,{className:`error-msg`,style:{marginBottom:24},children:b}),(0,d.jsxs)(`div`,{className:`status-bar`,children:[(0,d.jsx)(`strong`,{children:i.length}),` candidates this week — select one to feature in the newsletter`]}),(0,d.jsx)(`div`,{className:`tiles`,children:i.map((e,t)=>{let n=e._localStatus;return(0,d.jsxs)(`div`,{className:`tile ${n===`approved`?`approved`:n===`rejected`?`rejected`:``}`,children:[n===`approved`&&(0,d.jsx)(`div`,{className:`tile-badge`,children:`✓ Approved`}),(0,d.jsx)(`div`,{className:`tile-photo`,children:e.photo_url?(0,d.jsx)(`img`,{src:e.photo_url,alt:e.pet_name}):(0,d.jsx)(`span`,{children:`No photo available`})}),(0,d.jsxs)(`div`,{className:`tile-body`,children:[(0,d.jsx)(`div`,{className:`tile-meta`,children:(0,d.jsx)(`span`,{className:`tile-shelter`,children:e.shelter_name})}),(0,d.jsx)(`div`,{className:`tile-name`,children:e.pet_name}),(0,d.jsx)(`div`,{className:`tile-blurb`,children:e.blurb}),(0,d.jsxs)(`div`,{className:`tile-shelter-info`,children:[e.shelter_address&&(0,d.jsx)(`div`,{children:e.shelter_address}),e.shelter_phone&&(0,d.jsxs)(`div`,{children:[e.shelter_phone,e.shelter_email?` | ${e.shelter_email}`:``]}),e.shelter_hours&&(0,d.jsx)(`div`,{children:e.shelter_hours}),e.source_url&&(0,d.jsx)(`a`,{className:`tile-link`,href:e.source_url,target:`_blank`,rel:`noreferrer`,children:`View listing →`})]}),!v&&(0,d.jsx)(`button`,{className:`btn btn-approve`,onClick:()=>w(e),disabled:c===e.source_url,children:c===e.source_url?`Approving...`:`Approve this pet`})]})]},e.source_url||t)})})]}):(0,d.jsxs)(`div`,{className:`token-gate`,children:[(0,d.jsx)(`h2`,{children:`Sign In`}),(0,d.jsx)(`p`,{children:`Enter your GitHub Personal Access Token to load this week's pets and approve a blurb.`}),(0,d.jsx)(`input`,{className:`token-input`,type:`password`,placeholder:`ghp_xxxxxxxxxxxxxxxxxxxx`,value:n,onChange:e=>r(e.target.value),onKeyDown:e=>e.key===`Enter`&&ie()}),(0,d.jsx)(`button`,{className:`btn btn-primary`,onClick:ie,children:`Continue`}),b&&(0,d.jsx)(`div`,{className:`error-msg`,children:b})]})]})]})}(0,c.createRoot)(document.getElementById(`root`)).render((0,d.jsx)(l.StrictMode,{children:(0,d.jsx)(v,{})}));
+`;function v(e){let t=[],n=``,r=!1;for(let i=0;i<e.length;i++){let a=e[i];a===`"`?r=!r:a===`,`&&!r?n+=`\0`:a===`
+`&&!r?(t.push(n.split(`\0`).map(e=>e.replace(/"/g,``).trim())),n=``):n+=a}if(n&&t.push(n.split(`\0`).map(e=>e.replace(/"/g,``).trim())),t.length<2)return[];let i=t[0];return t.slice(1).map(e=>{let t={};return i.forEach((n,r)=>{t[n]=e[r]||``}),t})}function y(e){return e?e.split(`
+`).map(e=>e.replace(/^•\s*/,``).trim()).filter(Boolean):[]}function b(){let[e,t]=(0,l.useState)(()=>localStorage.getItem(`gh_token`)||``),[n,r]=(0,l.useState)(``),[i,a]=(0,l.useState)([]),[o,s]=(0,l.useState)(!1),[c,u]=(0,l.useState)(null),[b,x]=(0,l.useState)(null),[ee,S]=(0,l.useState)(``),[C,te]=(0,l.useState)(``),ne=!!e,re=`https://docs.google.com/spreadsheets/d/${h}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(g)}`;(0,l.useEffect)(()=>{ne&&w()},[ne]);async function w(){s(!0),S(``);try{a(v(await(await fetch(re)).text()).filter(e=>e.status===`pending`))}catch{S(`Could not load pets from Google Sheets.`)}finally{s(!1)}}async function ie(t){if(e){u(t.source_url),S(``);try{let n=await fetch(`https://api.github.com/repos/${f}/${p}/actions/workflows/${m}/dispatches`,{method:`POST`,headers:{Authorization:`Bearer ${e}`,Accept:`application/vnd.github+json`,"Content-Type":`application/json`},body:JSON.stringify({ref:`main`,inputs:{source_url:t.source_url}})});if(!n.ok){let e=await n.json();throw Error(e.message||`GitHub API error`)}x(t.source_url),te(`${t.pet_name} approved!`),a(e=>e.map(e=>({...e,_localStatus:e.source_url===t.source_url?`approved`:`rejected`})))}catch(e){S(`Approval failed: ${e.message}`)}finally{u(null)}}}function ae(){n.trim()&&(localStorage.setItem(`gh_token`,n.trim()),t(n.trim()),r(``))}return(0,d.jsxs)(d.Fragment,{children:[(0,d.jsx)(`style`,{children:_}),(0,d.jsxs)(`div`,{className:`app`,children:[(0,d.jsxs)(`div`,{className:`header`,children:[(0,d.jsx)(`p`,{className:`header-eyebrow`,children:`East Cobb Connect`}),(0,d.jsxs)(`h1`,{children:[`Pick This Week's`,(0,d.jsx)(`br`,{}),(0,d.jsx)(`em`,{children:`Featured Friend`})]}),(0,d.jsx)(`p`,{className:`header-sub`,children:`Review the three candidates and approve the one that best fits the newsletter.`})]}),ne?o?(0,d.jsx)(`div`,{className:`loading`,children:`Loading this week's candidates...`}):i.length===0?(0,d.jsxs)(`div`,{className:`empty`,children:[(0,d.jsx)(`h2`,{children:`All clear!`}),(0,d.jsx)(`p`,{children:`No pending pets found. Run the pipeline to generate new candidates.`})]}):(0,d.jsxs)(d.Fragment,{children:[C&&(0,d.jsxs)(`div`,{className:`success-banner`,children:[(0,d.jsx)(`strong`,{children:`Approved!`}),C]}),ee&&(0,d.jsx)(`div`,{className:`error-msg`,style:{marginBottom:24},children:ee}),(0,d.jsxs)(`div`,{className:`status-bar`,children:[(0,d.jsx)(`strong`,{children:i.length}),` candidates this week — select one to feature in the newsletter`]}),(0,d.jsx)(`div`,{className:`tiles`,children:i.map((e,t)=>{let n=e._localStatus,r=y(e.scoring_notes),i=e.total_score?parseInt(e.total_score):null;return(0,d.jsxs)(`div`,{className:`tile ${n===`approved`?`approved`:n===`rejected`?`rejected`:``}`,children:[n===`approved`&&(0,d.jsx)(`div`,{className:`tile-badge`,children:`✓ Approved`}),(0,d.jsx)(`div`,{className:`tile-photo`,children:e.photo_url?(0,d.jsx)(`img`,{src:e.photo_url,alt:e.pet_name}):(0,d.jsx)(`span`,{children:`No photo available`})}),(0,d.jsxs)(`div`,{className:`tile-body`,children:[(0,d.jsx)(`div`,{className:`tile-meta`,children:(0,d.jsx)(`span`,{className:`tile-shelter`,children:e.shelter_name})}),(0,d.jsx)(`div`,{className:`tile-name`,children:e.pet_name}),i!==null&&(0,d.jsxs)(`div`,{className:`score-bar`,children:[(0,d.jsxs)(`div`,{className:`score-total`,children:[i,(0,d.jsx)(`span`,{children:`/30`})]}),(0,d.jsxs)(`div`,{className:`score-pills`,children:[e.adoptability_score&&(0,d.jsxs)(`span`,{className:`score-pill`,children:[`🏠 Adoptability `,e.adoptability_score]}),e.story_score&&(0,d.jsxs)(`span`,{className:`score-pill`,children:[`📖 Story `,e.story_score]}),e.shelter_time_score&&(0,d.jsxs)(`span`,{className:`score-pill`,children:[`⏱ Wait `,e.shelter_time_score]})]})]}),r.length>0&&(0,d.jsxs)(`div`,{className:`scoring-notes`,children:[(0,d.jsx)(`div`,{className:`scoring-notes-label`,children:`Why feature this pet`}),(0,d.jsx)(`ul`,{children:r.map((e,t)=>(0,d.jsx)(`li`,{children:e},t))})]}),(0,d.jsx)(`div`,{className:`tile-blurb`,children:e.blurb}),(0,d.jsxs)(`div`,{className:`tile-shelter-info`,children:[e.shelter_address&&(0,d.jsx)(`div`,{children:e.shelter_address}),e.shelter_phone&&(0,d.jsxs)(`div`,{children:[e.shelter_phone,e.shelter_email?` | ${e.shelter_email}`:``]}),e.shelter_hours&&(0,d.jsx)(`div`,{children:e.shelter_hours}),e.source_url&&(0,d.jsx)(`a`,{className:`tile-link`,href:e.source_url,target:`_blank`,rel:`noreferrer`,children:`View listing →`})]}),!b&&(0,d.jsx)(`button`,{className:`btn btn-approve`,onClick:()=>ie(e),disabled:c===e.source_url,children:c===e.source_url?`Approving...`:`Approve this pet`})]})]},e.source_url||t)})})]}):(0,d.jsxs)(`div`,{className:`token-gate`,children:[(0,d.jsx)(`h2`,{children:`Sign In`}),(0,d.jsx)(`p`,{children:`Enter your GitHub Personal Access Token to load this week's pets and approve a blurb.`}),(0,d.jsx)(`input`,{className:`token-input`,type:`password`,placeholder:`ghp_xxxxxxxxxxxxxxxxxxxx`,value:n,onChange:e=>r(e.target.value),onKeyDown:e=>e.key===`Enter`&&ae()}),(0,d.jsx)(`button`,{className:`btn btn-primary`,onClick:ae,children:`Continue`}),ee&&(0,d.jsx)(`div`,{className:`error-msg`,children:ee})]})]})]})}(0,c.createRoot)(document.getElementById(`root`)).render((0,d.jsx)(l.StrictMode,{children:(0,d.jsx)(b,{})}));
