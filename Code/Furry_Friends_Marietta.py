@@ -26,7 +26,7 @@ SEARCH_RADIUS_MILES = 5
 # 1. ENVIRONMENT
 # ---------------------------------------------------------------------------
 CLAUDE_API_KEY          = os.environ["CLAUDE_API_KEY"]
-RESCUEGROUPS_API_KEY    = os.environ["RESCUEGROUPS_API_KEY"]
+RESCUEGROUPS_API_KEY    = os.environ["RESCUE_GROUP_API_KEY"]
 GOOGLE_CREDENTIALS_JSON = os.environ["GOOGLE_CREDENTIALS_JSON"]
 GSHEET_ID               = os.environ["GSHEET_ID"]
 GSHEET_TAB              = "Pets"
