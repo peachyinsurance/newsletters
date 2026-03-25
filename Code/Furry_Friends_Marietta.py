@@ -79,7 +79,7 @@ async function pageFunction(context) {
                 },
                 timeout=120
             )
-            if run_res.status_code != 200:
+            if run_res.status_code not in [200, 201]:
                 print(f"Apify error {run_res.status_code}: {run_res.text[:200]}")
                 if attempt < retries - 1:
                     time.sleep(3)
@@ -214,13 +214,12 @@ def scrape_petfinder(animal_type: str, excluded_urls: set, target: int = 5, max_
             and base_url + a["href"] not in excluded_urls
         ]))
 
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {executor.submit(fetch_listing_page, page): page for page in range(1, max_pages + 1)}
-        for future in as_completed(futures):
-            page_links = future.result()
-            all_pet_links.extend(page_links)
-            print(f"  {len(page_links)} links from a listing page ({len(all_pet_links)} total)")
-
+    for page in range(1, max_pages + 1):
+        page_links = fetch_listing_page(page)
+        all_pet_links.extend(page_links)
+        print(f"  {len(page_links)} links from page {page} ({len(all_pet_links)} total)")
+        time.sleep(1)
+        
     all_pet_links = list(set(all_pet_links))
     full_links = [base_url + link for link in all_pet_links if base_url + link not in excluded_urls]
     print(f"  {len(full_links)} total candidate links")
@@ -485,27 +484,20 @@ def save_to_sheets(results: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     print(f"Starting newsletter automation — {datetime.today().strftime('%Y-%m-%d')}")
-
     skill_prompt  = load_skill_prompt()
     approved_urls = get_approved_urls()
 
-    # Scrape cats and dogs in parallel
-    print("\nScraping cats and dogs in parallel...")
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        cat_future = executor.submit(lambda: (
-            scrape_humane_society("cat", approved_urls, target=5),
-            scrape_petfinder("cat", approved_urls, target=5)
-        ))
-        dog_future = executor.submit(lambda: (
-            scrape_humane_society("dog", approved_urls, target=5),
-            scrape_petfinder("dog", approved_urls, target=5)
-        ))
-        humane_cats, petfinder_cats = cat_future.result()
-        humane_dogs, petfinder_dogs = dog_future.result()
+    # Scrape cats first, then dogs sequentially to avoid Apify memory limits
+    print("\nScraping cats...")
+    humane_cats    = scrape_humane_society("cat", approved_urls, target=5)
+    petfinder_cats = scrape_petfinder("cat", approved_urls, target=5)
+    all_cats       = petfinder_cats + humane_cats
+    print(f"Total cats scraped: {len(all_cats)}")
 
-    all_cats = petfinder_cats + humane_cats
-    all_dogs = petfinder_dogs + humane_dogs
-    print(f"\nTotal cats scraped: {len(all_cats)}")
+    print("\nScraping dogs...")
+    humane_dogs    = scrape_humane_society("dog", approved_urls, target=5)
+    petfinder_dogs = scrape_petfinder("dog", approved_urls, target=5)
+    all_dogs       = petfinder_dogs + humane_dogs
     print(f"Total dogs scraped: {len(all_dogs)}")
 
     if not all_cats and not all_dogs:
@@ -515,14 +507,12 @@ if __name__ == "__main__":
     # Generate blurbs for cats and dogs in parallel
     print("\nGenerating blurbs in parallel...")
     cat_results, dog_results = [], []
-
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = {}
         if all_cats:
             futures["cat"] = executor.submit(generate_blurb, all_cats, skill_prompt, "cat")
         if all_dogs:
             futures["dog"] = executor.submit(generate_blurb, all_dogs, skill_prompt, "dog")
-
         if "cat" in futures:
             cat_results = futures["cat"].result()
         if "dog" in futures:
