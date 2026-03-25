@@ -304,24 +304,10 @@ const styles = `
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function parseCSV(text) {
+  const cleaned = text.replace(/\r/g, "");  // add this line
   const rows = [];
   let cur = "", inQ = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (c === '"') { inQ = !inQ; }
-    else if (c === ',' && !inQ) { cur += '\x00'; }
-    else if (c === '\n' && !inQ) { rows.push(cur.split('\x00').map(f => f.replace(/"/g, "").trim())); cur = ""; }
-    else { cur += c; }
-  }
-  if (cur) rows.push(cur.split('\x00').map(f => f.replace(/"/g, "").trim()));
-  if (rows.length < 2) return [];
-  const headers = rows[0];
-  return rows.slice(1).map(vals => {
-    const obj = {};
-    headers.forEach((h, i) => { obj[h] = vals[i] || ""; });
-    return obj;
-  });
-}
+  for (let i = 0; i < cleaned.length; i++) {  // use cleaned instead of text
 
 function parseBullets(notes) {
   if (!notes) return [];
