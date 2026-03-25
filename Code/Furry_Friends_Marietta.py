@@ -296,9 +296,93 @@ Mon-Fri 12-6pm, Sat-Sun 11am-5pm
     results = json.loads(clean)
     print(f"Generated {len(results)} blurbs")
     return results
+
+# ---------------------------------------------------------------------------
+# 8A. EVALUATE CLAUDE BLURB AND ADD SCORE
+# ---------------------------------------------------------------------------
+
+def score_blurbs(results: list[dict], pets: list[dict]) -> list[dict]:
+    client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+
+    scoring_input = ""
+    for i, result in enumerate(results, 1):
+        scoring_input += f"""
+--- Candidate {i} ---
+Pet Name: {result['pet_name']}
+Shelter: {result['shelter_name']}
+Blurb: {result['blurb']}
+Source URL: {result['source_url']}
+
+"""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1000,
+        messages=[{
+            "role": "user",
+            "content": f"""
+You are evaluating pet adoption blurbs for a local newsletter editor.
+Score each candidate on a 0-10 scale for each of the following criteria:
+
+1. Adoptability: How easy and appealing is this pet to adopt? Consider compatibility, special needs, and fit for a typical family.
+2. Interesting Story: How compelling and unique is this pet's backstory? Does it have personality details that make readers want to meet them?
+3. Time at Shelter: Based on clues in the blurb (returned pet, long wait, came from another shelter, etc.), estimate how long this pet has been waiting. Longer wait = higher score.
+
+Return ONLY a JSON array with no preamble or markdown. Exact format:
+[
+  {{
+    "pet_name": "Patrick Star",
+    "source_url": "https://...",
+    "adoptability_score": 8,
+    "story_score": 7,
+    "shelter_time_score": 5,
+    "total_score": 20,
+    "scoring_notes": "• Strong adoption candidate with broad family appeal\\n• Returned pet with a clear sympathetic backstory readers will connect with\\n• Has been waiting longer than average based on shelter history clues"
+  }},
+  {{...}},
+  {{...}}
+]
+
+Rules for scoring_notes:
+- Exactly 3 bullet points per candidate
+- Format: • [point]\\n• [point]\\n• [point]
+- Each bullet is a concise exec-level reason why this cat should be featured this week
+- Focus on newsletter appeal, reader connection, and urgency to adopt
+- Write for a newsletter editor making a quick decision, not a shelter worker
+
+Candidates to score:
+{scoring_input}
+"""
+        }]
+    )
+
+    raw = next(block.text for block in response.content if block.type == "text")
+    clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
+    scores = json.loads(clean)
+
+    # Merge scores back into results
+    score_map = {s["source_url"]: s for s in scores}
+    for result in results:
+        score_data = score_map.get(result["source_url"], {})
+        result["adoptability_score"] = score_data.get("adoptability_score", 0)
+        result["story_score"]        = score_data.get("story_score", 0)
+        result["shelter_time_score"] = score_data.get("shelter_time_score", 0)
+        result["total_score"]        = score_data.get("total_score", 0)
+        result["scoring_notes"]      = score_data.get("scoring_notes", "")
+
+    # Sort by total score descending
+    results.sort(key=lambda x: x["total_score"], reverse=True)
+
+    for r in results:
+        print(f"  {r['pet_name']}: {r['total_score']}/30 | adoptability: {r['adoptability_score']} | story: {r['story_score']} | shelter time: {r['shelter_time_score']}")
+        print(f"  Notes: {r['scoring_notes'][:80]}...")
+
+    return results
+
 # ---------------------------------------------------------------------------
 # 9. SAVE RESULT TO GOOGLE SHEETS
 # ---------------------------------------------------------------------------
+
 def save_to_sheets(results: list[dict]) -> None:
     rows = []
     for data in results:
@@ -315,16 +399,21 @@ def save_to_sheets(results: list[dict]) -> None:
             datetime.today().strftime("%Y-%m-%d"),
             "pending",
             "pet_blurb",
-            NEWSLETTER_NAME
+            NEWSLETTER_NAME,
+            data.get("total_score", ""),
+            data.get("adoptability_score", ""),
+            data.get("story_score", ""),
+            data.get("shelter_time_score", ""),
+            data.get("scoring_notes", "")
         ])
     sheets_service.spreadsheets().values().append(
         spreadsheetId=GSHEET_ID,
-        range=f"{GSHEET_TAB}!A:M",
+        range=f"{GSHEET_TAB}!A:R",
         valueInputOption="RAW",
         body={"values": rows}
     ).execute()
     print(f"Saved {len(rows)} rows to Google Sheets")
-
+  
 # ---------------------------------------------------------------------------
 # 10. MAIN
 # ---------------------------------------------------------------------------
@@ -354,8 +443,11 @@ if __name__ == "__main__":
         print("All scraped pets have been featured before. Exiting.")
         exit(1)
     
-    # Generate blurb via Claude
+    # Generate blurbs via Claude
     results = generate_blurb(fresh_pets, skill_prompt)
+    
+    # Score blurbs via Claude
+    results = score_blurbs(results, fresh_pets)
     
     # Save to Google Sheets
     save_to_sheets(results)
