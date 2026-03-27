@@ -117,24 +117,24 @@ def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> lis
     print(f"Found {len(animals)} {species}s within {SEARCH_RADIUS_MILES} miles of {ANCHOR_ZIP}")
 
     # Build org lookup from included data
-        org_lookup = {}
-        photo_lookup = {}
-        for item in included:
-            if item.get("type") == "orgs":
-                org_id = item["id"]
-                attrs  = item.get("attributes", {})
-                org_lookup[org_id] = {
-                    "name":    attrs.get("name", ""),
-                    "address": f"{attrs.get('street', '')} {attrs.get('city', '')} {attrs.get('state', '')} {attrs.get('postalcode', '')}".strip(),
-                    "phone":   attrs.get("phone", ""),
-                    "email":   attrs.get("email", ""),
-                    "hours":   attrs.get("hours", "")
-                }
-            if item.get("type") == "pictures":
-                pic_id  = item["id"]
-                pic_url = item.get("attributes", {}).get("large", {}).get("url", "")
-                if pic_url:
-                    photo_lookup[pic_id] = pic_url
+    org_lookup = {}
+    photo_lookup = {}
+    for item in included:
+        if item.get("type") == "orgs":
+            org_id = item["id"]
+            attrs  = item.get("attributes", {})
+            org_lookup[org_id] = {
+                "name":    attrs.get("name", ""),
+                "address": f"{attrs.get('street', '')} {attrs.get('city', '')} {attrs.get('state', '')} {attrs.get('postalcode', '')}".strip(),
+                "phone":   attrs.get("phone", ""),
+                "email":   attrs.get("email", ""),
+                "hours":   attrs.get("hours", "")
+            }
+        if item.get("type") == "pictures":
+            pic_id  = item["id"]
+            pic_url = item.get("attributes", {}).get("large", {}).get("url", "")
+            if pic_url:
+                photo_lookup[pic_id] = pic_url
     
         pets = []
         for animal in animals:
