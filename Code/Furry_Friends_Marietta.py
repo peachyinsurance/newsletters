@@ -116,6 +116,8 @@ def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> lis
     included = data.get("included", [])
     print(f"Found {len(animals)} {species}s within {SEARCH_RADIUS_MILES} miles of {ANCHOR_ZIP}")
 
+
+    
     # Build org lookup from included data
     org_lookup = {}
     photo_lookup = {}
@@ -141,6 +143,9 @@ def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> lis
         if len(pets) >= target:
             break
 
+        attrs = animal.get("attributes", {})
+        print(f"  Animal URL field: {attrs.get('url', 'NO URL FIELD')}")
+        print(f"  Animal slug: {attrs.get('slug', 'NO SLUG')}")
         attrs     = animal.get("attributes", {})
         relations = animal.get("relationships", {})
 
