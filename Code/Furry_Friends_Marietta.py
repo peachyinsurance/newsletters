@@ -114,6 +114,14 @@ def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> lis
 
     animals  = data.get("data", [])
     included = data.get("included", [])
+
+    for animal in animals[:1]:  # just first animal
+        attrs     = animal.get("attributes", {})
+        relations = animal.get("relationships", {})
+        print(f"Relationships: {json.dumps(relations, indent=2)}")
+        print(f"Included count: {len(included)}")
+        print(f"First included item: {json.dumps(included[0], indent=2) if included else 'EMPTY'}")
+    break
     print(f"Found {len(animals)} {species}s within {SEARCH_RADIUS_MILES} miles of {ANCHOR_ZIP}")
 
 
