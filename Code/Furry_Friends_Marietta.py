@@ -145,8 +145,9 @@ def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> lis
         relations = animal.get("relationships", {})
 
         animal_id  = animal.get("id", "")
-        source_url = f"https://www.rescuegroups.org/animals/detail/{animal_id}/"
 
+        source_url = attrs.get("url") or f"https://www.rescuegroups.org/animals/detail/{animal_id}/"
+        
         if source_url in excluded_urls:
             print(f"  Skipping previously approved: {source_url}")
             continue
