@@ -145,52 +145,49 @@ def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> lis
     for animal in animals:
         if len(pets) >= target:
             break
-
-        attrs = animal.get("attributes", {})
-        print(f"  Animal URL field: {attrs.get('url', 'NO URL FIELD')}")
-        print(f"  Animal slug: {attrs.get('slug', 'NO SLUG')}")
+    
         attrs     = animal.get("attributes", {})
         relations = animal.get("relationships", {})
-
-        animal_id  = animal.get("id", "")
-
-        source_url = attrs.get("url") or f"https://www.rescuegroups.org/animals/detail/{animal_id}/"
-        
+        animal_id = animal.get("id", "")
+    
         if source_url in excluded_urls:
             print(f"  Skipping previously approved: {source_url}")
             continue
-
+    
         description = attrs.get("descriptionText") or attrs.get("descriptionHtml", "")
         if not description or len(description.strip()) < 50:
             continue
-
+    
         org_id   = relations.get("orgs", {}).get("data", [{}])[0].get("id", "") if relations.get("orgs", {}).get("data") else ""
         org_info = org_lookup.get(org_id, {})
-
+    
+        org_url    = org_info.get("url", "")
+        source_url = org_url if org_url else f"https://www.rescuegroups.org/animals/detail/{animal_id}/"
+    
         photo_ids = [p.get("id") for p in relations.get("pictures", {}).get("data", [])]
         photos    = [photo_lookup[pid] for pid in photo_ids if pid in photo_lookup][:3]
-
+    
         profile = f"""
-Name: {attrs.get('name', 'Unknown')}
-Species: {species}
-Breed: {attrs.get('breedPrimary', '')}
-Age: {attrs.get('ageString', '')}
-Gender: {attrs.get('sex', '')}
-Size: {attrs.get('sizeGroup', '')}
-Description: {description}
-Good with kids: {attrs.get('isKidsOk', 'Unknown')}
-Good with dogs: {attrs.get('isDogsOk', 'Unknown')}
-Good with cats: {attrs.get('isCatsOk', 'Unknown')}
-House trained: {attrs.get('isHousetrained', 'Unknown')}
-Spayed/Neutered: {attrs.get('isAltered', 'Unknown')}
-Vaccinated: {attrs.get('isCurrentVaccinations', 'Unknown')}
-Shelter: {org_info.get('name', '')}
-Address: {org_info.get('address', '')}
-Phone: {org_info.get('phone', '')}
-Email: {org_info.get('email', '')}
-Hours: {org_info.get('hours', '')}
-""".strip()
-
+    Name: {attrs.get('name', 'Unknown')}
+    Species: {species}
+    Breed: {attrs.get('breedPrimary', '')}
+    Age: {attrs.get('ageString', '')}
+    Gender: {attrs.get('sex', '')}
+    Size: {attrs.get('sizeGroup', '')}
+    Description: {description}
+    Good with kids: {attrs.get('isKidsOk', 'Unknown')}
+    Good with dogs: {attrs.get('isDogsOk', 'Unknown')}
+    Good with cats: {attrs.get('isCatsOk', 'Unknown')}
+    House trained: {attrs.get('isHousetrained', 'Unknown')}
+    Spayed/Neutered: {attrs.get('isAltered', 'Unknown')}
+    Vaccinated: {attrs.get('isCurrentVaccinations', 'Unknown')}
+    Shelter: {org_info.get('name', '')}
+    Address: {org_info.get('address', '')}
+    Phone: {org_info.get('phone', '')}
+    Email: {org_info.get('email', '')}
+    Hours: {org_info.get('hours', '')}
+    """.strip()
+    
         pets.append({
             "url":         source_url,
             "profile":     profile,
@@ -199,7 +196,7 @@ Hours: {org_info.get('hours', '')}
             "org_info":    org_info
         })
         print(f"  ✓ {attrs.get('name', 'Unknown')} | {org_info.get('name', 'Unknown org')} | {len(photos)} photos")
-
+    
     print(f"RescueGroups {species}s: {len(pets)} with descriptions")
     return pets
 
