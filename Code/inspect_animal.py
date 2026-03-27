@@ -19,11 +19,10 @@ headers = {
 }
 
 response = requests.get(
-    f"https://api.rescuegroups.org/v5/public/animals/{animal_id}?include[]=pictures&include[]=orgs",
+    f"https://api.rescuegroups.org/v5/public/animals/{animal_id}?include[]=pictures&include[]=orgs&include[]=locations",
     headers=headers,
     timeout=30
 )
-
 print(f"Status: {response.status_code}")
 data = response.json()
 
