@@ -88,7 +88,8 @@ def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> lis
                 "miles": SEARCH_RADIUS_MILES,
                 "postalcode": ANCHOR_ZIP
             }
-        }
+        },
+        "limit": 50
     }
 
     params = {}
