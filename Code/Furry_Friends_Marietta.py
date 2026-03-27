@@ -162,13 +162,11 @@ def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> lis
     
         org_id   = relations.get("orgs", {}).get("data", [{}])[0].get("id", "") if relations.get("orgs", {}).get("data") else ""
         org_info = org_lookup.get(org_id, {})
-    
         org_url    = org_info.get("url", "")
 
         desc_html  = attrs.get("descriptionHtml", "")
-        
         desc_url   = extract_url_from_description(desc_html)
-        org_url    = org_info.get("url", "")
+        
         source_url = desc_url or org_url or f"https://www.google.com/search?q={org_info.get('name', '').replace(' ', '+')}"
 
         if source_url in excluded_urls:
