@@ -22,6 +22,9 @@ NEWSLETTER_NAME     = "East_Cobb_Connect"
 ANCHOR_ZIP          = "30062"
 SEARCH_RADIUS_MILES = 5
 
+RESCUEGROUPS_API_KEY = os.environ["RESCUE_GROUP_API_KEY"]
+print(f"API key loaded: {RESCUEGROUPS_API_KEY[:5]}...")  # shows first 5 chars only
+
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT
 # ---------------------------------------------------------------------------
