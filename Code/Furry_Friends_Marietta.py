@@ -143,8 +143,12 @@ def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> lis
                 "adoptionProcess":  attrs.get("adoptionProcess", "")
             }
         if item.get("type") == "pictures":
-            pic_id  = item["id"]
-            pic_url = item.get("attributes", {}).get("large", {}).get("url", "")
+            pic_id   = item["id"]
+            pic_attrs = item.get("attributes", {})
+            # Try both formats -- string and nested object
+            pic_url = pic_attrs.get("large") if isinstance(pic_attrs.get("large"), str) else pic_attrs.get("large", {}).get("url", "")
+            if not pic_url:
+                pic_url = pic_attrs.get("original", "") or pic_attrs.get("small", "")
             if pic_url:
                 photo_lookup[pic_id] = pic_url
 
