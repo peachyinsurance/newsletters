@@ -109,7 +109,7 @@ def fetch_rescuegroups(species: str, excluded_urls: set, anchor_zip: str, radius
     payload = {
         "data": {
             "filterRadius": {
-            "postalcode": anchor_zip
+            "postalcode": anchor_zip,
             "miles": radius_miles
             }
         },
