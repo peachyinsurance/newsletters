@@ -421,8 +421,9 @@ export default function PetReviewApp() {
               onChange={e => setTokenInput(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleTokenSubmit()}
             />
-            <button className="btn btn-primary" onClick={handleTokenSubmit}>Continue</button>
-            {error && <div className="error-msg">{error}</div>}
+          <button className="btn btn-primary" onClick={handleTokenSubmit}>Continue</button>
+          {error && <div className="error-msg">{error}</div>}
+          </div>  {/* ← add this closing tag */}
 
         ) : loading ? (
           <div className="loading">Loading this week's candidates...</div>
