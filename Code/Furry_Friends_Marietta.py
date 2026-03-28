@@ -85,7 +85,7 @@ def extract_url_from_description(description: str) -> str:
 def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> list[dict]:
     print(f"\n--- Fetching {species}s from RescueGroups API ---")
 
-    url = f"https://api.rescuegroups.org/v5/public/animals/search/available/{species.lower()}s/?include[]=pictures&include[]=orgs"
+    url = f"https://api.rescuegroups.org/v5/public/animals/search/available/{species.lower()}s/"
 
     headers = {
         "Authorization": RESCUEGROUPS_API_KEY,
@@ -101,7 +101,8 @@ def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> lis
         },
         "fields": {
             "orgs": ["name", "street", "city", "state", "postalcode", "phone", "email", "url", "adoptionProcess"]
-        }
+        },
+        "include": ["pictures", "orgs"]
     }
 
     for attempt in range(3):
