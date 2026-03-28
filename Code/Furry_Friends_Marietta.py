@@ -122,9 +122,6 @@ def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> lis
 
     animals  = data.get("data", [])
     included = data.get("included", [])
-    print(f"  Included types: {[item.get('type') for item in included[:10]]}")
-    print(f"  Org count in included: {sum(1 for i in included if i.get('type') == 'orgs')}")
-    print(f"  Photo count in included: {sum(1 for i in included if i.get('type') == 'pictures')}")
     
     # Build org lookup from included data
     org_lookup = {}
@@ -163,7 +160,9 @@ def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> lis
     
         attrs     = animal.get("attributes", {})
         relations = animal.get("relationships", {})
-        animal_id = animal.get("id", "")
+        animal_id  = animal.get("id", "")
+        org_url    = org_info.get("url", "")
+        source_url = f"https://rescuegroups.org/animals/detail/{animal_id}/"
     
         description = attrs.get("descriptionText") or attrs.get("descriptionHtml", "")
         if not description or len(description.strip()) < 50:
@@ -208,14 +207,16 @@ def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> lis
     Email: {org_info.get('email', '')}
     Hours: {org_info.get('hours', '')}
     """.strip()
-    
+        
         pets.append({
-            "url":         source_url,
-            "profile":     profile,
-            "photos":      photos,
-            "animal_type": species.lower(),
-            "org_info":    org_info
+        "url":         source_url,        # unique per pet (for internal tracking)
+        "listing_url": org_url,           # org website (for readers to click)
+        "profile":     profile,
+        "photos":      photos,
+        "animal_type": species.lower(),
+        "org_info":    org_info
         })
+
         print(f"  ✓ {attrs.get('name', 'Unknown')} | {org_info.get('name', 'Unknown org')} | {len(photos)} photos")
     
     print(f"RescueGroups {species}s: {len(pets)} with descriptions")
