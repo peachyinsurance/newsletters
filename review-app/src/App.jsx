@@ -415,7 +415,7 @@ export default function PetReviewApp() {
   }
 }
 
-  // ── RENDER ────────────────────────────────────────────────────────────────
+    // ── RENDER ────────────────────────────────────────────────────────────────
   return (
     <>
       <style>{styles}</style>
@@ -440,9 +440,9 @@ export default function PetReviewApp() {
               onChange={e => setTokenInput(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleTokenSubmit()}
             />
-          <button className="btn btn-primary" onClick={handleTokenSubmit}>Continue</button>
-          {error && <div className="error-msg">{error}</div>}
-          </div>  {/* ← add this closing tag */}
+            <button className="btn btn-primary" onClick={handleTokenSubmit}>Continue</button>
+            {error && <div className="error-msg">{error}</div>}
+          </div>
 
         ) : loading ? (
           <div className="loading">Loading this week's candidates...</div>
@@ -463,262 +463,176 @@ export default function PetReviewApp() {
             )}
             {error && <div className="error-msg" style={{marginBottom: 24}}>{error}</div>}
 
-            <div className="status-bar">
-              <strong>{pets.length}</strong> candidates this week &mdash; select one to feature in the newsletter
-            </div>
-
-  ) : (
-  <>
-    {success && (
-      <div className="success-banner">
-        <strong>Approved!</strong>
-        {success}
-      </div>
-    )}
-    {error && <div className="error-msg" style={{marginBottom: 24}}>{error}</div>}
-
-    {/* Newsletter dropdown */}
-    {newsletters.length > 1 && (
-      <div style={{marginBottom: 32, textAlign: "center"}}>
-        <select
-          value={selectedNewsletter}
-          onChange={e => setNewsletter(e.target.value)}
-          style={{
-            padding: "10px 20px",
-            borderRadius: 8,
-            border: "1.5px solid var(--sand)",
-            fontFamily: "'DM Sans', sans-serif",
-            fontSize: 15,
-            background: "white",
-            color: "var(--bark)",
-            cursor: "pointer"
-          }}
-        >
-          {newsletters.map(n => (
-            <option key={n} value={n}>{n.replace(/_/g, " ")}</option>
-          ))}
-        </select>
-      </div>
-    )}
-
-    {/* Default Winners Section */}
-    {(() => {
-      const visiblePets = pets.filter(p => p.newsletter_name === selectedNewsletter);
-      const overallWinner = visiblePets.find(p => p.default_winner === "yes");
-      const catWinner     = visiblePets.find(p => p.cat_default === "yes");
-      const dogWinner     = visiblePets.find(p => p.dog_default === "yes");
-      const oddWeek       = isOddWeek();
-      const weekType      = oddWeek ? "cat" : "dog";
-      const candidates    = visiblePets.filter(p => p.animal_type === weekType);
-
-      return (
-        <>
-          {/* Default Winners Box */}
-          <div style={{
-            background: "white",
-            borderRadius: 16,
-            padding: "24px 28px",
-            marginBottom: 32,
-            boxShadow: "0 4px 24px var(--shadow)"
-          }}>
-            <div style={{
-              fontFamily: "'DM Sans', sans-serif",
-              fontWeight: 500,
-              fontSize: 11,
-              letterSpacing: "0.2em",
-              textTransform: "uppercase",
-              color: "var(--rust)",
-              marginBottom: 16
-            }}>
-              Default Winners — Week {oddWeek ? "(Odd • Cat Week)" : "(Even • Dog Week)"}
-            </div>
-
-            <div style={{display: "flex", flexDirection: "column", gap: 10}}>
-              <div style={{display: "flex", alignItems: "center", gap: 12}}>
-                <span style={{
-                  background: "var(--rust)",
-                  color: "white",
-                  borderRadius: 99,
-                  padding: "2px 10px",
-                  fontSize: 11,
-                  fontWeight: 500
-                }}>Overall</span>
-                <span style={{fontSize: 15, fontWeight: 500}}>
-                  {overallWinner ? `${overallWinner.pet_name} (${overallWinner.animal_type})` : "None set"}
-                </span>
-                {overallWinner && (
-                  <span style={{fontSize: 13, color: "#6B5744"}}>
-                    {overallWinner.total_score}/30
-                  </span>
-                )}
+            {/* Newsletter dropdown */}
+            {newsletters.length > 1 && (
+              <div style={{marginBottom: 32, textAlign: "center"}}>
+                <select
+                  value={selectedNewsletter}
+                  onChange={e => setNewsletter(e.target.value)}
+                  style={{
+                    padding: "10px 20px",
+                    borderRadius: 8,
+                    border: "1.5px solid var(--sand)",
+                    fontFamily: "'DM Sans', sans-serif",
+                    fontSize: 15,
+                    background: "white",
+                    color: "var(--bark)",
+                    cursor: "pointer"
+                  }}
+                >
+                  {newsletters.map(n => (
+                    <option key={n} value={n}>{n.replace(/_/g, " ")}</option>
+                  ))}
+                </select>
               </div>
+            )}
 
-              <div style={{display: "flex", alignItems: "center", gap: 12}}>
-                <span style={{
-                  background: "#7A9E7E",
-                  color: "white",
-                  borderRadius: 99,
-                  padding: "2px 10px",
-                  fontSize: 11,
-                  fontWeight: 500
-                }}>Cat</span>
-                <span style={{fontSize: 15, fontWeight: 500}}>
-                  {catWinner ? catWinner.pet_name : "None set"}
-                </span>
-                {catWinner && (
-                  <span style={{fontSize: 13, color: "#6B5744"}}>
-                    {catWinner.total_score}/30
-                  </span>
-                )}
-              </div>
-
-              <div style={{display: "flex", alignItems: "center", gap: 12}}>
-                <span style={{
-                  background: "#7A9E7E",
-                  color: "white",
-                  borderRadius: 99,
-                  padding: "2px 10px",
-                  fontSize: 11,
-                  fontWeight: 500
-                }}>Dog</span>
-                <span style={{fontSize: 15, fontWeight: 500}}>
-                  {dogWinner ? dogWinner.pet_name : "None set"}
-                </span>
-                {dogWinner && (
-                  <span style={{fontSize: 13, color: "#6B5744"}}>
-                    {dogWinner.total_score}/30
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Separator */}
-          <hr style={{border: "none", borderTop: "1px solid var(--sand)", marginBottom: 32}} />
-
-          {/* Candidates */}
-          <div className="status-bar">
-            <strong>{candidates.length}</strong> {weekType} candidates this week &mdash; select one to feature
-          </div>
-
-          <div className="tiles">
-            {candidates.map((pet, idx) => {
-              const localStatus = pet._localStatus;
-              const bullets     = parseBullets(pet.scoring_notes);
-              const total       = pet.total_score ? parseInt(pet.total_score) : null;
+            {/* Default Winners + Candidates */}
+            {(() => {
+              const visiblePets   = pets.filter(p => p.newsletter_name === selectedNewsletter);
+              const overallWinner = visiblePets.find(p => p.default_winner === "yes");
+              const catWinner     = visiblePets.find(p => p.cat_default === "yes");
+              const dogWinner     = visiblePets.find(p => p.dog_default === "yes");
+              const oddWeek       = isOddWeek();
+              const weekType      = oddWeek ? "cat" : "dog";
+              const candidates    = visiblePets.filter(p => p.animal_type === weekType);
 
               return (
-                <div
-                  key={pet.source_url || idx}
-                  className={`tile ${localStatus === "approved" ? "approved" : localStatus === "rejected" ? "rejected" : ""}`}
-                >
-                  {localStatus === "approved" && (
-                    <div className="tile-badge">✓ Approved</div>
-                  )}
-
-                  <div className="tile-photo">
-                    {pet.photo_url
-                      ? <img src={pet.photo_url} alt={pet.pet_name} />
-                      : <span>No photo available</span>
-                    }
-                  </div>
-
-                  <div className="tile-body">
-                    <div className="tile-meta">
-                      <span className="tile-shelter">{pet.shelter_name}</span>
+                <>
+                  {/* Default Winners Box */}
+                  <div style={{
+                    background: "white",
+                    borderRadius: 16,
+                    padding: "24px 28px",
+                    marginBottom: 32,
+                    boxShadow: "0 4px 24px var(--shadow)"
+                  }}>
+                    <div style={{
+                      fontFamily: "'DM Sans', sans-serif",
+                      fontWeight: 500,
+                      fontSize: 11,
+                      letterSpacing: "0.2em",
+                      textTransform: "uppercase",
+                      color: "var(--rust)",
+                      marginBottom: 16
+                    }}>
+                      Default Winners — {oddWeek ? "Odd Week • Cat Week" : "Even Week • Dog Week"}
                     </div>
 
-                    <div className="tile-name">{pet.pet_name}</div>
-
-                    {total !== null && (
-                      <div className="score-bar">
-                        <div className="score-total">{total}<span>/30</span></div>
-                        <div className="score-pills">
-                          {pet.adoptability_score && <span className="score-pill">🏠 Adoptability {pet.adoptability_score}</span>}
-                          {pet.story_score        && <span className="score-pill">📖 Story {pet.story_score}</span>}
-                          {pet.shelter_time_score && <span className="score-pill">⏱ Wait {pet.shelter_time_score}</span>}
-                        </div>
+                    <div style={{display: "flex", flexDirection: "column", gap: 10}}>
+                      <div style={{display: "flex", alignItems: "center", gap: 12}}>
+                        <span style={{background: "var(--rust)", color: "white", borderRadius: 99, padding: "2px 10px", fontSize: 11, fontWeight: 500}}>Overall</span>
+                        <span style={{fontSize: 15, fontWeight: 500}}>
+                          {overallWinner ? `${overallWinner.pet_name} (${overallWinner.animal_type})` : "None set"}
+                        </span>
+                        {overallWinner && <span style={{fontSize: 13, color: "#6B5744"}}>{overallWinner.total_score}/30</span>}
                       </div>
-                    )}
 
-                    {bullets.length > 0 && (
-                      <div className="scoring-notes">
-                        <div className="scoring-notes-label">Why feature this pet</div>
-                        <ul>
-                          {bullets.map((b, i) => <li key={i}>{b}</li>)}
-                        </ul>
+                      <div style={{display: "flex", alignItems: "center", gap: 12}}>
+                        <span style={{background: "#7A9E7E", color: "white", borderRadius: 99, padding: "2px 10px", fontSize: 11, fontWeight: 500}}>Cat</span>
+                        <span style={{fontSize: 15, fontWeight: 500}}>
+                          {catWinner ? catWinner.pet_name : "None set"}
+                        </span>
+                        {catWinner && <span style={{fontSize: 13, color: "#6B5744"}}>{catWinner.total_score}/30</span>}
                       </div>
-                    )}
 
-                    <div className="tile-blurb">{pet.blurb}</div>
-
-                    <div className="tile-shelter-info">
-                      {pet.shelter_address && <div>{pet.shelter_address}</div>}
-                      {pet.shelter_phone   && <div>{pet.shelter_phone}{pet.shelter_email ? ` | ${pet.shelter_email}` : ""}</div>}
-                      {pet.shelter_hours   && <div>{pet.shelter_hours}</div>}
-                      {pet.source_url      && (
-                        <a className="tile-link" href={pet.source_url} target="_blank" rel="noreferrer">
-                          View listing →
-                        </a>
-                      )}
+                      <div style={{display: "flex", alignItems: "center", gap: 12}}>
+                        <span style={{background: "#7A9E7E", color: "white", borderRadius: 99, padding: "2px 10px", fontSize: 11, fontWeight: 500}}>Dog</span>
+                        <span style={{fontSize: 15, fontWeight: 500}}>
+                          {dogWinner ? dogWinner.pet_name : "None set"}
+                        </span>
+                        {dogWinner && <span style={{fontSize: 13, color: "#6B5744"}}>{dogWinner.total_score}/30</span>}
+                      </div>
                     </div>
-
-                    {!approved && (
-                      <button
-                        className="btn btn-approve"
-                        onClick={() => handleApprove(pet)}
-                        disabled={approving === pet.source_url}
-                      >
-                        {approving === pet.source_url ? "Approving..." : "Approve this pet"}
-                      </button>
-                    )}
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      );
-    })()}
-  </>
-)}
-                      {/* Scoring notes */}
-                      {bullets.length > 0 && (
-                        <div className="scoring-notes">
-                          <div className="scoring-notes-label">Why feature this pet</div>
-                          <ul>
-                            {bullets.map((b, i) => <li key={i}>{b}</li>)}
-                          </ul>
-                        </div>
-                      )}
 
-                      <div className="tile-blurb">{pet.blurb}</div>
+                  {/* Separator */}
+                  <hr style={{border: "none", borderTop: "1px solid var(--sand)", marginBottom: 32}} />
 
-                      <div className="tile-shelter-info">
-                        {pet.shelter_address && <div>{pet.shelter_address}</div>}
-                        {pet.shelter_phone   && <div>{pet.shelter_phone}{pet.shelter_email ? ` | ${pet.shelter_email}` : ""}</div>}
-                        {pet.shelter_hours   && <div>{pet.shelter_hours}</div>}
-                        {pet.source_url      && (
-                          <a className="tile-link" href={pet.source_url} target="_blank" rel="noreferrer">
-                            View listing →
-                          </a>
-                        )}
-                      </div>
+                  {/* Candidates */}
+                  <div className="status-bar">
+                    <strong>{candidates.length}</strong> {weekType} candidates this week &mdash; select one to feature
+                  </div>
 
-                      {!approved && (
-                        <button
-                          className="btn btn-approve"
-                          onClick={() => handleApprove(pet)}
-                          disabled={approving === pet.source_url}
+                  <div className="tiles">
+                    {candidates.map((pet, idx) => {
+                      const localStatus = pet._localStatus;
+                      const bullets     = parseBullets(pet.scoring_notes);
+                      const total       = pet.total_score ? parseInt(pet.total_score) : null;
+
+                      return (
+                        <div
+                          key={pet.source_url || idx}
+                          className={`tile ${localStatus === "approved" ? "approved" : localStatus === "rejected" ? "rejected" : ""}`}
                         >
-                          {approving === pet.source_url ? "Approving..." : "Approve this pet"}
-                        </button>
-                      )}
-                    </div>
+                          {localStatus === "approved" && (
+                            <div className="tile-badge">✓ Approved</div>
+                          )}
+
+                          <div className="tile-photo">
+                            {pet.photo_url
+                              ? <img src={pet.photo_url} alt={pet.pet_name} />
+                              : <span>No photo available</span>
+                            }
+                          </div>
+
+                          <div className="tile-body">
+                            <div className="tile-meta">
+                              <span className="tile-shelter">{pet.shelter_name}</span>
+                            </div>
+
+                            <div className="tile-name">{pet.pet_name}</div>
+
+                            {total !== null && (
+                              <div className="score-bar">
+                                <div className="score-total">{total}<span>/30</span></div>
+                                <div className="score-pills">
+                                  {pet.adoptability_score && <span className="score-pill">🏠 Adoptability {pet.adoptability_score}</span>}
+                                  {pet.story_score        && <span className="score-pill">📖 Story {pet.story_score}</span>}
+                                  {pet.shelter_time_score && <span className="score-pill">⏱ Wait {pet.shelter_time_score}</span>}
+                                </div>
+                              </div>
+                            )}
+
+                            {bullets.length > 0 && (
+                              <div className="scoring-notes">
+                                <div className="scoring-notes-label">Why feature this pet</div>
+                                <ul>
+                                  {bullets.map((b, i) => <li key={i}>{b}</li>)}
+                                </ul>
+                              </div>
+                            )}
+
+                            <div className="tile-blurb">{pet.blurb}</div>
+
+                            <div className="tile-shelter-info">
+                              {pet.shelter_address && <div>{pet.shelter_address}</div>}
+                              {pet.shelter_phone   && <div>{pet.shelter_phone}{pet.shelter_email ? ` | ${pet.shelter_email}` : ""}</div>}
+                              {pet.shelter_hours   && <div>{pet.shelter_hours}</div>}
+                              {pet.source_url      && (
+                                <a className="tile-link" href={pet.source_url} target="_blank" rel="noreferrer">
+                                  View listing →
+                                </a>
+                              )}
+                            </div>
+
+                            {!approved && (
+                              <button
+                                className="btn btn-approve"
+                                onClick={() => handleApprove(pet)}
+                                disabled={approving === pet.source_url}
+                              >
+                                {approving === pet.source_url ? "Approving..." : "Approve this pet"}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
+                </>
+              );
+            })()}
           </>
         )}
       </div>
