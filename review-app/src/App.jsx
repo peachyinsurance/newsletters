@@ -10,6 +10,8 @@ const APP_PASSWORD    = "Adm1n$$";
 const GITHUB_TOKEN    = import.meta.env.VITE_GITHUB_TOKEN;
 
 // ── STYLES ────────────────────────────────────────────────────────────────────
+const [newsletters, setNewsletters]         = useState([]);
+const [selectedNewsletter, setNewsletter]   = useState("");
 const styles = `
   @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap');
 
@@ -344,7 +346,16 @@ export default function PetReviewApp() {
       const res  = await fetch(SHEET_CSV);
       const text = await res.text();
       const rows = parseCSV(text);
-      setPets(rows.filter(r => r.status === "pending"));
+      const pending = rows.filter(r => r.status === "pending");
+  
+      // Extract unique newsletter names
+      const names = [...new Set(pending.map(r => r.newsletter_name).filter(Boolean))];
+      setNewsletters(names);
+      if (!selectedNewsletter && names.length > 0) {
+        setNewsletter(names[0]);
+      }
+  
+      setPets(pending);
     } catch (e) {
       setError("Could not load pets from Google Sheets.");
     } finally {
