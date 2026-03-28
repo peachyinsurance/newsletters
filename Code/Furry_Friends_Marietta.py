@@ -283,18 +283,19 @@ Exact format:
     raw = next(block.text for block in response.content if block.type == "text")
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
     results = json.loads(clean)
-
-    print(f"  Claude returned URLs: {[r.get('source_url') for r in results]}")
-    print(f"  Original pet URLs: {[p['url'] for p in pets]}")
     
-    # Map photo_url back from original scraped data
-    photo_map = {p["url"]: p["photos"][0] if p["photos"] else "" for p in pets}
+    # Map photo and listing_url back from original scraped data
+    photo_map   = {p["url"]: p["photos"][0] if p["photos"] else "" for p in pets}
+    listing_map = {p["url"]: p.get("listing_url", "") for p in pets}
     
     for result in results:
-        result["photo_url"] = photo_map.get(result["source_url"], "")
+        result["photo_url"]   = photo_map.get(result["source_url"], "")
+        result["listing_url"] = listing_map.get(result["source_url"], "")
     
     print(f"Generated {len(results)} {animal_type} blurbs")
     return results
+
+    
 # ---------------------------------------------------------------------------
 # 8. SCORE ALL BLURBS IN ONE CLAUDE CALL
 # ---------------------------------------------------------------------------
@@ -416,7 +417,7 @@ def save_to_sheets(results: list[dict]) -> None:
     rows = []
     for data in results:
         rows.append([
-            data["source_url"],
+            data["listing_url"],
             data["pet_name"],
             data["shelter_name"],
             data["blurb"],
