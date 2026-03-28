@@ -379,9 +379,14 @@ Candidates to score:
 def get_week_number():
     now = datetime.today()
     start_of_year = datetime(now.year, 1, 1)
-    # Match JavaScript's week calculation
-    day_of_year = (now - start_of_year).days + 1
-    week_num = math.ceil((day_of_year + start_of_year.weekday()) / 7)
+    # Exact match of JavaScript formula:
+    # Math.ceil(((now - startOfYear) / 86400000 + startOfYear.getDay() + 1) / 7)
+    days_diff = (now - start_of_year).total_seconds() / 86400
+    jan1_weekday = start_of_year.weekday()
+    # JavaScript getDay() is 0=Sunday, Python weekday() is 0=Monday
+    # Convert Python weekday to JS getDay()
+    jan1_js_day = (jan1_weekday + 1) % 7
+    week_num = math.ceil((days_diff + jan1_js_day + 1) / 7)
     return week_num
     
 #-----------selecting default winners-------------
