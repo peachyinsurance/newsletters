@@ -20,9 +20,22 @@ import anthropic
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
-NEWSLETTER_NAME     = "East_Cobb_Connect"
-ANCHOR_ZIP          = "30062"
-SEARCH_RADIUS_MILES = 25
+NEWSLETTERS = [
+    {
+        "name":   "East_Cobb_Connect",
+        "zip":    "30062",
+        "radius": 25
+    },
+    {
+        "name":   "Perimeter_Post",
+        "zip":    "30328",
+        "radius": 25
+    }
+]
+
+# NEWSLETTER_NAME     = "East_Cobb_Connect"
+# ANCHOR_ZIP          = "30062"
+# SEARCH_RADIUS_MILES = 25
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT
@@ -83,7 +96,7 @@ def extract_url_from_description(description: str) -> str:
             return url.rstrip('/')
     return ""
     
-def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> list[dict]:
+def fetch_rescuegroups(species: str, excluded_urls: set, anchor_zip: str, radius_miles: int, target: int = 5) -> list[dict]:
     print(f"\n--- Fetching {species}s from RescueGroups API ---")
 
     url = f"https://api.rescuegroups.org/v5/public/animals/search/available/{species.lower()}s/"
@@ -96,8 +109,8 @@ def fetch_rescuegroups(species: str, excluded_urls: set, target: int = 5) -> lis
     payload = {
         "data": {
             "filterRadius": {
-                "miles": SEARCH_RADIUS_MILES,
-                "postalcode": ANCHOR_ZIP
+            "postalcode": anchor_zip
+            "miles": radius_miles
             }
         },
         "fields": {
@@ -435,7 +448,7 @@ def flag_default_winners(cat_results: list[dict], dog_results: list[dict]) -> tu
 # ---------------------------------------------------------------------------
 # 10. SAVE TO GOOGLE SHEETS
 # ---------------------------------------------------------------------------
-def save_to_sheets(results: list[dict]) -> None:
+def save_to_sheets(results: list[dict], newsletter_name: str) -> None:
     rows = []
     for data in results:
         rows.append([
@@ -451,7 +464,7 @@ def save_to_sheets(results: list[dict]) -> None:
             datetime.today().strftime("%Y-%m-%d"),
             "pending",
             "pet_blurb",
-            NEWSLETTER_NAME,
+            newsletter_name,
             data.get("total_score", ""),
             data.get("adoptability_score", ""),
             data.get("story_score", ""),
@@ -475,49 +488,53 @@ def save_to_sheets(results: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     print(f"Starting newsletter automation — {datetime.today().strftime('%Y-%m-%d')}")
-
     skill_prompt  = load_skill_prompt()
     approved_urls = get_approved_urls()
 
-    # Fetch cats and dogs from RescueGroups
-    all_cats = fetch_rescuegroups("Cat", approved_urls, target=5)
-    all_dogs = fetch_rescuegroups("Dog", approved_urls, target=5)
+    for newsletter in NEWSLETTERS:
+        print(f"\n{'='*60}")
+        print(f"Processing: {newsletter['name']}")
+        print(f"{'='*60}")
 
-    print(f"\nTotal cats: {len(all_cats)}")
-    print(f"Total dogs: {len(all_dogs)}")
+        # Fetch cats and dogs
+        all_cats = fetch_rescuegroups("Cat", approved_urls, newsletter["zip"], newsletter["radius"], target=5)
+        all_dogs = fetch_rescuegroups("Dog", approved_urls, newsletter["zip"], newsletter["radius"], target=5)
 
-    if not all_cats and not all_dogs:
-        print("No pets found. Exiting.")
-        exit(1)
+        print(f"\nTotal cats: {len(all_cats)}")
+        print(f"Total dogs: {len(all_dogs)}")
 
-    # Generate blurbs in parallel
-    print("\nGenerating blurbs in parallel...")
-    cat_results, dog_results = [], []
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = {}
-        if all_cats:
-            futures["cat"] = executor.submit(generate_blurb, all_cats, skill_prompt, "cat")
-        if all_dogs:
-            futures["dog"] = executor.submit(generate_blurb, all_dogs, skill_prompt, "dog")
-        if "cat" in futures:
-            cat_results = futures["cat"].result()
-        if "dog" in futures:
-            dog_results = futures["dog"].result()
+        if not all_cats and not all_dogs:
+            print(f"No pets found for {newsletter['name']}. Skipping.")
+            continue
 
-    # Score all in one Claude call
-    all_results = cat_results + dog_results
-    print(f"\nScoring all {len(all_results)} candidates...")
-    all_results = score_blurbs(all_results)
+        # Generate blurbs in parallel
+        cat_results, dog_results = [], []
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = {}
+            if all_cats:
+                futures["cat"] = executor.submit(generate_blurb, all_cats, skill_prompt, "cat")
+            if all_dogs:
+                futures["dog"] = executor.submit(generate_blurb, all_dogs, skill_prompt, "dog")
+            if "cat" in futures:
+                cat_results = futures["cat"].result()
+            if "dog" in futures:
+                dog_results = futures["dog"].result()
 
-    # Split back by type
-    cat_results = [r for r in all_results if r.get("animal_type") == "cat"]
-    dog_results = [r for r in all_results if r.get("animal_type") == "dog"]
+        # Score all in one call
+        all_results = cat_results + dog_results
+        print(f"\nScoring all {len(all_results)} candidates for {newsletter['name']}...")
+        all_results = score_blurbs(all_results)
 
-    # Flag default winners
-    cat_results, dog_results = flag_default_winners(cat_results, dog_results)
+        # Split back by type
+        cat_results = [r for r in all_results if r.get("animal_type") == "cat"]
+        dog_results = [r for r in all_results if r.get("animal_type") == "dog"]
 
-    # Save to Google Sheets
-    final_results = cat_results + dog_results
-    save_to_sheets(final_results)
+        # Flag default winners
+        cat_results, dog_results = flag_default_winners(cat_results, dog_results)
 
-    print(f"\nDone. Saved {len(final_results)} total rows.")
+        # Save to Google Sheets
+        final_results = cat_results + dog_results
+        save_to_sheets(final_results, newsletter["name"])
+        print(f"Done with {newsletter['name']}. Saved {len(final_results)} rows.")
+
+    print(f"\nAll newsletters complete.")
