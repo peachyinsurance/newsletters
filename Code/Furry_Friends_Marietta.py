@@ -269,9 +269,13 @@ Exact format:
     raw = next(block.text for block in response.content if block.type == "text")
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
     results = json.loads(clean)
+    # Map photo_url back from original scraped data
+    photo_map = {p["url"]: p["photos"][0] if p["photos"] else "" for p in pets}
+    for result in results:
+        result["photo_url"] = photo_map.get(result["source_url"], "")
+    
     print(f"Generated {len(results)} {animal_type} blurbs")
     return results
-
 # ---------------------------------------------------------------------------
 # 8. SCORE ALL BLURBS IN ONE CLAUDE CALL
 # ---------------------------------------------------------------------------
