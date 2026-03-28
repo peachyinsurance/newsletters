@@ -13,6 +13,7 @@ import time
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import math
 
 import requests
 import anthropic
@@ -378,11 +379,12 @@ Candidates to score:
 def get_week_number():
     now = datetime.today()
     start_of_year = datetime(now.year, 1, 1)
-    day_of_year = (now - start_of_year).days
-    week_num = (day_of_year + start_of_year.weekday() + 1) // 7 + 1
+    # Match JavaScript's week calculation
+    day_of_year = (now - start_of_year).days + 1
+    week_num = math.ceil((day_of_year + start_of_year.weekday()) / 7)
     return week_num
-
-#-----------selecign default winners-------------
+    
+#-----------selecting default winners-------------
 def flag_default_winners(cat_results: list[dict], dog_results: list[dict]) -> tuple[list[dict], list[dict]]:
     print(f"Cat results: {[r['pet_name'] for r in cat_results]}")
     print(f"Dog results: {[r['pet_name'] for r in dog_results]}")
