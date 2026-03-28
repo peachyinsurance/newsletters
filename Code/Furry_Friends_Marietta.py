@@ -420,7 +420,7 @@ def save_to_sheets(results: list[dict]) -> None:
     rows = []
     for data in results:
         rows.append([
-            data["listing_url"],
+            data.get("listing_url", ""),
             data["pet_name"],
             data["shelter_name"],
             data["blurb"],
@@ -428,7 +428,7 @@ def save_to_sheets(results: list[dict]) -> None:
             data["shelter_phone"],
             data["shelter_email"],
             data["shelter_hours"],
-            data.get("photo_url") or "",
+            data.get("photo_url", ""),
             datetime.today().strftime("%Y-%m-%d"),
             "pending",
             "pet_blurb",
