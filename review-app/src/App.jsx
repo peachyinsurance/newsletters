@@ -6,6 +6,8 @@ const GITHUB_REPO     = "NewsletterAutomation";
 const GITHUB_WORKFLOW = "approve_pet.yml";
 const GSHEET_ID       = "1EDEvBSWA0sTiLJBv4p36E5-bg1YHSGi04DTQWCbEc4c";
 const GSHEET_TAB      = "Pets";
+const APP_PASSWORD    = "Adm1n$$";
+const GITHUB_TOKEN    = import.meta.env.VITE_GITHUB_TOKEN;
 
 // ── STYLES ────────────────────────────────────────────────────────────────────
 const styles = `
@@ -385,11 +387,14 @@ export default function PetReviewApp() {
   }
 
   function handleTokenSubmit() {
-    if (!tokenInput.trim()) return;
-    localStorage.setItem("gh_token", tokenInput.trim());
-    setToken(tokenInput.trim());
+  if (tokenInput.trim() === APP_PASSWORD) {
+    localStorage.setItem("gh_token", GITHUB_TOKEN);
+    setToken(GITHUB_TOKEN);
     setTokenInput("");
+  } else {
+    setError("Incorrect password.");
   }
+}
 
   // ── RENDER ────────────────────────────────────────────────────────────────
   return (
@@ -411,14 +416,13 @@ export default function PetReviewApp() {
             <input
               className="token-input"
               type="password"
-              placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+              placeholder="Enter password"
               value={tokenInput}
               onChange={e => setTokenInput(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleTokenSubmit()}
             />
             <button className="btn btn-primary" onClick={handleTokenSubmit}>Continue</button>
             {error && <div className="error-msg">{error}</div>}
-          </div>
 
         ) : loading ? (
           <div className="loading">Loading this week's candidates...</div>
