@@ -57,7 +57,7 @@ KNOWN_CHAINS = {
     "dave & buster's", "dave & busters", "golden corral", "twin peaks",
     "bahama breeze", "fogo de chão", "fogo de chao", "main event",
     "puttshack", "inspire brands", "pappadeaux", "pappadeaux seafood kitchen",
-    "pappasito's", "pappasito's cantina", "pappasitos"
+    "pappasito's", "pappasito's cantina", "pappasitos","main event", "fogo de chão"
 }
 
 # ---------------------------------------------------------------------------
@@ -227,8 +227,8 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
             print(f"  ✗ Not a restaurant: {name}")
             continue
         
-        # Skip chains
-        if name.lower() in KNOWN_CHAINS:
+        # Check if any chain name is contained within the restaurant name
+        if any(chain in name.lower() for chain in KNOWN_CHAINS):
             print(f"  ✗ Chain excluded: {name}")
             continue
 
