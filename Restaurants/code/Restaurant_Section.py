@@ -53,7 +53,11 @@ KNOWN_CHAINS = {
     "popeyes", "raising cane's", "wingstop", "zaxby's", "hardee's",
     "arby's", "jersey mike's", "jimmy john's", "firehouse subs",
     "moe's southwest grill", "qdoba", "panda express", "jason's deli",
-    "noodles & company", "first watch", "eggs up grill", "metro diner"
+    "noodles & company", "first watch", "eggs up grill", "metro diner",
+    "dave & buster's", "dave & busters", "golden corral", "twin peaks",
+    "bahama breeze", "olive garden", "cheesecake factory", "the cheesecake factory",
+    "fogo de chão", "fogo de chao", "main event", "puttshack", "inspire brands",
+    "pappadeaux", "pappasito's", "pappasitos"
 }
 
 # ---------------------------------------------------------------------------
@@ -205,7 +209,14 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
     for place in places:
         place_id = place.get("id", "")
         name     = place.get("displayName", {}).get("text", "")
-
+    
+        # Skip non-restaurants
+        primary_type = place.get("primaryTypeDisplayName", {}).get("text", "").lower()
+        non_food_keywords = ["corporate office", "golf course", "miniature golf", "entertainment"]
+        if any(kw in primary_type for kw in non_food_keywords):
+            print(f"  ✗ Not a restaurant: {name}")
+            continue
+        
         # Skip chains
         if name.lower() in KNOWN_CHAINS:
             print(f"  ✗ Chain excluded: {name}")
@@ -374,49 +385,40 @@ def score_restaurants(results: list[dict]) -> list[dict]:
         r["festive_score"]  = festive_score
         r["festive_reason"] = festive_reason
         scoring_input += f"""
---- Restaurant {i} ---
-Name: {r['restaurant_name']}
-Cuisine: {r.get('cuisine_type', '')}
-Blurb: {r['blurb']}
-Rating: {r.get('rating', '')} stars ({r.get('review_count', '')} reviews)
-Festive relevance: {festive_reason} (pre-scored: {festive_score}/10)
-
-"""
+        --- Restaurant {i} ---
+        place_id: {r.get('place_id', '')}
+        Name: {r['restaurant_name']}
+        Cuisine: {r.get('cuisine_type', '')}
+        Blurb: {r['blurb']}
+        Rating: {r.get('rating', '')} stars ({r.get('review_count', '')} reviews)
+        Festive relevance: {festive_reason} (pre-scored: {festive_score}/10)
+        
+        """
 
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=2000,
         messages=[{
             "role": "user",
-            "content": f"""
-You are scoring local restaurant blurbs for a community newsletter editor.
-Score each on 0-10 for:
-
-1. Appeal: How exciting and interesting is this restaurant for newsletter readers?
-2. Uniqueness: How different is it from typical chain options in the area?
-3. Neighborhood Fit: How well does it fit a suburban Atlanta community (families, professionals)?
-
-The festive score has already been calculated separately -- do NOT score it.
-
-Return ONLY a JSON array with no preamble or markdown:
-[
-  {{
-    "place_id": "ChIJ...",
-    "appeal_score": 8,
-    "uniqueness_score": 7,
-    "neighborhood_fit_score": 9,
-    "scoring_notes": "• Strong family appeal with diverse menu\\n• Independent local spot with no chain competition nearby\\n• Perfect for date night or casual family dinner"
-  }}
-]
-
-Rules for scoring_notes:
-- Exactly 3 bullet points
-- Format: • [point]\\n• [point]\\n• [point]
-- Exec-level reasons why this restaurant should be featured
-
-Restaurants to score:
-{scoring_input}
-"""
+            content=f"""
+        You are scoring local restaurant blurbs for a community newsletter editor.
+        Score each on 0-10 for:
+        
+        1. Appeal: How exciting and interesting is this restaurant for newsletter readers?
+        2. Uniqueness: How different is it from typical chain options in the area?
+        3. Neighborhood Fit: How well does it fit a suburban Atlanta community (families, professionals)?
+        
+        The festive score has already been calculated separately -- do NOT score it.
+        
+        CRITICAL: Return the exact place_id value provided above for each restaurant.
+        Do not modify, slugify, or shorten the place_id. Copy it exactly as given.
+        
+        Return ONLY a JSON array with no preamble or markdown:
+        ...
+        
+        Restaurants to score:
+        {scoring_input}
+        """
         }]
     )
 
