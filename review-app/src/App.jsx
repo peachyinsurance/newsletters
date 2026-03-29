@@ -405,27 +405,54 @@ function PetsPage({ token }) {
         </div>
       )}
 
-      <div className="default-winners">
-        <div className="default-winners-label">Default Winners — {oddWeek ? "Odd Week (Cat Week)" : "Even Week (Dog Week)"}</div>
-        <div className="default-winners-rows">
-          <div className="default-winner-row">
-            <span className="winner-badge winner-badge-overall">Overall</span>
-            <span className="winner-name">{overallWinner ? `${overallWinner.pet_name} (${overallWinner.animal_type})` : "None set"}</span>
-            {overallWinner && <span className="winner-score">{overallWinner.total_score}/30</span>}
-          </div>
-          <div className="default-winner-row">
-            <span className="winner-badge winner-badge-cat">Cat</span>
-            <span className="winner-name">{catWinner ? catWinner.pet_name : "None set"}</span>
-            {catWinner && <span className="winner-score">{catWinner.total_score}/30</span>}
-          </div>
-          <div className="default-winner-row">
-            <span className="winner-badge winner-badge-dog">Dog</span>
-            <span className="winner-name">{dogWinner ? dogWinner.pet_name : "None set"}</span>
-            {dogWinner && <span className="winner-score">{dogWinner.total_score}/30</span>}
-          </div>
+      {/* Default Winners */}
+      <div style={{marginBottom: 32}}>
+        <div className="default-winners-label" style={{
+          fontFamily: "'DM Sans', sans-serif",
+          fontWeight: 500,
+          fontSize: 11,
+          letterSpacing: "0.2em",
+          textTransform: "uppercase",
+          color: "var(--rust)",
+          marginBottom: 24
+        }}>
+          Default Winners — {oddWeek ? "Odd Week (Cat Week)" : "Even Week (Dog Week)"}
+        </div>
+      
+        <div className="tiles">
+          {[
+            { label: "Overall", pet: overallWinner },
+            { label: "Cat",     pet: catWinner },
+            { label: "Dog",     pet: dogWinner },
+          ].filter(w => w.pet).map(({ label, pet }) => (
+            <div key={label} style={{position: "relative"}}>
+              <div style={{
+                position: "absolute",
+                top: 16,
+                left: 16,
+                zIndex: 3,
+                background: label === "Overall" ? "var(--rust)" : "var(--sage)",
+                color: "white",
+                borderRadius: 99,
+                padding: "3px 12px",
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: "0.1em",
+                textTransform: "uppercase"
+              }}>
+                {label} Default
+              </div>
+              <PetTile
+                pet={pet}
+                onApprove={handleApprove}
+                approving={approving}
+                approved={approved}
+              />
+            </div>
+          ))}
         </div>
       </div>
-
+      
       <hr className="divider" />
 
       <div className="status-bar">
