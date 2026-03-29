@@ -9,7 +9,6 @@ const GSHEET_ID            = "1EDEvBSWA0sTiLJBv4p36E5-bg1YHSGi04DTQWCbEc4c";
 const GSHEET_TAB_PETS      = "Pets";
 const GSHEET_TAB_REST      = "Restaurants";
 const APP_PASSWORD         = "Adm1n$$";
-const GITHUB_TOKEN         = import.meta.env.VITE_GITHUB_TOKEN;
 
 // ── STYLES ────────────────────────────────────────────────────────────────────
 const styles = `
