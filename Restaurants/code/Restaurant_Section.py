@@ -247,7 +247,7 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
         # Get cuisine type
         cuisine = place.get("primaryTypeDisplayName", {}).get("text", "Restaurant")
 
-        # Get photo URL -- resolve to direct CDN URL using skipHttpRedirect
+        # Get photo URL -- resolve to direct CDN URL
         photos    = place.get("photos", [])
         photo_url = ""
         if photos:
@@ -258,9 +258,14 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
                     photo_res = requests.get(photo_api_url, timeout=10)
                     if photo_res.status_code == 200:
                         photo_url = photo_res.json().get("photoUri", "")
-                        print(f"    Photo URL resolved: {photo_url[:60]}...")
+                        if photo_url:
+                            print(f"    ✓ Photo resolved")
+                        else:
+                            print(f"    ✗ photoUri missing from response")
+                    else:
+                        print(f"    ✗ Photo API error {photo_res.status_code}")
                 except Exception as e:
-                    print(f"    Photo fetch error: {e}")
+                    print(f"    ✗ Photo fetch error: {e}")
 
         # Get hours
         hours_data = place.get("regularOpeningHours", {})
