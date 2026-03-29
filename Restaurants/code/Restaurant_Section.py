@@ -424,6 +424,9 @@ Restaurants to score:
     clean  = raw.strip().removeprefix("```json").removesuffix("```").strip()
     scores = json.loads(clean)
 
+    print(f"  Score results: {[s.get('place_id') for s in scores]}")
+    print(f"  Blurb place_ids: {[r.get('place_id') for r in results]}")
+
     score_map = {s["place_id"]: s for s in scores}
     for result in results:
         s = score_map.get(result["place_id"], {})
