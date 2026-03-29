@@ -11,7 +11,7 @@ from googleapiclient.discovery import build
 GOOGLE_CREDENTIALS_JSON = os.environ["GOOGLE_CREDENTIALS_JSON"]
 GSHEET_ID               = os.environ["GSHEET_ID"]
 APPROVED_PLACE_ID       = os.environ["APPROVED_PLACE_ID"]
-GSHEET_TAB              = "Restaurants"
+GSHEET_TAB              = "restaurants"
 
 creds = Credentials.from_service_account_info(
     json.loads(GOOGLE_CREDENTIALS_JSON),
