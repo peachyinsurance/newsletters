@@ -400,7 +400,7 @@ def score_restaurants(results: list[dict]) -> list[dict]:
         max_tokens=2000,
         messages=[{
             "role": "user",
-            "content"=f"""
+            "content": f"""
         You are scoring local restaurant blurbs for a community newsletter editor.
         Score each on 0-10 for:
         
