@@ -28,27 +28,22 @@ const styles = `
   }
 
   body { background: var(--cream); font-family: 'DM Sans', sans-serif; color: var(--bark); min-height: 100vh; }
-
   .app { max-width: 1200px; margin: 0 auto; padding: 48px 24px; }
 
-  /* ── Nav ── */
-  .nav {
-    display: flex;
-    justify-content: center;
-    gap: 8px;
-    margin-bottom: 48px;
+  /* ── Nav bar (horizontal on desktop, dropdown on mobile) ── */
+  .nav-bar {
     background: white;
     border-radius: 12px;
-    padding: 6px;
     box-shadow: 0 2px 12px var(--shadow);
-    max-width: 320px;
-    margin-left: auto;
-    margin-right: auto;
+    margin-bottom: 40px;
+    overflow: hidden;
+  }
+  .nav-tabs {
+    display: flex;
   }
   .nav-btn {
     flex: 1;
-    padding: 10px 20px;
-    border-radius: 8px;
+    padding: 14px 20px;
     border: none;
     font-family: 'DM Sans', sans-serif;
     font-size: 14px;
@@ -57,21 +52,37 @@ const styles = `
     transition: all 0.2s;
     background: transparent;
     color: #6B5744;
+    border-bottom: 3px solid transparent;
   }
-  .nav-btn.active { background: var(--rust); color: white; }
+  .nav-btn.active {
+    background: var(--cream);
+    color: var(--rust);
+    border-bottom: 3px solid var(--rust);
+  }
   .nav-btn:hover:not(.active) { background: var(--sand); }
+
+  /* Collapse to dropdown on small screens */
+  .nav-select-wrap { display: none; padding: 8px; }
+  .nav-select {
+    width: 100%;
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: 1.5px solid var(--sand);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    background: var(--cream);
+    color: var(--bark);
+    cursor: pointer;
+    outline: none;
+  }
+  @media (max-width: 480px) {
+    .nav-tabs { display: none; }
+    .nav-select-wrap { display: block; }
+  }
 
   /* ── Header ── */
   .header { text-align: center; margin-bottom: 40px; }
-  .header-eyebrow {
-    font-family: 'DM Sans', sans-serif;
-    font-weight: 300;
-    font-size: 11px;
-    letter-spacing: 0.25em;
-    text-transform: uppercase;
-    color: var(--rust);
-    margin-bottom: 12px;
-  }
+  .header-eyebrow { font-family: 'DM Sans', sans-serif; font-weight: 300; font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase; color: var(--rust); margin-bottom: 12px; }
   .header h1 { font-family: 'Playfair Display', serif; font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 700; line-height: 1.1; color: var(--bark); }
   .header h1 em { font-style: italic; color: var(--rust); }
   .header-sub { margin-top: 16px; font-size: 15px; font-weight: 300; color: #6B5744; max-width: 480px; margin-left: auto; margin-right: auto; line-height: 1.6; }
@@ -91,7 +102,7 @@ const styles = `
   .btn-approve { background: var(--sage); color: white; width: 100%; justify-content: center; margin-top: 20px; padding: 14px 28px; font-size: 15px; }
   .btn-approve:hover { background: #5F8563; transform: translateY(-1px); }
   .btn-approve:disabled { background: #A8C4AA; cursor: not-allowed; transform: none; }
-  .btn-maps { background: #4285F4; color: white; width: 100%; justify-content: center; margin-top: 12px; padding: 12px 28px; font-size: 14px; text-decoration: none; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px; }
+  .btn-maps { background: #4285F4; color: white; width: 100%; justify-content: center; margin-top: 12px; padding: 12px 28px; font-size: 14px; text-decoration: none; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px; font-weight: 500; transition: all 0.2s; }
   .btn-maps:hover { background: #3367D6; transform: translateY(-1px); }
 
   /* ── Newsletter select ── */
@@ -145,7 +156,7 @@ const styles = `
 
   /* ── Tile content ── */
   .tile-blurb { font-size: 14px; line-height: 1.75; color: #4A3728; font-weight: 300; flex: 1; white-space: pre-wrap; }
-  .tile-shelter-info { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--sand); font-size: 12px; color: #6B5744; line-height: 1.8; }
+  .tile-info { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--sand); font-size: 12px; color: #6B5744; line-height: 1.8; }
   .tile-link { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--rust); text-decoration: none; font-weight: 500; }
   .tile-link:hover { text-decoration: underline; }
 
@@ -197,20 +208,8 @@ function isOddWeek() {
 }
 
 function priceLabel(level) {
-  const map = {
-    "PRICE_LEVEL_INEXPENSIVE": "$",
-    "PRICE_LEVEL_MODERATE":    "$$",
-    "PRICE_LEVEL_EXPENSIVE":   "$$$",
-    "PRICE_LEVEL_VERY_EXPENSIVE": "$$$$"
-  };
+  const map = { "PRICE_LEVEL_INEXPENSIVE": "$", "PRICE_LEVEL_MODERATE": "$$", "PRICE_LEVEL_EXPENSIVE": "$$$", "PRICE_LEVEL_VERY_EXPENSIVE": "$$$$" };
   return map[level] || level || "";
-}
-
-function starRating(rating) {
-  const full  = Math.floor(rating);
-  const half  = rating % 1 >= 0.5 ? 1 : 0;
-  const empty = 5 - full - half;
-  return "★".repeat(full) + (half ? "½" : "") + "☆".repeat(empty);
 }
 
 // ── PET TILE ──────────────────────────────────────────────────────────────────
@@ -222,18 +221,14 @@ function PetTile({ pet, onApprove, approving, approved }) {
   return (
     <div className={`tile ${localStatus === "approved" ? "approved" : localStatus === "rejected" ? "rejected" : ""}`}>
       {localStatus === "approved" && <div className="tile-badge">✓ Approved</div>}
-
       <div className="tile-photo">
         {pet.photo_url ? <img src={pet.photo_url} alt={pet.pet_name} /> : <span>No photo available</span>}
       </div>
-
       <div className="tile-body">
         <div className="tile-meta">
           <span className="tile-shelter">{pet.shelter_name}</span>
         </div>
-
         <div className="tile-name">{pet.pet_name}</div>
-
         {total !== null && (
           <div className="score-bar">
             <div className="score-total">{total}<span>/30</span></div>
@@ -244,23 +239,19 @@ function PetTile({ pet, onApprove, approving, approved }) {
             </div>
           </div>
         )}
-
         {bullets.length > 0 && (
           <div className="scoring-notes">
             <div className="scoring-notes-label">Why feature this pet</div>
             <ul>{bullets.map((b, i) => <li key={i}>{b}</li>)}</ul>
           </div>
         )}
-
         <div className="tile-blurb">{pet.blurb}</div>
-
-        <div className="tile-shelter-info">
+        <div className="tile-info">
           {pet.shelter_address && <div>{pet.shelter_address}</div>}
           {pet.shelter_phone   && <div>{pet.shelter_phone}{pet.shelter_email ? ` | ${pet.shelter_email}` : ""}</div>}
           {pet.shelter_hours   && <div>{pet.shelter_hours}</div>}
           {pet.source_url      && <a className="tile-link" href={pet.source_url} target="_blank" rel="noreferrer">View listing →</a>}
         </div>
-
         {!approved && (
           <button className="btn btn-approve" onClick={() => onApprove(pet)} disabled={approving === pet.source_url}>
             {approving === pet.source_url ? "Approving..." : "Approve this pet"}
@@ -282,25 +273,21 @@ function RestaurantTile({ restaurant, onApprove, approving, approved }) {
   return (
     <div className={`tile ${localStatus === "approved" ? "approved" : localStatus === "rejected" ? "rejected" : ""}`}>
       {localStatus === "approved" && <div className="tile-badge">✓ Approved</div>}
-
       <div className="tile-photo">
         {restaurant.photo_url ? <img src={restaurant.photo_url} alt={restaurant.restaurant_name} /> : <span>No photo available</span>}
       </div>
-
       <div className="tile-body">
         <div className="tile-meta">
           {restaurant.cuisine_type && <span className="tile-cuisine">{restaurant.cuisine_type}</span>}
           {rating > 0 && (
             <span className="tile-rating">
-              <span style={{color: "#F4A523"}}>{starRating(rating)}</span>
-              {rating} ({parseInt(restaurant.review_count || 0).toLocaleString()})
+              <span style={{color: "#F4A523"}}>{"★".repeat(Math.floor(rating))}{"☆".repeat(5 - Math.floor(rating))}</span>
+              &nbsp;{rating} ({parseInt(restaurant.review_count || 0).toLocaleString()})
             </span>
           )}
           {price && <span className="tile-price">{price}</span>}
         </div>
-
         <div className="tile-name">{restaurant.restaurant_name}</div>
-
         {total !== null && (
           <div className="score-bar">
             <div className="score-total">{total}<span>/40</span></div>
@@ -312,29 +299,24 @@ function RestaurantTile({ restaurant, onApprove, approving, approved }) {
             </div>
           </div>
         )}
-
         {bullets.length > 0 && (
           <div className="scoring-notes">
             <div className="scoring-notes-label">Why feature this restaurant</div>
             <ul>{bullets.map((b, i) => <li key={i}>{b}</li>)}</ul>
           </div>
         )}
-
         <div className="tile-blurb">{restaurant.blurb}</div>
-
-        <div className="tile-shelter-info">
+        <div className="tile-info">
           {restaurant.address && <div>{restaurant.address}</div>}
           {restaurant.phone   && <div>{restaurant.phone}</div>}
           {restaurant.hours   && <div style={{marginTop: 4, fontSize: 11}}>{restaurant.hours}</div>}
           {restaurant.website_url && <a className="tile-link" href={restaurant.website_url} target="_blank" rel="noreferrer">Visit website →</a>}
         </div>
-
         {restaurant.google_maps_url && (
           <a className="btn-maps" href={restaurant.google_maps_url} target="_blank" rel="noreferrer">
             📍 View on Google Maps
           </a>
         )}
-
         {!approved && (
           <button className="btn btn-approve" onClick={() => onApprove(restaurant)} disabled={approving === restaurant.place_id}>
             {approving === restaurant.place_id ? "Approving..." : "Approve this restaurant"}
@@ -409,10 +391,7 @@ function PetsPage({ token }) {
   const candidates    = visiblePets.filter(p => (p.animal_type || "").toLowerCase() === weekType);
 
   if (loading) return <div className="loading">Loading this week's candidates...</div>;
-
-  if (pets.length === 0) return (
-    <div className="empty"><h2>All clear!</h2><p>No pending pets found. Run the pipeline to generate new candidates.</p></div>
-  );
+  if (pets.length === 0) return <div className="empty"><h2>All clear!</h2><p>No pending pets found. Run the pipeline to generate new candidates.</p></div>;
 
   return (
     <>
@@ -524,13 +503,9 @@ function RestaurantsPage({ token }) {
 
   const visibleRest   = restaurants.filter(r => r.newsletter_name === selectedNewsletter);
   const defaultWinner = visibleRest.find(r => r.default_winner === "yes");
-  const candidates    = visibleRest;
 
   if (loading) return <div className="loading">Loading this week's restaurant candidates...</div>;
-
-  if (restaurants.length === 0) return (
-    <div className="empty"><h2>All clear!</h2><p>No pending restaurants found. Run the pipeline to generate new candidates.</p></div>
-  );
+  if (restaurants.length === 0) return <div className="empty"><h2>All clear!</h2><p>No pending restaurants found. Run the pipeline to generate new candidates.</p></div>;
 
   return (
     <>
@@ -559,14 +534,14 @@ function RestaurantsPage({ token }) {
       <hr className="divider" />
 
       <div className="status-bar">
-        <strong>{candidates.length}</strong> restaurant candidates this week &mdash; select one to feature
+        <strong>{visibleRest.length}</strong> restaurant candidates this week &mdash; select one to feature
       </div>
 
-      {candidates.length === 0 ? (
+      {visibleRest.length === 0 ? (
         <div className="empty"><h2>No candidates</h2><p>Run the pipeline to generate new restaurant candidates.</p></div>
       ) : (
         <div className="tiles">
-          {candidates.map((r, idx) => (
+          {visibleRest.map((r, idx) => (
             <RestaurantTile key={r.place_id || idx} restaurant={r} onApprove={handleApprove} approving={approving} approved={approved} />
           ))}
         </div>
@@ -577,9 +552,9 @@ function RestaurantsPage({ token }) {
 
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [token, setToken]         = useState(() => localStorage.getItem("gh_token") || "");
+  const [token, setToken]           = useState(() => localStorage.getItem("gh_token") || "");
   const [tokenInput, setTokenInput] = useState("");
-  const [error, setError]         = useState("");
+  const [error, setError]           = useState("");
   const [activePage, setActivePage] = useState("pets");
 
   const isAuthed = Boolean(token);
@@ -598,11 +573,22 @@ export default function App() {
     setError("");
   }
 
+  const pages = [
+    { id: "pets",        label: "🐾 Pets" },
+    { id: "restaurants", label: "🍽 Restaurants" },
+  ];
+
+  const pageHeaders = {
+    pets:        { eyebrow: "Newsletter Pet Review",        h1: <>Pick This Week's<br/><em>Featured Friend</em></>,        sub: "Review candidates and approve the one that best fits the newsletter." },
+    restaurants: { eyebrow: "Newsletter Restaurant Review", h1: <>Pick This Week's<br/><em>Featured Restaurant</em></>, sub: "Review candidates and approve the one that best fits the newsletter." },
+  };
+
+  const currentHeader = pageHeaders[activePage];
+
   return (
     <>
       <style>{styles}</style>
       <div className="app">
-
         {!isAuthed ? (
           <>
             <div className="header">
@@ -627,36 +613,32 @@ export default function App() {
           </>
         ) : (
           <>
-            {/* Nav */}
-            <div className="nav" style={{marginBottom: 40}}>
-              <button className={`nav-btn ${activePage === "pets" ? "active" : ""}`} onClick={() => setActivePage("pets")}>
-                🐾 Pets
-              </button>
-              <button className={`nav-btn ${activePage === "restaurants" ? "active" : ""}`} onClick={() => setActivePage("restaurants")}>
-                🍽 Restaurants
-              </button>
+            {/* Responsive nav -- horizontal tabs on desktop, dropdown on mobile */}
+            <div className="nav-bar">
+              <div className="nav-tabs">
+                {pages.map(p => (
+                  <button key={p.id} className={`nav-btn ${activePage === p.id ? "active" : ""}`} onClick={() => setActivePage(p.id)}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <div className="nav-select-wrap">
+                <select className="nav-select" value={activePage} onChange={e => setActivePage(e.target.value)}>
+                  {pages.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+                </select>
+              </div>
             </div>
 
             {/* Page header */}
-            {activePage === "pets" ? (
-              <div className="header">
-                <p className="header-eyebrow">Newsletter Pet Review</p>
-                <h1>Pick This Week's<br/><em>Featured Friend</em></h1>
-                <p className="header-sub">Review candidates and approve the one that best fits the newsletter.</p>
-              </div>
-            ) : (
-              <div className="header">
-                <p className="header-eyebrow">Newsletter Restaurant Review</p>
-                <h1>Pick This Week's<br/><em>Featured Restaurant</em></h1>
-                <p className="header-sub">Review candidates and approve the one that best fits the newsletter.</p>
-              </div>
-            )}
+            <div className="header">
+              <p className="header-eyebrow">{currentHeader.eyebrow}</p>
+              <h1>{currentHeader.h1}</h1>
+              <p className="header-sub">{currentHeader.sub}</p>
+            </div>
 
             {/* Page content */}
-            {activePage === "pets"
-              ? <PetsPage token={token} />
-              : <RestaurantsPage token={token} />
-            }
+            {activePage === "pets"        && <PetsPage        token={token} />}
+            {activePage === "restaurants" && <RestaurantsPage token={token} />}
           </>
         )}
       </div>
