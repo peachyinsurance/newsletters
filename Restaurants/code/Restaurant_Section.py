@@ -385,18 +385,18 @@ Restaurants:
     results = json.loads(clean)
 
     # Map photo_url back -- try place_id first, then name
-        photo_map_by_id   = {r["place_id"]: r["photo_url"] for r in restaurants}
-        photo_map_by_name = {r["name"]: r["photo_url"] for r in restaurants}
-    
-        for result in results:
-            photo_url = photo_map_by_id.get(result["place_id"], "")
-            if not photo_url:
-                photo_url = photo_map_by_name.get(result["restaurant_name"], "")
-            result["photo_url"] = photo_url
-            print(f"  {result['restaurant_name']} photo_url: {'✓' if photo_url else 'EMPTY'}")
-    
-        print(f"Generated {len(results)} restaurant blurbs")
-        return results
+    photo_map_by_id   = {r["place_id"]: r["photo_url"] for r in restaurants}
+    photo_map_by_name = {r["name"]: r["photo_url"] for r in restaurants}
+
+    for result in results:
+        photo_url = photo_map_by_id.get(result["place_id"], "")
+        if not photo_url:
+            photo_url = photo_map_by_name.get(result["restaurant_name"], "")
+        result["photo_url"] = photo_url
+        print(f"  {result['restaurant_name']} photo_url: {'✓' if photo_url else 'EMPTY'}")
+
+    print(f"Generated {len(results)} restaurant blurbs")
+    return results
 
 # ---------------------------------------------------------------------------
 # 10. SCORE RESTAURANTS VIA CLAUDE
