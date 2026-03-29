@@ -28,4 +28,4 @@ jobs:
           GOOGLE_PLACES_API_KEY:   ${{ secrets.GOOGLE_PLACES_API_KEY }}
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GDRIVE_CREDENTIALS }}
           GSHEET_ID:               ${{ secrets.GSHEET_ID }}
-        run: python Restaurants/Code/Restaurant_Section.py
+        run: python Restaurants/code/Restaurant_Section.py
