@@ -248,26 +248,24 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
         cuisine = place.get("primaryTypeDisplayName", {}).get("text", "Restaurant")
 
         # Get photo URL -- resolve to direct CDN URL
-        
-        photos    = place.get("photos", [])
+        photos = place.get("photos", [])
         photo_url = ""
-        if photos:
-            photo_ref = photos[0].get("name", "")
-            if photo_ref:
-                try:
-                    photo_api_url = f"https://places.googleapis.com/v1/{photo_ref}/media?maxHeightPx=800&skipHttpRedirect=true&key={GOOGLE_PLACES_API_KEY}"
-                    photo_res = requests.get(photo_api_url, timeout=10)
-                    if photo_res.status_code == 200:
-                        photo_url = photo_res.json().get("photoUri", "")
-                        if photo_url:
-                            print(f"    ✓ Photo resolved")
-                        else:
-                            print(f"    ✗ photoUri missing from response")
-                    else:
-                        print(f"    ✗ Photo API error {photo_res.status_code}")
-                except Exception as e:
-                    print(f"    ✗ Photo fetch error: {e}")
-
+        # Try photos 1, 2, 0 in that order (skip exterior/first photo)
+        photo_indices = [1, 2, 0] if len(photos) > 1 else [0]
+        for idx in photo_indices:
+            if idx < len(photos):
+                photo_ref = photos[idx].get("name", "")
+                if photo_ref:
+                    try:
+                        photo_api_url = f"https://places.googleapis.com/v1/{photo_ref}/media?maxHeightPx=800&skipHttpRedirect=true&key={GOOGLE_PLACES_API_KEY}"
+                        photo_res = requests.get(photo_api_url, timeout=10)
+                        if photo_res.status_code == 200:
+                            photo_url = photo_res.json().get("photoUri", "")
+                            if photo_url:
+                                print(f"    ✓ Photo resolved (index {idx})")
+                                break
+                    except Exception as e:
+                        print(f"    ✗ Photo fetch error: {e}")
         # Get hours
         hours_data = place.get("regularOpeningHours", {})
         hours      = ", ".join(hours_data.get("weekdayDescriptions", [])) if hours_data else ""
