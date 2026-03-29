@@ -248,6 +248,7 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
         cuisine = place.get("primaryTypeDisplayName", {}).get("text", "Restaurant")
 
         # Get photo URL -- resolve to direct CDN URL
+        
         photos    = place.get("photos", [])
         photo_url = ""
         if photos:
@@ -383,16 +384,19 @@ Restaurants:
     clean  = raw.strip().removeprefix("```json").removesuffix("```").strip()
     results = json.loads(clean)
 
-    # Map photo_url back from original data
-    photo_map = {r["place_id"]: r["photo_url"] for r in restaurants}
-    print(f"  Photo map entries: {len(photo_map)}")
-    print(f"  Sample photo_map: {list(photo_map.items())[:1]}")
-    for result in results:
-        result["photo_url"] = photo_map.get(result["place_id"], "")
-        print(f"  {result['restaurant_name']} photo_url: {result['photo_url'][:60] if result['photo_url'] else 'EMPTY'}")
-
-    print(f"Generated {len(results)} restaurant blurbs")
-    return results
+    # Map photo_url back -- try place_id first, then name
+        photo_map_by_id   = {r["place_id"]: r["photo_url"] for r in restaurants}
+        photo_map_by_name = {r["name"]: r["photo_url"] for r in restaurants}
+    
+        for result in results:
+            photo_url = photo_map_by_id.get(result["place_id"], "")
+            if not photo_url:
+                photo_url = photo_map_by_name.get(result["restaurant_name"], "")
+            result["photo_url"] = photo_url
+            print(f"  {result['restaurant_name']} photo_url: {'✓' if photo_url else 'EMPTY'}")
+    
+        print(f"Generated {len(results)} restaurant blurbs")
+        return results
 
 # ---------------------------------------------------------------------------
 # 10. SCORE RESTAURANTS VIA CLAUDE
