@@ -1,0 +1,20 @@
+name: Setup Notion Databases
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+      - name: Setup Notion schemas
+        env:
+          NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
+          NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+        run: python Code/setup_notion.py
