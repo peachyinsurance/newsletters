@@ -432,7 +432,7 @@ save_pets_to_notion(final_results, newsletter["name"])
 if __name__ == "__main__":
     print(f"Starting newsletter automation — {datetime.today().strftime('%Y-%m-%d')}")
     skill_prompt  = load_skill_prompt()
-    approved_urls = get_approved_urls()
+    approved_urls = get_approved_pet_urls()
 
     for newsletter in NEWSLETTERS:
         print(f"\n{'='*60}")
