@@ -527,7 +527,7 @@ if __name__ == "__main__":
         results = flag_default_winner(results)
 
         # Save
-        save_to_sheets(results, newsletter["name"])
+        save_restaurants_to_notion(results, newsletter["name"])
         print(f"Done with {newsletter['name']}.")
 
     print(f"\nAll newsletters complete.")
