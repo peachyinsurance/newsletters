@@ -168,27 +168,6 @@ const styles = `
 `;
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
-function parseCSV(text) {
-  const cleaned = text.replace(/\r/g, "");
-  const rows = [];
-  let cur = "", inQ = false;
-  for (let i = 0; i < cleaned.length; i++) {
-    const c = cleaned[i];
-    if (c === '"') { inQ = !inQ; }
-    else if (c === ',' && !inQ) { cur += '\x00'; }
-    else if (c === '\n' && !inQ) { rows.push(cur.split('\x00').map(f => f.replace(/"/g, "").trim())); cur = ""; }
-    else { cur += c; }
-  }
-  if (cur) rows.push(cur.split('\x00').map(f => f.replace(/"/g, "").trim()));
-  if (rows.length < 2) return [];
-  const headers = rows[0];
-  return rows.slice(1).map(vals => {
-    const obj = {};
-    headers.forEach((h, i) => { obj[h] = vals[i] || ""; });
-    return obj;
-  });
-}
-
 function parseBullets(notes) {
   if (!notes) return [];
   return notes.split("\n").map(b => b.replace(/^•\s*/, "").trim()).filter(Boolean);
