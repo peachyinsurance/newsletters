@@ -21,6 +21,9 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r Code/requirements.txt
+     
+      - name: Install dependencies
+        run: pip install anthropic requests notion-client
         
       - name: Run approval script
         env:
