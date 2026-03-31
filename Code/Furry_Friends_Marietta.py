@@ -17,8 +17,7 @@ import math
 
 import requests
 import anthropic
-from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
+from notion_helper import get_approved_pet_urls, save_pets_to_notion
 
 NEWSLETTERS = [
     {
@@ -43,19 +42,8 @@ NEWSLETTERS = [
 CLAUDE_API_KEY          = os.environ["CLAUDE_API_KEY"]
 RESCUEGROUPS_API_KEY    = os.environ["RESCUE_GROUP_API_KEY"]
 GOOGLE_CREDENTIALS_JSON = os.environ["GOOGLE_CREDENTIALS_JSON"]
-GSHEET_ID               = os.environ["GSHEET_ID"]
-GSHEET_TAB              = "Pets"
 SKILL_PROMPT_PATH       = Path(__file__).parent.parent / "Skills" / "newsletter-pet-adoption-skill_auto.md"
 
-# ---------------------------------------------------------------------------
-# 2. GOOGLE AUTH
-# ---------------------------------------------------------------------------
-creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
-creds = Credentials.from_service_account_info(
-    creds_dict,
-    scopes=["https://www.googleapis.com/auth/spreadsheets"]
-)
-sheets_service = build("sheets", "v4", credentials=creds)
 
 # ---------------------------------------------------------------------------
 # 3. LOAD SKILL PROMPT
@@ -70,18 +58,7 @@ def load_skill_prompt() -> str:
 # ---------------------------------------------------------------------------
 # 4. LOAD PREVIOUSLY APPROVED URLS
 # ---------------------------------------------------------------------------
-def get_approved_urls() -> set[str]:
-    result = sheets_service.spreadsheets().values().get(
-        spreadsheetId=GSHEET_ID,
-        range=f"{GSHEET_TAB}!A:K"
-    ).execute()
-    rows = result.get("values", [])
-    approved = set()
-    for row in rows[1:]:
-        if len(row) >= 11 and row[10] == "approved":
-            approved.add(row[0])
-    print(f"Loaded {len(approved)} previously approved URLs to exclude")
-    return approved
+approved_urls = get_approved_pet_urls()
 
 # ---------------------------------------------------------------------------
 # 5. FETCH PETS FROM RESCUEGROUPS API
@@ -448,40 +425,7 @@ def flag_default_winners(cat_results: list[dict], dog_results: list[dict]) -> tu
 # ---------------------------------------------------------------------------
 # 10. SAVE TO GOOGLE SHEETS
 # ---------------------------------------------------------------------------
-def save_to_sheets(results: list[dict], newsletter_name: str) -> None:
-    rows = []
-    for data in results:
-        rows.append([
-            data.get("listing_url", ""),
-            data["pet_name"],
-            data["shelter_name"],
-            data["blurb"],
-            data["shelter_address"],
-            data["shelter_phone"],
-            data["shelter_email"],
-            data["shelter_hours"],
-            data.get("photo_url", ""),
-            datetime.today().strftime("%Y-%m-%d"),
-            "pending",
-            "pet_blurb",
-            newsletter_name,
-            data.get("total_score", ""),
-            data.get("adoptability_score", ""),
-            data.get("story_score", ""),
-            data.get("shelter_time_score", ""),
-            data.get("scoring_notes", ""),
-            data.get("default_winner", ""),
-            data.get("cat_default", ""),
-            data.get("dog_default", ""),
-            data.get("animal_type", "")
-        ])
-    sheets_service.spreadsheets().values().append(
-        spreadsheetId=GSHEET_ID,
-        range=f"{GSHEET_TAB}!A:V",
-        valueInputOption="RAW",
-        body={"values": rows}
-    ).execute()
-    print(f"Saved {len(rows)} rows to Google Sheets")
+save_pets_to_notion(final_results, newsletter["name"])
 
 # ---------------------------------------------------------------------------
 # 11. MAIN
