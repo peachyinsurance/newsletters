@@ -477,7 +477,7 @@ if __name__ == "__main__":
 
         # Save to Google Sheets
         final_results = cat_results + dog_results
-        save_to_sheets(final_results, newsletter["name"])
+        save_pets_to_notion(final_results, newsletter["name"])
         print(f"Done with {newsletter['name']}. Saved {len(final_results)} rows.")
 
     print(f"\nAll newsletters complete.")
