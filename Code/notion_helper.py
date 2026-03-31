@@ -68,14 +68,15 @@ def setup_notion_databases():
     
     # Pets database properties
     pets_properties = {
+
         "Name":               {"title": {}},
         "Source URL":         {"url": {}},
         "Shelter":            {"rich_text": {}},
         "Blurb":              {"rich_text": {}},
-        "Shelter Address":    {"rich_text": {}},
-        "Shelter Phone":      {"rich_text": {}},
-        "Shelter Email":      {"rich_text": {}},
-        "Shelter Hours":      {"rich_text": {}},
+        "Shelter Phone": {"rich_text": [{"text": {"content": str(data.get("shelter_phone") or "")}}]},
+        "Shelter Email": {"rich_text": [{"text": {"content": str(data.get("shelter_email") or "")}}]},
+        "Shelter Hours": {"rich_text": [{"text": {"content": str(data.get("shelter_hours") or "")}}]},
+        "Shelter Address": {"rich_text": [{"text": {"content": str(data.get("shelter_address") or "")}}]},
         "Photo URL":          {"url": {}},
         "Date Generated":     {"date": {}},
         "Status":             {"select": {"options": [
