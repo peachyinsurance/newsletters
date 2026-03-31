@@ -424,7 +424,6 @@ def flag_default_winners(cat_results: list[dict], dog_results: list[dict]) -> tu
 # ---------------------------------------------------------------------------
 # 10. SAVE TO GOOGLE SHEETS
 # ---------------------------------------------------------------------------
-save_pets_to_notion(final_results, newsletter["name"])
 
 # ---------------------------------------------------------------------------
 # 11. MAIN
