@@ -61,6 +61,103 @@ def create_page(db_id: str, properties: dict) -> dict:
     r.raise_for_status()
     return r.json()
 
+def setup_notion_databases():
+    """Create all required properties in both Notion databases."""
+    
+    # Pets database properties
+    pets_properties = {
+        "Name":               {"title": {}},
+        "Source URL":         {"url": {}},
+        "Shelter":            {"rich_text": {}},
+        "Blurb":              {"rich_text": {}},
+        "Shelter Address":    {"rich_text": {}},
+        "Shelter Phone":      {"rich_text": {}},
+        "Shelter Email":      {"rich_text": {}},
+        "Shelter Hours":      {"rich_text": {}},
+        "Photo URL":          {"url": {}},
+        "Date Generated":     {"date": {}},
+        "Status":             {"select": {"options": [
+            {"name": "pending",  "color": "yellow"},
+            {"name": "approved", "color": "green"},
+            {"name": "rejected", "color": "red"}
+        ]}},
+        "Section":            {"select": {"options": [{"name": "pet_blurb", "color": "blue"}]}},
+        "Newsletter":         {"select": {"options": [
+            {"name": "East_Cobb_Connect", "color": "purple"},
+            {"name": "Perimeter_Post",    "color": "pink"}
+        ]}},
+        "Total Score":        {"number": {"format": "number"}},
+        "Adoptability Score": {"number": {"format": "number"}},
+        "Story Score":        {"number": {"format": "number"}},
+        "Shelter Time Score": {"number": {"format": "number"}},
+        "Scoring Notes":      {"rich_text": {}},
+        "Default Winner":     {"checkbox": {}},
+        "Cat Default":        {"checkbox": {}},
+        "Dog Default":        {"checkbox": {}},
+        "Animal Type":        {"select": {"options": [
+            {"name": "cat", "color": "orange"},
+            {"name": "dog", "color": "brown"}
+        ]}},
+    }
+
+    # Restaurants database properties
+    restaurants_properties = {
+        "Name":                   {"title": {}},
+        "Place ID":               {"rich_text": {}},
+        "Cuisine":                {"select": {}},
+        "Blurb":                  {"rich_text": {}},
+        "Address":                {"rich_text": {}},
+        "Phone":                  {"rich_text": {}},
+        "Hours":                  {"rich_text": {}},
+        "Website":                {"url": {}},
+        "Google Maps URL":        {"url": {}},
+        "Photo URL":              {"url": {}},
+        "Rating":                 {"number": {"format": "number"}},
+        "Review Count":           {"number": {"format": "number"}},
+        "Price Level":            {"select": {}},
+        "Date Generated":         {"date": {}},
+        "Status":                 {"select": {"options": [
+            {"name": "pending",  "color": "yellow"},
+            {"name": "approved", "color": "green"},
+            {"name": "rejected", "color": "red"}
+        ]}},
+        "Section":                {"select": {"options": [{"name": "restaurant_blurb", "color": "blue"}]}},
+        "Newsletter":             {"select": {"options": [
+            {"name": "East_Cobb_Connect", "color": "purple"},
+            {"name": "Perimeter_Post",    "color": "pink"}
+        ]}},
+        "Total Score":            {"number": {"format": "number"}},
+        "Appeal Score":           {"number": {"format": "number"}},
+        "Uniqueness Score":       {"number": {"format": "number"}},
+        "Neighborhood Fit Score": {"number": {"format": "number"}},
+        "Festive Score":          {"number": {"format": "number"}},
+        "Scoring Notes":          {"rich_text": {}},
+        "Default Winner":         {"checkbox": {}},
+    }
+
+    # Update Pets database schema
+    r = requests.patch(
+        f"https://api.notion.com/v1/databases/{NOTION_PETS_DB_ID}",
+        headers=HEADERS,
+        json={"properties": pets_properties},
+        timeout=30
+    )
+    if r.ok:
+        print("✓ Pets database schema created")
+    else:
+        print(f"✗ Pets schema error: {r.text[:300]}")
+
+    # Update Restaurants database schema
+    r = requests.patch(
+        f"https://api.notion.com/v1/databases/{NOTION_RESTAURANTS_DB_ID}",
+        headers=HEADERS,
+        json={"properties": restaurants_properties},
+        timeout=30
+    )
+    if r.ok:
+        print("✓ Restaurants database schema created")
+    else:
+        print(f"✗ Restaurants schema error: {r.text[:300]}")
 # ---------------------------------------------------------------------------
 # PETS HELPERS
 # ---------------------------------------------------------------------------
