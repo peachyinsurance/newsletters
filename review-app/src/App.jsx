@@ -5,9 +5,6 @@ const GITHUB_OWNER         = "couch2coders";
 const GITHUB_REPO          = "NewsletterAutomation";
 const GITHUB_WORKFLOW_PETS = "approve_pet.yml";
 const GITHUB_WORKFLOW_REST = "approve_restaurant.yml";
-const GSHEET_ID            = "1EDEvBSWA0sTiLJBv4p36E5-bg1YHSGi04DTQWCbEc4c";
-const GSHEET_TAB_PETS      = "Pets";
-const GSHEET_TAB_REST      = "Restaurants";
 const APP_PASSWORD         = "Adm1n$$";
 
 // ── STYLES ────────────────────────────────────────────────────────────────────
@@ -337,7 +334,7 @@ function PetsPage({ token }) {
   const [error, setError]                   = useState("");
   const [success, setSuccess]               = useState("");
 
-  const SHEET_CSV = `https://docs.google.com/spreadsheets/d/${GSHEET_ID}/export?format=csv&gid=0`;
+  const DATA_URL = "/NewsletterAutomation/pets.json";
 
   useEffect(() => { fetchPets(); }, []);
 
@@ -345,16 +342,15 @@ function PetsPage({ token }) {
     setLoading(true);
     setError("");
     try {
-      const res     = await fetch(SHEET_CSV);
-      const text    = await res.text();
-      const rows    = parseCSV(text);
-      const pending = rows.filter(r => r.status === "pending");
+      const res     = await fetch(DATA_URL);
+      const pets    = await res.json();
+      const pending = pets.filter(r => r.status === "pending");
       const names   = [...new Set(pending.map(r => r.newsletter_name).filter(Boolean))];
       setNewsletters(names);
       if (names.length > 0) setNewsletter(prev => prev || names[0]);
       setPets(pending);
     } catch (e) {
-      setError("Could not load pets from Google Sheets.");
+      setError("Could not load pets data.");
     } finally {
       setLoading(false);
     }
@@ -483,24 +479,23 @@ function RestaurantsPage({ token }) {
   const [error, setError]                   = useState("");
   const [success, setSuccess]               = useState("");
 
-  const SHEET_CSV = `https://docs.google.com/spreadsheets/d/${GSHEET_ID}/export?format=csv&gid=1504779117`;
+  const DATA_URL = "/NewsletterAutomation/restaurants.json";
   
   useEffect(() => { fetchRestaurants(); }, []);
-
+  
   async function fetchRestaurants() {
     setLoading(true);
     setError("");
     try {
-      const res     = await fetch(SHEET_CSV);
-      const text    = await res.text();
-      const rows    = parseCSV(text);
-      const pending = rows.filter(r => r.status === "pending");
-      const names   = [...new Set(pending.map(r => r.newsletter_name).filter(Boolean))];
+      const res         = await fetch(DATA_URL);
+      const restaurants = await res.json();
+      const pending     = restaurants.filter(r => r.status === "pending");
+      const names       = [...new Set(pending.map(r => r.newsletter_name).filter(Boolean))];
       setNewsletters(names);
       if (names.length > 0) setNewsletter(prev => prev || names[0]);
       setRestaurants(pending);
     } catch (e) {
-      setError("Could not load restaurants from Google Sheets.");
+      setError("Could not load restaurants data.");
     } finally {
       setLoading(false);
     }
