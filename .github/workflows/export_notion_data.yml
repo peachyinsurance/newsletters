@@ -36,6 +36,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin https://x-access-token:${PAT_TOKEN}@github.com/couch2coders/NewsletterAutomation.git
-          git add review-app/public/pets.json review-app/public/restaurants.json
-          git diff --staged --quiet || git commit -m "Update pets and restaurants JSON data"
+          cp Code/pets.json review-app/public/pets.json
+          cp Code/restaurants.json review-app/public/restaurants.json
+          git add -f review-app/public/pets.json review-app/public/restaurants.json
+          git commit -m "Update pets and restaurants JSON data [$(date +%s)]" || echo "Nothing to commit"
           git push
