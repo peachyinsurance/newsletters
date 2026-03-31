@@ -24,9 +24,9 @@ jobs:
       - name: Run newsletter script
         env:
           CLAUDE_API_KEY:          ${{ secrets.CLAUDE_API_KEY }}
-          ZYTE_API_KEY:            ${{ secrets.ZYTE_API_KEY }}
           APIFY_API_KEY:           ${{ secrets.APIFY_API_KEY }}
-          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GDRIVE_CREDENTIALS }}
-          GSHEET_ID:               ${{ secrets.GSHEET_ID }}
+          NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
+          NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
           RESCUE_GROUP_API_KEY:    ${{ secrets.RESCUE_GROUP_API_KEY }}
         run: python Code/Furry_Friends_Marietta.py
