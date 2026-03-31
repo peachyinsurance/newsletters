@@ -29,7 +29,7 @@ jobs:
           cp pets.json ../review-app/public/pets.json
           cp restaurants.json ../review-app/public/restaurants.json
 
-      - name: Commit JSON files to main
+      - name: Commit and push JSON files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
