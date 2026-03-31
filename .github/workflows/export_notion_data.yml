@@ -38,6 +38,7 @@ jobs:
           git remote set-url origin https://x-access-token:${PAT_TOKEN}@github.com/couch2coders/NewsletterAutomation.git
           cp Code/pets.json review-app/public/pets.json
           cp Code/restaurants.json review-app/public/restaurants.json
-          git add -f review-app/public/pets.json review-app/public/restaurants.json
-          git commit -m "Update pets and restaurants JSON data [$(date +%s)]" || echo "Nothing to commit"
+          echo "Last updated: $(date)" > review-app/public/last_updated.txt
+          git add review-app/public/pets.json review-app/public/restaurants.json review-app/public/last_updated.txt
+          git commit -m "Update newsletter data $(date +%Y-%m-%d-%H%M%S)"
           git push
