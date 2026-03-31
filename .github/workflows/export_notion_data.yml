@@ -1,0 +1,37 @@
+name: Export Notion Data
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Newsletter Pipeline", "Restaurant Pipeline"]
+    types: [completed]
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install requests
+
+      - name: Export Notion data to JSON
+        env:
+          NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
+          NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+        run: |
+          cd Code
+          python export_notion_data.py
+          mv pets.json ../review-app/public/pets.json
+          mv restaurants.json ../review-app/public/restaurants.json
+
+      - name: Commit JSON files to gh-pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./review-app/public
+          keep_files: true
