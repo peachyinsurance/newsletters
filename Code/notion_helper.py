@@ -192,7 +192,7 @@ def save_pets_to_notion(results: list, newsletter_name: str) -> None:
     print(f"Saving {len(results)} pets to Notion...")
     for data in results:
         properties = {
-            "Name":               {"title": [{"text": {"content": data.get("pet_name", "")}}]},
+            "Name": {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - {data.get('pet_name', '')}"}}]},
             "Source URL":         {"url": data.get("listing_url") or data.get("source_url", "") or None},
             "Shelter":            {"rich_text": [{"text": {"content": data.get("shelter_name", "")}}]},
             "Blurb":              {"rich_text": [{"text": {"content": data.get("blurb", "")[:2000]}}]},
@@ -262,7 +262,7 @@ def save_restaurants_to_notion(results: list, newsletter_name: str) -> None:
     print(f"Saving {len(results)} restaurants to Notion...")
     for data in results:
         properties = {
-            "Name":                   {"title": [{"text": {"content": data.get("restaurant_name", "")}}]},
+            "Name": {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - {data.get('restaurant_name', '')}"}}]},
             "Place ID":               {"rich_text": [{"text": {"content": data.get("place_id", "")}}]},
             "Cuisine":                {"select": {"name": data.get("cuisine_type", "Restaurant")[:100]}},
             "Blurb":                  {"rich_text": [{"text": {"content": data.get("blurb", "")[:2000]}}]},
