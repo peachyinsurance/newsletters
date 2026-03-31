@@ -1,0 +1,25 @@
+name: Approve Restaurant
+
+on:
+  workflow_dispatch:
+    inputs:
+      place_id:
+        description: 'Google Place ID of the restaurant to approve'
+        required: true
+
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+      - name: Approve restaurant
+        env:
+          NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
+          NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+          APPROVED_PLACE_ID:        ${{ github.event.inputs.place_id }}
+        run: python Restaurants/Code/approve_restaurant.py
