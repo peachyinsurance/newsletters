@@ -8,19 +8,49 @@ on:
         required: true
 
 jobs:
-  redo:
+  redo-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - run: pip install requests
+
       - name: Redo pet selection
         env:
           NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
           NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
           NEWSLETTER_NAME:          ${{ github.event.inputs.newsletter_name }}
-          GITHUB_TOKEN:             ${{ secrets.PAT_TOKEN }}
         run: python Code/redo_pets.py
+
+      - name: Export Notion data
+        env:
+          NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
+          NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+        run: |
+          cd Code
+          python export_notion_data.py
+          cp pets.json ../review-app/public/pets.json
+          cp restaurants.json ../review-app/public/restaurants.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build review app
+        run: |
+          cd review-app
+          npm ci
+          rm -rf dist
+          npm run build
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./review-app/dist
