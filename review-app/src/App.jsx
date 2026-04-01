@@ -549,7 +549,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
             setItems(allRows);
           }
         } catch {}
-      }, 8000);
+      }, 4000);
       timeoutRef.current = setTimeout(() => {
         if (pollRef.current) clearInterval(pollRef.current);
         pollRef.current = null;

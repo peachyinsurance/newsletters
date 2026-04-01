@@ -41,6 +41,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: review-app/package-lock.json
 
       - name: Build review app
         run: |
