@@ -1,0 +1,26 @@
+name: Redo Pet Selection
+
+on:
+  workflow_dispatch:
+    inputs:
+      newsletter_name:
+        description: 'Newsletter name to reset'
+        required: true
+
+jobs:
+  redo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+      - name: Redo pet selection
+        env:
+          NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
+          NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+          NEWSLETTER_NAME:          ${{ github.event.inputs.newsletter_name }}
+          GITHUB_TOKEN:             ${{ secrets.PAT_TOKEN }}
+        run: python Code/redo_pets.py
