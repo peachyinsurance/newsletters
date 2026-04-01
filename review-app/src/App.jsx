@@ -275,6 +275,16 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
 
   useEffect(() => { fetchRestaurants(); }, []);
 
+  useEffect(() => {
+    if (!selectedNewsletter) return;
+    const hasPending = restaurants.some(r => r.newsletter_name === selectedNewsletter);
+    if (approvedSections[`restaurants:${selectedNewsletter}`] && !hasPending) {
+      setApproved("__previously_approved__");
+    } else if (!approvedSections[`restaurants:${selectedNewsletter}`]) {
+      setApproved(null);
+    }
+  }, [selectedNewsletter, restaurants]);
+
   async function fetchRestaurants() {
     setLoading(true);
     setError("");
@@ -453,6 +463,16 @@ function PetsPage({ token, onApprove, approvedSections }) {
   const [redoing, setRedoing]               = useState(false);
 
   useEffect(() => { fetchPets(); }, []);
+
+  useEffect(() => {
+    if (!selectedNewsletter) return;
+    const hasPending = pets.some(p => p.newsletter_name === selectedNewsletter);
+    if (approvedSections[`pets:${selectedNewsletter}`] && !hasPending) {
+      setApproved("__previously_approved__");
+    } else if (!approvedSections[`pets:${selectedNewsletter}`]) {
+      setApproved(null);
+    }
+  }, [selectedNewsletter, pets]);
 
   async function fetchPets() {
     setLoading(true);
