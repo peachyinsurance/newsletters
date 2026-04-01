@@ -24,6 +24,9 @@ def extract_text(prop) -> str:
     if prop.get("type") == "select":
         s = prop.get("select")
         return s.get("name", "") if s else ""
+    if prop.get("type") == "status":
+        s = prop.get("status")
+        return s.get("name", "") if s else ""
     if prop.get("type") == "number":
         return prop.get("number") or 0
     if prop.get("type") == "checkbox":
