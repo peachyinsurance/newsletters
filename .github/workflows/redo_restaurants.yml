@@ -23,4 +23,4 @@ jobs:
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
           NEWSLETTER_NAME:          ${{ github.event.inputs.newsletter_name }}
           GITHUB_TOKEN:             ${{ secrets.PAT_TOKEN }}
-        run: python Restaurants/Code/redo_restaurants.py
+        run: python Restaurants/code/redo_restaurants.py
