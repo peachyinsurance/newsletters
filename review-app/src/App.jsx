@@ -327,7 +327,7 @@ function RestaurantTile({ restaurant, onApprove, approving, approved }) {
 }
 
 // ── RESTAURANTS PAGE ──────────────────────────────────────────────────────────
-function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
+function RestaurantsPage({ token, onApprove, onUnapprove, approvedSections, onNewslettersLoaded }) {
   const [restaurants, setRestaurants]       = useState([]);
   const [newsletters, setNewsletters]       = useState([]);
   const [selectedNewsletter, setNewsletter] = useState("");
@@ -384,7 +384,7 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
       const res = await fetch(
         `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${GITHUB_WORKFLOW_REST}/dispatches`,
         { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
-          body: JSON.stringify({ ref: "main", inputs: { place_id: restaurant.place_id, newsletter_name: selectedNewsletter } }) }
+          body: JSON.stringify({ ref: "main", inputs: { place_id: restaurant.place_id } }) }
       );
       if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
       setApprovedMap(prev => ({ ...prev, [selectedNewsletter]: restaurant.place_id }));
@@ -420,6 +420,7 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
           if (pending.length > 0) {
             clearInterval(poll);
             setApprovedMap(prev => { const next = { ...prev }; delete next[selectedNewsletter]; return next; });
+            onUnapprove(selectedNewsletter);
             setRedoing(false);
             setRestaurants(rows.filter(r => r.status === "pending"));
           }
@@ -524,7 +525,7 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
 }
 
 // ── PETS PAGE ─────────────────────────────────────────────────────────────────
-function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
+function PetsPage({ token, onApprove, onUnapprove, approvedSections, onNewslettersLoaded }) {
   const [pets, setPets]                     = useState([]);
   const [newsletters, setNewsletters]       = useState([]);
   const [selectedNewsletter, setNewsletter] = useState("");
@@ -579,7 +580,7 @@ function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
       const res = await fetch(
         `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${GITHUB_WORKFLOW_PETS}/dispatches`,
         { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
-          body: JSON.stringify({ ref: "main", inputs: { source_url: pet.source_url, newsletter_name: selectedNewsletter } }) }
+          body: JSON.stringify({ ref: "main", inputs: { source_url: pet.source_url } }) }
       );
       if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
       setApprovedMap(prev => ({ ...prev, [selectedNewsletter]: pet.source_url }));
@@ -615,6 +616,7 @@ function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
           if (pending.length > 0) {
             clearInterval(poll);
             setApprovedMap(prev => { const next = { ...prev }; delete next[selectedNewsletter]; return next; });
+            onUnapprove(selectedNewsletter);
             setRedoing(false);
             setPets(rows.filter(p => p.status === "pending"));
           }
@@ -754,6 +756,14 @@ export default function App() {
     localStorage.setItem("approved_sections", JSON.stringify(updated));
   }
 
+  function markUnapproved(section, newsletter) {
+    const key     = `${section}:${newsletter}`;
+    const updated = { ...approvedSections };
+    delete updated[key];
+    setApprovedSections(updated);
+    localStorage.setItem("approved_sections", JSON.stringify(updated));
+  }
+
   function handleTokenSubmit() {
     if (step === "password") {
       if (tokenInput.trim() === APP_PASSWORD) {
@@ -843,8 +853,8 @@ export default function App() {
   
               {/* Page content */}
               <div className="app-content">
-                {activePage === "pets"        && <PetsPage        token={token} onApprove={(n) => markApproved("pets", n)}        approvedSections={approvedSections} onNewslettersLoaded={setPetNewsletters} />}
-                {activePage === "restaurants" && <RestaurantsPage token={token} onApprove={(n) => markApproved("restaurants", n)} approvedSections={approvedSections} onNewslettersLoaded={setRestNewsletters} />}
+                {activePage === "pets"        && <PetsPage        token={token} onApprove={(n) => markApproved("pets", n)}        onUnapprove={(n) => markUnapproved("pets", n)}        approvedSections={approvedSections} onNewslettersLoaded={setPetNewsletters} />}
+                {activePage === "restaurants" && <RestaurantsPage token={token} onApprove={(n) => markApproved("restaurants", n)} onUnapprove={(n) => markUnapproved("restaurants", n)} approvedSections={approvedSections} onNewslettersLoaded={setRestNewsletters} />}
               </div>
             </div>
           )}
