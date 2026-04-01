@@ -458,22 +458,28 @@ function PetsPage({ token, onApprove, approvedSections }) {
     setLoading(true);
     setError("");
     try {
-      const res     = await fetch("/NewsletterAutomation/pets.json");
+      const res     = await fetch("/NewsletterAutomation/pets.json?t=" + Date.now());
       const rows    = await res.json();
       const pending = rows.filter(r => r.status === "pending");
       const pendingNames = [...new Set(pending.map(r => r.newsletter_name).filter(Boolean))];
-      
-      // Also include newsletters that were approved this session
+  
       const approvedNames = Object.keys(approvedSections)
         .filter(k => k.startsWith("pets:"))
         .map(k => k.replace("pets:", ""));
-      
-      // Merge pending + approved newsletters (deduplicated)
+  
       const allNames = [...new Set([...pendingNames, ...approvedNames])];
-      
       setNewsletters(allNames);
       if (allNames.length > 0) setNewsletter(prev => prev || allNames[0]);
       setPets(pending);
+      onNewslettersLoaded(allNames);
+  
+      // Auto-detect if selected newsletter already has a winner approved
+      // by checking if it's in approvedSections but NOT in pending
+      const currentNewsletter = allNames[0];
+      if (currentNewsletter && approvedSections[`pets:${currentNewsletter}`] && 
+          !pendingNames.includes(currentNewsletter)) {
+        setApproved("__previously_approved__");
+      }
     } catch (e) {
       setError("Could not load pets data.");
     } finally {
