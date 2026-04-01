@@ -261,68 +261,153 @@ function PetTile({ pet, onApprove, approving, approved }) {
   );
 }
 
-// ── RESTAURANT TILE ───────────────────────────────────────────────────────────
-function RestaurantTile({ restaurant, onApprove, approving, approved }) {
-  const localStatus = restaurant._localStatus;
-  const bullets     = parseBullets(restaurant.scoring_notes);
-  const total       = restaurant.total_score ? parseInt(restaurant.total_score) : null;
-  const rating      = parseFloat(restaurant.rating) || 0;
-  const price       = priceLabel(restaurant.price_level);
+// ── RESTAURANTS PAGE ──────────────────────────────────────────────────────────
+function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
+  const [restaurants, setRestaurants]       = useState([]);
+  const [newsletters, setNewsletters]       = useState([]);
+  const [selectedNewsletter, setNewsletter] = useState("");
+  const [loading, setLoading]               = useState(false);
+  const [approving, setApproving]           = useState(null);
+  const [approved, setApproved]             = useState(null);
+  const [error, setError]                   = useState("");
+  const [success, setSuccess]               = useState("");
+
+  useEffect(() => { fetchRestaurants(); }, []);
+
+  async function fetchRestaurants() {
+    setLoading(true);
+    setError("");
+    try {
+      const res          = await fetch("/NewsletterAutomation/restaurants.json");
+      const rows         = await res.json();
+      const pending      = rows.filter(r => r.status === "pending");
+      const pendingNames = [...new Set(pending.map(r => r.newsletter_name).filter(Boolean))];
+
+      // Also include newsletters approved this session
+      const approvedNames = Object.keys(approvedSections)
+        .filter(k => k.startsWith("restaurants:"))
+        .map(k => k.replace("restaurants:", ""));
+
+      const allNames = [...new Set([...pendingNames, ...approvedNames])];
+
+      setNewsletters(allNames);
+      if (allNames.length > 0) setNewsletter(prev => prev || allNames[0]);
+      setRestaurants(pending);
+      onNewslettersLoaded(allNames);
+    } catch (e) {
+      setError("Could not load restaurants data.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleApprove(restaurant) {
+    if (!token) return;
+    setApproving(restaurant.place_id);
+    setError("");
+    try {
+      const res = await fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${GITHUB_WORKFLOW_REST}/dispatches`,
+        { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+          body: JSON.stringify({ ref: "main", inputs: { place_id: restaurant.place_id } }) }
+      );
+      if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
+      setApproved(restaurant.place_id);
+      setSuccess(`${restaurant.restaurant_name} approved!`);
+      setRestaurants(prev => prev.map(r => ({ ...r, _localStatus: r.place_id === restaurant.place_id ? "approved" : "rejected" })));
+      onApprove(selectedNewsletter);
+    } catch (e) {
+      setError(`Approval failed: ${e.message}`);
+    } finally {
+      setApproving(null);
+    }
+  }
+
+  async function handleRedo() {
+    if (!token) return;
+    setError("");
+    try {
+      const res = await fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/redo_restaurants.yml/dispatches`,
+        { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+          body: JSON.stringify({ ref: "main", inputs: { newsletter_name: selectedNewsletter } }) }
+      );
+      if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
+      setApproved(null);
+      setRestaurants(prev => prev.map(r => ({ ...r, _localStatus: undefined })));
+    } catch (e) {
+      setError(`Redo failed: ${e.message}`);
+    }
+  }
+
+  const visibleRest   = restaurants.filter(r => r.newsletter_name === selectedNewsletter);
+  const defaultWinner = visibleRest.find(r => r.default_winner === "yes");
+
+  if (loading) return <div className="loading">Loading this week's restaurant candidates...</div>;
+  if (restaurants.length === 0 && newsletters.length === 0) return (
+    <div className="empty"><h2>All clear!</h2><p>No pending restaurants found. Run the pipeline to generate new candidates.</p></div>
+  );
 
   return (
-    <div className={`tile ${localStatus === "approved" ? "approved" : localStatus === "rejected" ? "rejected" : ""}`}>
-      {localStatus === "approved" && <div className="tile-badge">✓ Approved</div>}
-      <div className="tile-photo">
-        {restaurant.photo_url ? <img src={restaurant.photo_url} alt={restaurant.restaurant_name} /> : <span>No photo available</span>}
-      </div>
-      <div className="tile-body">
-        <div className="tile-meta">
-          {restaurant.cuisine_type && <span className="tile-cuisine">{restaurant.cuisine_type}</span>}
-          {rating > 0 && (
-            <span className="tile-rating">
-              <span style={{color: "#F4A523"}}>{"★".repeat(Math.floor(rating))}{"☆".repeat(5 - Math.floor(rating))}</span>
-              &nbsp;{rating} ({parseInt(restaurant.review_count || 0).toLocaleString()})
-            </span>
-          )}
-          {price && <span className="tile-price">{price}</span>}
+    <>
+      {success && <div className="success-banner"><strong>Approved!</strong>{success}</div>}
+      {error   && <div className="error-msg" style={{marginBottom: 24}}>{error}</div>}
+
+      {newsletters.length > 0 && (
+        <div style={{marginBottom: 32, textAlign: "center"}}>
+          <select className="newsletter-select" value={selectedNewsletter} onChange={e => setNewsletter(e.target.value)}>
+            {newsletters.map(n => (
+              <option key={n} value={n}>
+                {approvedSections?.[`restaurants:${n}`] ? `✅ ${n.replace(/_/g, " ")}` : n.replace(/_/g, " ")}
+              </option>
+            ))}
+          </select>
         </div>
-        <div className="tile-name">{restaurant.restaurant_name}</div>
-        {total !== null && (
-          <div className="score-bar">
-            <div className="score-total">{total}<span>/40</span></div>
-            <div className="score-pills">
-              {restaurant.appeal_score           && <span className="score-pill">✨ Appeal {restaurant.appeal_score}</span>}
-              {restaurant.uniqueness_score       && <span className="score-pill">🌟 Unique {restaurant.uniqueness_score}</span>}
-              {restaurant.neighborhood_fit_score && <span className="score-pill">🏘 Fit {restaurant.neighborhood_fit_score}</span>}
-              {restaurant.festive_score          && <span className="score-pill">🎉 Festive {restaurant.festive_score}</span>}
-            </div>
+      )}
+
+      <div className="default-winners">
+        <div className="default-winners-label">Default Winner</div>
+        <div className="default-winners-rows">
+          <div className="default-winner-row">
+            <span className="winner-badge winner-badge-rest">Restaurant</span>
+            <span className="winner-name">{defaultWinner ? defaultWinner.restaurant_name : "None set"}</span>
+            {defaultWinner && <span className="winner-score">{defaultWinner.total_score}/40</span>}
           </div>
-        )}
-        {bullets.length > 0 && (
-          <div className="scoring-notes">
-            <div className="scoring-notes-label">Why feature this restaurant</div>
-            <ul>{bullets.map((b, i) => <li key={i}>{b}</li>)}</ul>
-          </div>
-        )}
-        <div className="tile-blurb">{restaurant.blurb}</div>
-        <div className="tile-info">
-          {restaurant.address && <div>{restaurant.address}</div>}
-          {restaurant.phone   && <div>{restaurant.phone}</div>}
-          {restaurant.hours   && <div style={{marginTop: 4, fontSize: 11}}>{restaurant.hours}</div>}
-          {restaurant.website_url && <a className="tile-link" href={restaurant.website_url} target="_blank" rel="noreferrer">Visit website →</a>}
         </div>
-        {restaurant.google_maps_url && (
-          <a className="btn-maps" href={restaurant.google_maps_url} target="_blank" rel="noreferrer">
-            📍 View on Google Maps
-          </a>
-        )}
-        {!approved && (
-          <button className="btn btn-approve" onClick={() => onApprove(restaurant)} disabled={approving === restaurant.place_id}>
-            {approving === restaurant.place_id ? "Approving..." : "Approve this restaurant"}
-          </button>
-        )}
       </div>
-    </div>
+
+      <hr className="divider" />
+
+      <div className="status-bar">
+        <strong>{visibleRest.length}</strong> restaurant candidates this week &mdash; select one to feature
+      </div>
+
+      {approved ? (
+        <>
+          <div className="status-bar" style={{background: "#EFF7F0", border: "1px solid #C0DFC4", marginBottom: 24}}>
+            <strong>✅ Winner selected!</strong> — approved and sent to Notion
+          </div>
+          <div className="tiles">
+            {visibleRest.filter(r => r._localStatus === "approved").map((r, idx) => (
+              <RestaurantTile key={r.place_id || idx} restaurant={r} onApprove={handleApprove} approving={approving} approved={approved} />
+            ))}
+          </div>
+          <div style={{textAlign: "center", marginTop: 32}}>
+            <button className="btn btn-redo" onClick={handleRedo}>
+              🔄 Redo Selection
+            </button>
+          </div>
+        </>
+      ) : visibleRest.length === 0 ? (
+        <div className="empty"><h2>No candidates</h2><p>Run the pipeline to generate new restaurant candidates.</p></div>
+      ) : (
+        <div className="tiles">
+          {visibleRest.map((r, idx) => (
+            <RestaurantTile key={r.place_id || idx} restaurant={r} onApprove={handleApprove} approving={approving} approved={approved} />
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
