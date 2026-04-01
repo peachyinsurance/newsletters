@@ -398,62 +398,77 @@ function PetsPage({ token, onApprove, approvedSections }) {
   if (pets.length === 0) return <div className="empty"><h2>All clear!</h2><p>No pending pets found. Run the pipeline to generate new candidates.</p></div>;
 
   return (
-    <>
-      {success && <div className="success-banner"><strong>Approved!</strong>{success}</div>}
-      {error   && <div className="error-msg" style={{marginBottom: 24}}>{error}</div>}
-
-      {newsletters.length > 0 && (
-        <div style={{marginBottom: 32, textAlign: "center"}}>
-          <select className="newsletter-select" value={selectedNewsletter} onChange={e => setNewsletter(e.target.value)}>
-            {newsletters.map(n => (
-              <option key={n} value={n}>
-                {approvedSections?.[`pets:${n}`] ? `✅ ${n.replace(/_/g, " ")}` : n.replace(/_/g, " ")}
-              </option>
+      <>
+        {success && <div className="success-banner"><strong>Approved!</strong>{success}</div>}
+        {error   && <div className="error-msg" style={{marginBottom: 24}}>{error}</div>}
+  
+        {newsletters.length > 0 && (
+          <div style={{marginBottom: 32, textAlign: "center"}}>
+            <select className="newsletter-select" value={selectedNewsletter} onChange={e => setNewsletter(e.target.value)}>
+              {newsletters.map(n => (
+                <option key={n} value={n}>
+                  {approvedSections?.[`pets:${n}`] ? `✅ ${n.replace(/_/g, " ")}` : n.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+  
+        <div className="default-winners">
+          <div className="default-winners-label">Default Winners — {oddWeek ? "Odd Week (Cat Week)" : "Even Week (Dog Week)"}</div>
+          <div className="default-winners-rows">
+            <div className="default-winner-row">
+              <span className="winner-badge winner-badge-overall">Overall</span>
+              <span className="winner-name">{overallWinner ? `${overallWinner.pet_name} (${overallWinner.animal_type})` : "None set"}</span>
+              {overallWinner && <span className="winner-score">{overallWinner.total_score}/30</span>}
+            </div>
+            <div className="default-winner-row">
+              <span className="winner-badge winner-badge-cat">Cat</span>
+              <span className="winner-name">{catWinner ? catWinner.pet_name : "None set"}</span>
+              {catWinner && <span className="winner-score">{catWinner.total_score}/30</span>}
+            </div>
+            <div className="default-winner-row">
+              <span className="winner-badge winner-badge-dog">Dog</span>
+              <span className="winner-name">{dogWinner ? dogWinner.pet_name : "None set"}</span>
+              {dogWinner && <span className="winner-score">{dogWinner.total_score}/30</span>}
+            </div>
+          </div>
+        </div>
+  
+        <hr className="divider" />
+  
+        <div className="status-bar">
+          <strong>{candidates.length}</strong> {weekType} candidates this week &mdash; select one to feature
+        </div>
+  
+        {approved ? (
+          <>
+            <div className="status-bar" style={{background: "#EFF7F0", border: "1px solid #C0DFC4", marginBottom: 24}}>
+              <strong>✅ Winner selected!</strong> — approved and sent to Notion
+            </div>
+            <div className="tiles">
+              {candidates.filter(p => p._localStatus === "approved").map((pet, idx) => (
+                <PetTile key={pet.source_url || idx} pet={pet} onApprove={handleApprove} approving={approving} approved={approved} />
+              ))}
+            </div>
+            <div style={{textAlign: "center", marginTop: 32}}>
+              <button className="btn btn-redo" onClick={handleRedo}>
+                🔄 Redo Selection
+              </button>
+            </div>
+          </>
+        ) : candidates.length === 0 ? (
+          <div className="empty"><h2>No {weekType} candidates</h2><p>Run the pipeline to generate new candidates.</p></div>
+        ) : (
+          <div className="tiles">
+            {candidates.map((pet, idx) => (
+              <PetTile key={pet.source_url || idx} pet={pet} onApprove={handleApprove} approving={approving} approved={approved} />
             ))}
-          </select>
-        </div>
-      )}
-
-      <div className="default-winners">
-        <div className="default-winners-label">Default Winners — {oddWeek ? "Odd Week (Cat Week)" : "Even Week (Dog Week)"}</div>
-        <div className="default-winners-rows">
-          <div className="default-winner-row">
-            <span className="winner-badge winner-badge-overall">Overall</span>
-            <span className="winner-name">{overallWinner ? `${overallWinner.pet_name} (${overallWinner.animal_type})` : "None set"}</span>
-            {overallWinner && <span className="winner-score">{overallWinner.total_score}/30</span>}
           </div>
-          <div className="default-winner-row">
-            <span className="winner-badge winner-badge-cat">Cat</span>
-            <span className="winner-name">{catWinner ? catWinner.pet_name : "None set"}</span>
-            {catWinner && <span className="winner-score">{catWinner.total_score}/30</span>}
-          </div>
-          <div className="default-winner-row">
-            <span className="winner-badge winner-badge-dog">Dog</span>
-            <span className="winner-name">{dogWinner ? dogWinner.pet_name : "None set"}</span>
-            {dogWinner && <span className="winner-score">{dogWinner.total_score}/30</span>}
-          </div>
-        </div>
-      </div>
-
-      <hr className="divider" />
-
-      <div className="status-bar">
-        <strong>{candidates.length}</strong> {weekType} candidates this week &mdash; select one to feature
-      </div>
-
-      {candidates.length === 0 ? (
-        <div className="empty"><h2>No {weekType} candidates</h2><p>Run the pipeline to generate new candidates.</p></div>
-      ) : (
-        <div className="tiles">
-          {candidates.map((pet, idx) => (
-            <PetTile key={pet.source_url || idx} pet={pet} onApprove={handleApprove} approving={approving} approved={approved} />
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
+        )}
+      </>
+    );
+  }
 // ── RESTAURANTS PAGE ──────────────────────────────────────────────────────────
 function RestaurantsPage({ token, onApprove, approvedSections }) {
   const [restaurants, setRestaurants]       = useState([]);
