@@ -34,55 +34,50 @@ def extract_text(prop) -> str:
     return ""
 
 def export_pets():
-    # Fetch all pets, filter in Python
     pages = query_database(NOTION_PETS_DB_ID)
-
     pets = []
     for page in pages:
         props = page["properties"]
         status = props.get("Status", {}).get("select", {})
-        status_name = status.get("name", "") if status else ""
-        if status_name != "pending":
+        if status and status.get("name") != "pending":
             continue
         pets.append({
-            "source_url":       extract_text(props.get("Source URL", {})),
-            "pet_name":         extract_text(props.get("Name", {})),
-            "shelter_name":     extract_text(props.get("Shelter", {})),
-            "blurb":            extract_text(props.get("Blurb", {})),
-            "shelter_address":  extract_text(props.get("Shelter Address", {})),
-            "shelter_phone":    extract_text(props.get("Shelter Phone", {})),
-            "shelter_email":    extract_text(props.get("Shelter Email", {})),
-            "shelter_hours":    extract_text(props.get("Shelter Hours", {})),
-            "photo_url":        extract_text(props.get("Photo URL", {})),
-            "date_generated":   extract_text(props.get("Date Generated", {})),
-            "status":           extract_text(props.get("Status", {})),
-            "newsletter_name":  extract_text(props.get("Newsletter", {})),
-            "total_score":      str(extract_text(props.get("Total Score", {}))),
+            "source_url":         extract_text(props.get("Source URL", {})),
+            "pet_name":           extract_text(props.get("Name", {})),
+            "shelter_name":       extract_text(props.get("Shelter", {})),
+            "blurb":              extract_text(props.get("Blurb", {})),
+            "shelter_address":    extract_text(props.get("Shelter Address", {})),
+            "shelter_phone":      extract_text(props.get("Shelter Phone", {})),
+            "shelter_email":      extract_text(props.get("Shelter Email", {})),
+            "shelter_hours":      extract_text(props.get("Shelter Hours", {})),
+            "photo_url":          extract_text(props.get("Photo URL", {})),
+            "date_generated":     extract_text(props.get("Date Generated", {})),
+            "status":             "pending",
+            "newsletter_name":    extract_text(props.get("Newsletter", {})),
+            "total_score":        str(extract_text(props.get("Total Score", {}))),
             "adoptability_score": str(extract_text(props.get("Adoptability Score", {}))),
-            "story_score":      str(extract_text(props.get("Story Score", {}))),
+            "story_score":        str(extract_text(props.get("Story Score", {}))),
             "shelter_time_score": str(extract_text(props.get("Shelter Time Score", {}))),
-            "scoring_notes":    extract_text(props.get("Scoring Notes", {})),
-            "default_winner":   "yes" if extract_text(props.get("Default Winner", {})) else "",
-            "cat_default":      "yes" if extract_text(props.get("Cat Default", {})) else "",
-            "dog_default":      "yes" if extract_text(props.get("Dog Default", {})) else "",
-            "animal_type":      extract_text(props.get("Animal Type", {})),
+            "scoring_notes":      extract_text(props.get("Scoring Notes", {})),
+            "default_winner":     "yes" if extract_text(props.get("Default Winner", {})) else "",
+            "cat_default":        "yes" if extract_text(props.get("Cat Default", {})) else "",
+            "dog_default":        "yes" if extract_text(props.get("Dog Default", {})) else "",
+            "animal_type":        extract_text(props.get("Animal Type", {})),
         })
 
     with open("pets.json", "w") as f:
         json.dump(pets, f, indent=2)
     print(f"Exported {len(pets)} pending pets to pets.json")
 
+
 def export_restaurants():
     pages = query_database(NOTION_RESTAURANTS_DB_ID)
-
     restaurants = []
     for page in pages:
         props = page["properties"]
         status = props.get("Status", {}).get("select", {})
-        status_name = status.get("name", "") if status else ""
-        if status_name != "pending":
+        if status and status.get("name") != "pending":
             continue
-        props = page["properties"]
         restaurants.append({
             "place_id":               extract_text(props.get("Place ID", {})),
             "restaurant_name":        extract_text(props.get("Name", {})),
@@ -98,7 +93,7 @@ def export_restaurants():
             "review_count":           str(extract_text(props.get("Review Count", {}))),
             "price_level":            extract_text(props.get("Price Level", {})),
             "date_generated":         extract_text(props.get("Date Generated", {})),
-            "status":                 extract_text(props.get("Status", {})),
+            "status":                 "pending",
             "newsletter_name":        extract_text(props.get("Newsletter", {})),
             "total_score":            str(extract_text(props.get("Total Score", {}))),
             "appeal_score":           str(extract_text(props.get("Appeal Score", {}))),
