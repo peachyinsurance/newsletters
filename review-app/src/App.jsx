@@ -307,9 +307,18 @@ function PetsPage({ token, onApprove, approvedSections }) {
       const res     = await fetch("/NewsletterAutomation/pets.json");
       const rows    = await res.json();
       const pending = rows.filter(r => r.status === "pending");
-      const names   = [...new Set(pending.map(r => r.newsletter_name).filter(Boolean))];
-      setNewsletters(names);
-      if (names.length > 0) setNewsletter(prev => prev || names[0]);
+      const pendingNames = [...new Set(pending.map(r => r.newsletter_name).filter(Boolean))];
+      
+      // Also include newsletters that were approved this session
+      const approvedNames = Object.keys(approvedSections)
+        .filter(k => k.startsWith("pets:"))
+        .map(k => k.replace("pets:", ""));
+      
+      // Merge pending + approved newsletters (deduplicated)
+      const allNames = [...new Set([...pendingNames, ...approvedNames])];
+      
+      setNewsletters(allNames);
+      if (allNames.length > 0) setNewsletter(prev => prev || allNames[0]);
       setPets(pending);
     } catch (e) {
       setError("Could not load pets data.");
@@ -429,9 +438,18 @@ function RestaurantsPage({ token, onApprove, approvedSections }) {
       const res         = await fetch("/NewsletterAutomation/restaurants.json");
       const rows        = await res.json();
       const pending     = rows.filter(r => r.status === "pending");
-      const names       = [...new Set(pending.map(r => r.newsletter_name).filter(Boolean))];
-      setNewsletters(names);
-      if (names.length > 0) setNewsletter(prev => prev || names[0]);
+      const pendingNames = [...new Set(pending.map(r => r.newsletter_name).filter(Boolean))];
+  
+      // Also include newsletters approved this session
+      const approvedNames = Object.keys(approvedSections)
+        .filter(k => k.startsWith("restaurants:"))
+        .map(k => k.replace("restaurants:", ""));
+  
+      // Merge pending + approved newsletters
+      const allNames = [...new Set([...pendingNames, ...approvedNames])];
+  
+      setNewsletters(allNames);
+      if (allNames.length > 0) setNewsletter(prev => prev || allNames[0]);
       setRestaurants(pending);
     } catch (e) {
       setError("Could not load restaurants data.");
