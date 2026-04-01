@@ -71,19 +71,18 @@ def safe_str(value) -> str:
     
 def setup_notion_databases():
     """Create all required properties in both Notion databases."""
-    
+
     # Pets database properties
     pets_properties = {
-
         "Name":               {"title": {}},
         "Source URL":         {"url": {}},
-        "Listing URL": {"url": {}},
+        "Listing URL":        {"url": {}},
         "Shelter":            {"rich_text": {}},
-        "Blurb":              {"rich_text": [{"text": {"content": safe_str(data.get("blurb"))[:2000]}}]},
-        "Shelter Address":    {"rich_text": [{"text": {"content": safe_str(data.get("shelter_address"))}}]},
-        "Shelter Phone":      {"rich_text": [{"text": {"content": safe_str(data.get("shelter_phone"))}}]},
-        "Shelter Email":      {"rich_text": [{"text": {"content": safe_str(data.get("shelter_email"))}}]},
-        "Shelter Hours":      {"rich_text": [{"text": {"content": safe_str(data.get("shelter_hours"))}}]},
+        "Blurb":              {"rich_text": {}},
+        "Shelter Address":    {"rich_text": {}},
+        "Shelter Phone":      {"rich_text": {}},
+        "Shelter Email":      {"rich_text": {}},
+        "Shelter Hours":      {"rich_text": {}},
         "Photo URL":          {"url": {}},
         "Date Generated":     {"date": {}},
         "Status":             {"select": {"options": [
@@ -100,7 +99,7 @@ def setup_notion_databases():
         "Adoptability Score": {"number": {"format": "number"}},
         "Story Score":        {"number": {"format": "number"}},
         "Shelter Time Score": {"number": {"format": "number"}},
-        "Scoring Notes":      {"rich_text": [{"text": {"content": safe_str(data.get("scoring_notes"))}}]},
+        "Scoring Notes":      {"rich_text": {}},
         "Default Winner":     {"checkbox": {}},
         "Cat Default":        {"checkbox": {}},
         "Dog Default":        {"checkbox": {}},
@@ -113,12 +112,12 @@ def setup_notion_databases():
     # Restaurants database properties
     restaurants_properties = {
         "Name":                   {"title": {}},
-        "Place ID":               {"rich_text": [{"text": {"content": safe_str(data.get("place_id"))}}]},
+        "Place ID":               {"rich_text": {}},
         "Cuisine":                {"select": {}},
-        "Blurb":                  {"rich_text": [{"text": {"content": safe_str(data.get("blurb"))[:2000]}}]},
-        "Address":                {"rich_text": [{"text": {"content": safe_str(data.get("address"))}}]},
-        "Phone":                  {"rich_text": [{"text": {"content": safe_str(data.get("phone"))}}]},
-        "Hours":                  {"rich_text": [{"text": {"content": safe_str(data.get("hours"))[:2000]}}]},
+        "Blurb":                  {"rich_text": {}},
+        "Address":                {"rich_text": {}},
+        "Phone":                  {"rich_text": {}},
+        "Hours":                  {"rich_text": {}},
         "Website":                {"url": {}},
         "Google Maps URL":        {"url": {}},
         "Photo URL":              {"url": {}},
@@ -141,7 +140,7 @@ def setup_notion_databases():
         "Uniqueness Score":       {"number": {"format": "number"}},
         "Neighborhood Fit Score": {"number": {"format": "number"}},
         "Festive Score":          {"number": {"format": "number"}},
-        "Scoring Notes":          {"rich_text": [{"text": {"content": safe_str(data.get("scoring_notes"))}}]},
+        "Scoring Notes":          {"rich_text": {}},
         "Default Winner":         {"checkbox": {}},
     }
 
@@ -168,7 +167,6 @@ def setup_notion_databases():
         print("✓ Restaurants database schema created")
     else:
         print(f"✗ Restaurants schema error: {r.text[:300]}")
-        
 # ---------------------------------------------------------------------------
 # PETS HELPERS
 # ---------------------------------------------------------------------------
