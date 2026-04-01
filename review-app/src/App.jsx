@@ -212,7 +212,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
       if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
       pollRef.current = setInterval(async () => {
         try {
-          const r    = await fetch(`/NewsletterAutomation/${config.dataFile}?t=` + Date.now());
+          const r    = await fetch(`/NewsletterAutomation/${config.dataFile}`, { cache: "no-store" });
           const rows = await r.json();
           const nlItems = rows.filter(i => i.newsletter_name === selectedNewsletter);
           const hasApproved = nlItems.some(i => (i.status || "").toLowerCase() === "approved");
