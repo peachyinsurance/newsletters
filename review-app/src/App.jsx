@@ -333,20 +333,19 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
   const [selectedNewsletter, setNewsletter] = useState("");
   const [loading, setLoading]               = useState(false);
   const [approving, setApproving]           = useState(null);
-  const [approved, setApproved]             = useState(null);
+  const [approvedMap, setApprovedMap]       = useState({});
   const [error, setError]                   = useState("");
   const [success, setSuccess]               = useState("");
   const [redoing, setRedoing]               = useState(false);
 
   useEffect(() => { fetchRestaurants(); }, []);
 
+  // Per-newsletter: detect previously approved newsletters on switch
   useEffect(() => {
     if (!selectedNewsletter) return;
     const hasPending = restaurants.some(r => r.newsletter_name === selectedNewsletter);
     if (approvedSections[`restaurants:${selectedNewsletter}`] && !hasPending) {
-      setApproved("__previously_approved__");
-    } else if (!approvedSections[`restaurants:${selectedNewsletter}`]) {
-      setApproved(null);
+      setApprovedMap(prev => ({ ...prev, [selectedNewsletter]: "__previously_approved__" }));
     }
   }, [selectedNewsletter, restaurants]);
 
@@ -388,9 +387,12 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
           body: JSON.stringify({ ref: "main", inputs: { place_id: restaurant.place_id } }) }
       );
       if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
-      setApproved(restaurant.place_id);
+      setApprovedMap(prev => ({ ...prev, [selectedNewsletter]: restaurant.place_id }));
       setSuccess(`${restaurant.restaurant_name} approved!`);
-      setRestaurants(prev => prev.map(r => ({ ...r, _localStatus: r.place_id === restaurant.place_id ? "approved" : "rejected" })));
+      setRestaurants(prev => prev.map(r => {
+        if (r.newsletter_name !== selectedNewsletter) return r;
+        return { ...r, _localStatus: r.place_id === restaurant.place_id ? "approved" : "rejected" };
+      }));
       onApprove(selectedNewsletter);
     } catch (e) {
       setError(`Approval failed: ${e.message}`);
@@ -417,7 +419,7 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
           const pending = rows.filter(r => r.status === "pending" && r.newsletter_name === selectedNewsletter);
           if (pending.length > 0) {
             clearInterval(poll);
-            setApproved(null);
+            setApprovedMap(prev => { const next = { ...prev }; delete next[selectedNewsletter]; return next; });
             setRedoing(false);
             setRestaurants(rows.filter(r => r.status === "pending"));
           }
@@ -472,7 +474,7 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
         <strong>{visibleRest.length}</strong> restaurant candidates this week &mdash; select one to feature
       </div>
 
-      {approved ? (
+      {approvedMap[selectedNewsletter] ? (
         <>
           <div className="status-bar" style={{background: "#EFF7F0", border: "1px solid #C0DFC4", marginBottom: 24}}>
             <strong>✅ Winner selected!</strong> — approved and sent to Notion
@@ -481,7 +483,7 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
           {visibleRest.filter(r => r._localStatus === "approved").length > 0 ? (
             <div className="tiles">
               {visibleRest.filter(r => r._localStatus === "approved").map((r, idx) => (
-                <RestaurantTile key={r.place_id || idx} restaurant={r} onApprove={handleApprove} approving={approving} approved={approved} />
+                <RestaurantTile key={r.place_id || idx} restaurant={r} onApprove={handleApprove} approving={approving} approved={approvedMap[selectedNewsletter]} />
               ))}
             </div>
           ) : (
@@ -502,7 +504,7 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
               <div className="default-winners-label" style={{textAlign: "center", marginBottom: 16}}>Other Candidates</div>
               <div className="tiles" style={{opacity: redoing ? 0.3 : 0.5, pointerEvents: "none"}}>
                 {visibleRest.filter(r => r._localStatus !== "approved").map((r, idx) => (
-                  <RestaurantTile key={r.place_id || idx} restaurant={r} onApprove={handleApprove} approving={approving} approved={approved} />
+                  <RestaurantTile key={r.place_id || idx} restaurant={r} onApprove={handleApprove} approving={approving} approved={approvedMap[selectedNewsletter]} />
                 ))}
               </div>
             </>
@@ -513,7 +515,7 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
       ) : (
         <div className="tiles">
           {visibleRest.map((r, idx) => (
-            <RestaurantTile key={r.place_id || idx} restaurant={r} onApprove={handleApprove} approving={approving} approved={approved} />
+            <RestaurantTile key={r.place_id || idx} restaurant={r} onApprove={handleApprove} approving={approving} approved={approvedMap[selectedNewsletter]} />
           ))}
         </div>
       )}
@@ -528,20 +530,19 @@ function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
   const [selectedNewsletter, setNewsletter] = useState("");
   const [loading, setLoading]               = useState(false);
   const [approving, setApproving]           = useState(null);
-  const [approved, setApproved]             = useState(null);
+  const [approvedMap, setApprovedMap]       = useState({});
   const [error, setError]                   = useState("");
   const [success, setSuccess]               = useState("");
   const [redoing, setRedoing]               = useState(false);
 
   useEffect(() => { fetchPets(); }, []);
 
+  // Per-newsletter: detect previously approved newsletters on switch
   useEffect(() => {
     if (!selectedNewsletter) return;
     const hasPending = pets.some(p => p.newsletter_name === selectedNewsletter);
     if (approvedSections[`pets:${selectedNewsletter}`] && !hasPending) {
-      setApproved("__previously_approved__");
-    } else if (!approvedSections[`pets:${selectedNewsletter}`]) {
-      setApproved(null);
+      setApprovedMap(prev => ({ ...prev, [selectedNewsletter]: "__previously_approved__" }));
     }
   }, [selectedNewsletter, pets]);
 
@@ -581,9 +582,12 @@ function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
           body: JSON.stringify({ ref: "main", inputs: { source_url: pet.source_url } }) }
       );
       if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
-      setApproved(pet.source_url);
+      setApprovedMap(prev => ({ ...prev, [selectedNewsletter]: pet.source_url }));
       setSuccess(`${pet.pet_name} approved!`);
-      setPets(prev => prev.map(p => ({ ...p, _localStatus: p.source_url === pet.source_url ? "approved" : "rejected" })));
+      setPets(prev => prev.map(p => {
+        if (p.newsletter_name !== selectedNewsletter) return p;
+        return { ...p, _localStatus: p.source_url === pet.source_url ? "approved" : "rejected" };
+      }));
       onApprove(selectedNewsletter);
     } catch (e) {
       setError(`Approval failed: ${e.message}`);
@@ -603,7 +607,6 @@ function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
           body: JSON.stringify({ ref: "main", inputs: { newsletter_name: selectedNewsletter } }) }
       );
       if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
-      // Keep redoing=true until deploy finishes -- poll for updated data
       const poll = setInterval(async () => {
         try {
           const r    = await fetch("/NewsletterAutomation/pets.json?t=" + Date.now());
@@ -611,13 +614,12 @@ function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
           const pending = rows.filter(p => p.status === "pending" && p.newsletter_name === selectedNewsletter);
           if (pending.length > 0) {
             clearInterval(poll);
-            setApproved(null);
+            setApprovedMap(prev => { const next = { ...prev }; delete next[selectedNewsletter]; return next; });
             setRedoing(false);
             setPets(rows.filter(p => p.status === "pending"));
           }
         } catch {}
       }, 8000);
-      // Safety timeout after 5 minutes
       setTimeout(() => { clearInterval(poll); setRedoing(false); }, 300000);
     } catch (e) {
       setError(`Redo failed: ${e.message}`);
@@ -679,7 +681,7 @@ function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
           <strong>{candidates.length}</strong> {weekType} candidates this week &mdash; select one to feature
         </div>
   
-        {approved ? (
+        {approvedMap[selectedNewsletter] ? (
           <>
             <div className="status-bar" style={{background: "#EFF7F0", border: "1px solid #C0DFC4", marginBottom: 24}}>
               <strong>✅ Winner selected!</strong> — approved and sent to Notion
@@ -688,7 +690,7 @@ function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
             {candidates.filter(p => p._localStatus === "approved").length > 0 ? (
               <div className="tiles">
                 {candidates.filter(p => p._localStatus === "approved").map((pet, idx) => (
-                  <PetTile key={pet.source_url || idx} pet={pet} onApprove={handleApprove} approving={approving} approved={approved} />
+                  <PetTile key={pet.source_url || idx} pet={pet} onApprove={handleApprove} approving={approving} approved={approvedMap[selectedNewsletter]} />
                 ))}
               </div>
             ) : (
@@ -709,7 +711,7 @@ function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
                 <div className="default-winners-label" style={{textAlign: "center", marginBottom: 16}}>Other Candidates</div>
                 <div className="tiles" style={{opacity: redoing ? 0.3 : 0.5, pointerEvents: "none"}}>
                   {candidates.filter(p => p._localStatus !== "approved").map((pet, idx) => (
-                    <PetTile key={pet.source_url || idx} pet={pet} onApprove={handleApprove} approving={approving} approved={approved} />
+                    <PetTile key={pet.source_url || idx} pet={pet} onApprove={handleApprove} approving={approving} approved={approvedMap[selectedNewsletter]} />
                   ))}
                 </div>
               </>
@@ -720,7 +722,7 @@ function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
         ) : (
           <div className="tiles">
             {candidates.map((pet, idx) => (
-              <PetTile key={pet.source_url || idx} pet={pet} onApprove={handleApprove} approving={approving} approved={approved} />
+              <PetTile key={pet.source_url || idx} pet={pet} onApprove={handleApprove} approving={approving} approved={approvedMap[selectedNewsletter]} />
             ))}
           </div>
         )}
