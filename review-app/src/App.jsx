@@ -261,71 +261,6 @@ function PetTile({ pet, onApprove, approving, approved }) {
   );
 }
 
-// ── RESTAURANT TILE ───────────────────────────────────────────────────────────
-function RestaurantTile({ restaurant, onApprove, approving, approved }) {
-  const localStatus = restaurant._localStatus;
-  const bullets     = parseBullets(restaurant.scoring_notes);
-  const total       = restaurant.total_score ? parseInt(restaurant.total_score) : null;
-  const rating      = parseFloat(restaurant.rating) || 0;
-  const price       = priceLabel(restaurant.price_level);
-
-  return (
-    <div className={`tile ${localStatus === "approved" ? "approved" : localStatus === "rejected" ? "rejected" : ""}`}>
-      {localStatus === "approved" && <div className="tile-badge">✓ Approved</div>}
-      <div className="tile-photo">
-        {restaurant.photo_url ? <img src={restaurant.photo_url} alt={restaurant.restaurant_name} /> : <span>No photo available</span>}
-      </div>
-      <div className="tile-body">
-        <div className="tile-meta">
-          {restaurant.cuisine_type && <span className="tile-cuisine">{restaurant.cuisine_type}</span>}
-          {rating > 0 && (
-            <span className="tile-rating">
-              <span style={{color: "#F4A523"}}>{"★".repeat(Math.floor(rating))}{"☆".repeat(5 - Math.floor(rating))}</span>
-              &nbsp;{rating} ({parseInt(restaurant.review_count || 0).toLocaleString()})
-            </span>
-          )}
-          {price && <span className="tile-price">{price}</span>}
-        </div>
-        <div className="tile-name">{restaurant.restaurant_name}</div>
-        {total !== null && (
-          <div className="score-bar">
-            <div className="score-total">{total}<span>/40</span></div>
-            <div className="score-pills">
-              {restaurant.appeal_score           && <span className="score-pill">✨ Appeal {restaurant.appeal_score}</span>}
-              {restaurant.uniqueness_score       && <span className="score-pill">🌟 Unique {restaurant.uniqueness_score}</span>}
-              {restaurant.neighborhood_fit_score && <span className="score-pill">🏘 Fit {restaurant.neighborhood_fit_score}</span>}
-              {restaurant.festive_score          && <span className="score-pill">🎉 Festive {restaurant.festive_score}</span>}
-            </div>
-          </div>
-        )}
-        {bullets.length > 0 && (
-          <div className="scoring-notes">
-            <div className="scoring-notes-label">Why feature this restaurant</div>
-            <ul>{bullets.map((b, i) => <li key={i}>{b}</li>)}</ul>
-          </div>
-        )}
-        <div className="tile-blurb">{restaurant.blurb}</div>
-        <div className="tile-info">
-          {restaurant.address && <div>{restaurant.address}</div>}
-          {restaurant.phone   && <div>{restaurant.phone}</div>}
-          {restaurant.hours   && <div style={{marginTop: 4, fontSize: 11}}>{restaurant.hours}</div>}
-          {restaurant.website_url && <a className="tile-link" href={restaurant.website_url} target="_blank" rel="noreferrer">Visit website →</a>}
-        </div>
-        {restaurant.google_maps_url && (
-          <a className="btn-maps" href={restaurant.google_maps_url} target="_blank" rel="noreferrer">
-            📍 View on Google Maps
-          </a>
-        )}
-        {!approved && (
-          <button className="btn btn-approve" onClick={() => onApprove(restaurant)} disabled={approving === restaurant.place_id}>
-            {approving === restaurant.place_id ? "Approving..." : "Approve this restaurant"}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── RESTAURANTS PAGE ──────────────────────────────────────────────────────────
 function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
   const [restaurants, setRestaurants]       = useState([]);
@@ -336,6 +271,7 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
   const [approved, setApproved]             = useState(null);
   const [error, setError]                   = useState("");
   const [success, setSuccess]               = useState("");
+  const [redoing, setRedoing]               = useState(false);
 
   useEffect(() => { fetchRestaurants(); }, []);
 
@@ -391,6 +327,7 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
   async function handleRedo() {
     if (!token) return;
     setError("");
+    setRedoing(true);
     try {
       const res = await fetch(
         `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/redo_restaurants.yml/dispatches`,
@@ -398,10 +335,23 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
           body: JSON.stringify({ ref: "main", inputs: { newsletter_name: selectedNewsletter } }) }
       );
       if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
-      setApproved(null);
-      setRestaurants(prev => prev.map(r => ({ ...r, _localStatus: undefined })));
+      const poll = setInterval(async () => {
+        try {
+          const r    = await fetch("/NewsletterAutomation/restaurants.json?t=" + Date.now());
+          const rows = await r.json();
+          const pending = rows.filter(r => r.status === "pending" && r.newsletter_name === selectedNewsletter);
+          if (pending.length > 0) {
+            clearInterval(poll);
+            setApproved(null);
+            setRedoing(false);
+            setRestaurants(rows.filter(r => r.status === "pending"));
+          }
+        } catch {}
+      }, 8000);
+      setTimeout(() => { clearInterval(poll); setRedoing(false); }, 300000);
     } catch (e) {
       setError(`Redo failed: ${e.message}`);
+      setRedoing(false);
     }
   }
 
@@ -452,16 +402,30 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
           <div className="status-bar" style={{background: "#EFF7F0", border: "1px solid #C0DFC4", marginBottom: 24}}>
             <strong>✅ Winner selected!</strong> — approved and sent to Notion
           </div>
+          {/* Show the winner tile */}
           <div className="tiles">
             {visibleRest.filter(r => r._localStatus === "approved").map((r, idx) => (
               <RestaurantTile key={r.place_id || idx} restaurant={r} onApprove={handleApprove} approving={approving} approved={approved} />
             ))}
           </div>
-          <div style={{textAlign: "center", marginTop: 32}}>
-            <button className="btn btn-redo" onClick={handleRedo}>
-              🔄 Redo Selection
+          {/* Redo button */}
+          <div style={{textAlign: "center", marginTop: 32, marginBottom: 32}}>
+            <button className="btn btn-redo" onClick={handleRedo} disabled={redoing}>
+              {redoing ? "⏳ Resetting candidates..." : "🔄 Redo Selection"}
             </button>
+            {redoing && <p style={{marginTop: 12, fontSize: 13, color: "#6B5744"}}>Updating Notion and refreshing data, this may take a minute...</p>}
           </div>
+          {/* Show all other candidates below, grayed out without approve buttons */}
+          {visibleRest.filter(r => r._localStatus !== "approved").length > 0 && (
+            <>
+              <div className="default-winners-label" style={{textAlign: "center", marginBottom: 16}}>Other Candidates</div>
+              <div className="tiles" style={{opacity: redoing ? 0.3 : 0.5, pointerEvents: "none"}}>
+                {visibleRest.filter(r => r._localStatus !== "approved").map((r, idx) => (
+                  <RestaurantTile key={r.place_id || idx} restaurant={r} onApprove={handleApprove} approving={approving} approved={approved} />
+                ))}
+              </div>
+            </>
+          )}
         </>
       ) : visibleRest.length === 0 ? (
         <div className="empty"><h2>No candidates</h2><p>Run the pipeline to generate new restaurant candidates.</p></div>
@@ -477,7 +441,7 @@ function RestaurantsPage({ token, onApprove, approvedSections, onNewslettersLoad
 }
 
 // ── PETS PAGE ─────────────────────────────────────────────────────────────────
-function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
+function PetsPage({ token, onApprove, approvedSections }) {
   const [pets, setPets]                     = useState([]);
   const [newsletters, setNewsletters]       = useState([]);
   const [selectedNewsletter, setNewsletter] = useState("");
@@ -486,6 +450,7 @@ function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
   const [approved, setApproved]             = useState(null);
   const [error, setError]                   = useState("");
   const [success, setSuccess]               = useState("");
+  const [redoing, setRedoing]               = useState(false);
 
   useEffect(() => { fetchPets(); }, []);
 
@@ -509,7 +474,6 @@ function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
       setNewsletters(allNames);
       if (allNames.length > 0) setNewsletter(prev => prev || allNames[0]);
       setPets(pending);
-      onNewslettersLoaded(allNames);
     } catch (e) {
       setError("Could not load pets data.");
     } finally {
@@ -542,6 +506,7 @@ function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
   async function handleRedo() {
     if (!token) return;
     setError("");
+    setRedoing(true);
     try {
       const res = await fetch(
         `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/redo_pets.yml/dispatches`,
@@ -549,10 +514,25 @@ function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
           body: JSON.stringify({ ref: "main", inputs: { newsletter_name: selectedNewsletter } }) }
       );
       if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
-      setApproved(null);
-      setPets(prev => prev.map(p => ({ ...p, _localStatus: undefined })));
+      // Keep redoing=true until deploy finishes -- poll for updated data
+      const poll = setInterval(async () => {
+        try {
+          const r    = await fetch("/NewsletterAutomation/pets.json?t=" + Date.now());
+          const rows = await r.json();
+          const pending = rows.filter(p => p.status === "pending" && p.newsletter_name === selectedNewsletter);
+          if (pending.length > 0) {
+            clearInterval(poll);
+            setApproved(null);
+            setRedoing(false);
+            setPets(rows.filter(p => p.status === "pending"));
+          }
+        } catch {}
+      }, 8000);
+      // Safety timeout after 5 minutes
+      setTimeout(() => { clearInterval(poll); setRedoing(false); }, 300000);
     } catch (e) {
       setError(`Redo failed: ${e.message}`);
+      setRedoing(false);
     }
   }
   const oddWeek       = isOddWeek();
@@ -615,16 +595,30 @@ function PetsPage({ token, onApprove, approvedSections, onNewslettersLoaded }) {
             <div className="status-bar" style={{background: "#EFF7F0", border: "1px solid #C0DFC4", marginBottom: 24}}>
               <strong>✅ Winner selected!</strong> — approved and sent to Notion
             </div>
+            {/* Show the winner tile */}
             <div className="tiles">
               {candidates.filter(p => p._localStatus === "approved").map((pet, idx) => (
                 <PetTile key={pet.source_url || idx} pet={pet} onApprove={handleApprove} approving={approving} approved={approved} />
               ))}
             </div>
-            <div style={{textAlign: "center", marginTop: 32}}>
-              <button className="btn btn-redo" onClick={handleRedo}>
-                🔄 Redo Selection
+            {/* Redo button */}
+            <div style={{textAlign: "center", marginTop: 32, marginBottom: 32}}>
+              <button className="btn btn-redo" onClick={handleRedo} disabled={redoing}>
+                {redoing ? "⏳ Resetting candidates..." : "🔄 Redo Selection"}
               </button>
+              {redoing && <p style={{marginTop: 12, fontSize: 13, color: "#6B5744"}}>Updating Notion and refreshing data, this may take a minute...</p>}
             </div>
+            {/* Show all other candidates below, grayed out without approve buttons */}
+            {candidates.filter(p => p._localStatus !== "approved").length > 0 && (
+              <>
+                <div className="default-winners-label" style={{textAlign: "center", marginBottom: 16}}>Other Candidates</div>
+                <div className="tiles" style={{opacity: redoing ? 0.3 : 0.5, pointerEvents: "none"}}>
+                  {candidates.filter(p => p._localStatus !== "approved").map((pet, idx) => (
+                    <PetTile key={pet.source_url || idx} pet={pet} onApprove={handleApprove} approving={approving} approved={approved} />
+                  ))}
+                </div>
+              </>
+            )}
           </>
         ) : candidates.length === 0 ? (
           <div className="empty"><h2>No {weekType} candidates</h2><p>Run the pipeline to generate new candidates.</p></div>
@@ -650,9 +644,6 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem("approved_sections") || "{}"); }
     catch { return {}; }
   });
-
-  const [petNewsletters, setPetNewsletters]   = useState([]);
-  const [restNewsletters, setRestNewsletters] = useState([]);
 
   const isAuthed = Boolean(token);
 
@@ -681,8 +672,8 @@ export default function App() {
     }
   }
 
-  const petsApproved = petNewsletters.length > 0 && petNewsletters.every(n => approvedSections[`pets:${n}`]);
-  const restApproved = restNewsletters.length > 0 && restNewsletters.every(n => approvedSections[`restaurants:${n}`]);
+  const petsApproved = Object.keys(approvedSections).some(k => k.startsWith("pets:"));
+  const restApproved = Object.keys(approvedSections).some(k => k.startsWith("restaurants:"));
 
   const pages = [
     { id: "pets",        label: `${petsApproved ? "✅ " : ""}🐾 Pets` },
@@ -749,8 +740,8 @@ export default function App() {
   
               {/* Page content */}
               <div className="app-content">
-                {activePage === "pets"        && <PetsPage        token={token} onApprove={(n) => markApproved("pets", n)}        approvedSections={approvedSections} onNewslettersLoaded={setPetNewsletters} />}
-                {activePage === "restaurants" && <RestaurantsPage token={token} onApprove={(n) => markApproved("restaurants", n)} approvedSections={approvedSections} onNewslettersLoaded={setRestNewsletters} />}
+                {activePage === "pets"        && <PetsPage        token={token} onApprove={(n) => markApproved("pets", n)}        approvedSections={approvedSections} />}
+                {activePage === "restaurants" && <RestaurantsPage token={token} onApprove={(n) => markApproved("restaurants", n)} approvedSections={approvedSections} />}
               </div>
             </div>
           )}
