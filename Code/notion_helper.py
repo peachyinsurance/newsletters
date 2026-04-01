@@ -230,20 +230,24 @@ def save_pets_to_notion(results: list, newsletter_name: str) -> None:
     print(f"Saved {saved} new pets to Notion")
 
 def approve_pet_in_notion(source_url: str) -> None:
-    """Set approved pet to approved, all others in same newsletter run to rejected."""
-    pages = query_database(NOTION_PETS_DB_ID, filters={
-        "property": "Status",
-        "select":   {"equals": "pending"}
-    })
+    """Set approved pet to approved, all others pending to rejected."""
+    pages = query_database(NOTION_PETS_DB_ID)
 
     for page in pages:
-        page_id  = page["id"]
-        page_url = page["properties"].get("Source URL", {}).get("url", "")
+        page_id    = page["id"]
+        props      = page["properties"]
+        status     = props.get("Status", {}).get("select", {})
+        status_name = status.get("name", "") if status else ""
+
+        if status_name != "pending":
+            continue
+
+        page_url   = props.get("Source URL", {}).get("url", "")
         new_status = "approved" if page_url == source_url else "rejected"
         update_page(page_id, {"Status": {"select": {"name": new_status}}})
-        name = page["properties"].get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+        name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
         print(f"{new_status}: {name}")
-
+        
 def get_existing_pet_urls(newsletter_name: str) -> set:
     """Get source URLs of all pending and approved pets to avoid duplicates."""
     try:
@@ -351,16 +355,21 @@ def save_restaurants_to_notion(results: list, newsletter_name: str) -> None:
     
 def approve_restaurant_in_notion(place_id: str) -> None:
     """Set approved restaurant to approved, all others pending to rejected."""
-    pages = query_database(NOTION_RESTAURANTS_DB_ID, filters={
-        "property": "Status",
-        "select":   {"equals": "pending"}
-    })
+    # Fetch all pending pages without filter
+    pages = query_database(NOTION_RESTAURANTS_DB_ID)
 
     for page in pages:
-        page_id   = page["id"]
-        page_pid  = page["properties"].get("Place ID", {}).get("rich_text", [{}])
-        page_place_id = page_pid[0].get("text", {}).get("content", "") if page_pid else ""
+        page_id    = page["id"]
+        props      = page["properties"]
+        status     = props.get("Status", {}).get("select", {})
+        status_name = status.get("name", "") if status else ""
+        
+        if status_name != "pending":
+            continue
+
+        pid_prop   = props.get("Place ID", {}).get("rich_text", [])
+        page_place_id = pid_prop[0].get("text", {}).get("content", "") if pid_prop else ""
         new_status = "approved" if page_place_id == place_id else "rejected"
         update_page(page_id, {"Status": {"select": {"name": new_status}}})
-        name = page["properties"].get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+        name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
         print(f"{new_status}: {name}")
