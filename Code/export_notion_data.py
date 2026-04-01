@@ -43,7 +43,7 @@ def export_pets():
             continue
         pets.append({
             "source_url":         extract_text(props.get("Source URL", {})),
-            "pet_name":           extract_text(props.get("Name", {})),
+            "pet_name": extract_text(props.get("Name", {})).split(" - ", 1)[-1],
             "shelter_name":       extract_text(props.get("Shelter", {})),
             "blurb":              extract_text(props.get("Blurb", {})),
             "shelter_address":    extract_text(props.get("Shelter Address", {})),
