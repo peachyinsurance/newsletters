@@ -250,7 +250,7 @@ function PetTile({ pet, onApprove, approving, approved }) {
           {pet.source_url      && <a className="tile-link" href={pet.source_url} target="_blank" rel="noreferrer">View listing →</a>}
         </div>
         {!approved && (
-          <button className="btn btn-approve" onClick={() => onApprove(pet)} disabled={approving === pet.source_url}>
+          <button className="btn btn-approve" onClick={() => onApprove(pet)} disabled={!!approving}>
             {approving === pet.source_url ? "Approving..." : "Approve this pet"}
           </button>
         )}
@@ -310,7 +310,7 @@ function RestaurantTile({ restaurant, onApprove, approving, approved }) {
           </a>
         )}
         {!approved && (
-          <button className="btn btn-approve" onClick={() => onApprove(restaurant)} disabled={approving === restaurant.place_id}>
+          <button className="btn btn-approve" onClick={() => onApprove(restaurant)} disabled={!!approving}>
             {approving === restaurant.place_id ? "Approving..." : "Approve this restaurant"}
           </button>
         )}
