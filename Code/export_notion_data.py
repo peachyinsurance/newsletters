@@ -81,7 +81,7 @@ def export_restaurants():
             continue
         restaurants.append({
             "place_id":               extract_text(props.get("Place ID", {})),
-            "restaurant_name":        extract_text(props.get("Name", {})),
+            "restaurant_name": extract_text(props.get("Name", {})).split(" - ", 1)[-1],
             "cuisine_type":           extract_text(props.get("Cuisine", {})),
             "blurb":                  extract_text(props.get("Blurb", {})),
             "address":                extract_text(props.get("Address", {})),
