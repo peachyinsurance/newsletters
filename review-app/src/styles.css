@@ -134,7 +134,9 @@ body { background: var(--cream); font-family: 'DM Sans', sans-serif; color: var(
 .divider { border: none; border-top: 1px solid var(--sand); margin-bottom: 32px; }
 
 /* ── Tiles ── */
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+@media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { .tiles { grid-template-columns: 1fr; } }
 .tile { background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 24px var(--shadow); transition: transform 0.25s, box-shadow 0.25s; display: flex; flex-direction: column; position: relative; }
 .tile:hover { transform: translateY(-4px); box-shadow: 0 12px 40px var(--shadow); }
 .tile.approved { outline: 3px solid var(--sage); outline-offset: -3px; }

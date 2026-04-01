@@ -150,23 +150,32 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
         return item;
       });
 
-      // Build approvedMap purely from the data (source of truth)
+      // Build approvedMap from the data (source of truth)
       const dataApprovedMap = {};
       withStatus.forEach(item => {
         if (item._localStatus === "approved" && item.newsletter_name) {
           dataApprovedMap[item.newsletter_name] = item[config.idField];
         }
       });
-      // Replace approvedMap with data-driven state — don't merge stale localStorage
-      setApprovedMap(dataApprovedMap);
-      // Sync approvedSections with what the data actually shows
+      // Merge: keep in-session approvals, but let data override
+      setApprovedMap(prev => {
+        const merged = {};
+        // Keep in-session approvals (from handleApprove clicks)
+        Object.keys(prev).forEach(nl => { merged[nl] = prev[nl]; });
+        // Data overrides: if data says approved, use that; if data says all pending, clear it
+        allNames.forEach(nl => {
+          if (dataApprovedMap[nl]) {
+            merged[nl] = dataApprovedMap[nl];
+          }
+          // Only clear if data explicitly shows all pending AND we didn't just approve in this session
+          // (don't clear — let handleRedo's poll handle clearing)
+        });
+        return merged;
+      });
+      // Sync section checkmarks
       allNames.forEach(nl => {
         if (dataApprovedMap[nl]) onApprove(nl);
-        else onUnapprove(nl);
       });
-
-      // Sync localStorage with data-driven approvedMap
-      localStorage.setItem(config.storageKey, JSON.stringify(dataApprovedMap));
 
       setNewsletters(allNames);
       if (allNames.length > 0) setNewsletter(prev => prev || allNames[0]);
@@ -221,7 +230,9 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
       if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
       pollRef.current = setInterval(async () => {
         try {
-          const r    = await fetch(`/NewsletterAutomation/${config.dataFile}`, { cache: "no-store" });
+          // Poll from raw GitHub to bypass GitHub Pages CDN cache
+          const rawUrl = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/gh-pages/${config.dataFile}?t=${Date.now()}`;
+          const r    = await fetch(rawUrl, { cache: "no-store" });
           const rows = await r.json();
           const nlItems = rows.filter(i => i.newsletter_name === selectedNewsletter);
           const hasApproved = nlItems.some(i => (i.status || "").toLowerCase() === "approved");
