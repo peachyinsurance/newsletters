@@ -1,11 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
-const GITHUB_OWNER         = "couch2coders";
-const GITHUB_REPO          = "NewsletterAutomation";
-const GITHUB_WORKFLOW_PETS = "approve_pet.yml";
-const GITHUB_WORKFLOW_REST = "approve_restaurant.yml";
-const APP_PASSWORD         = "Adm1n$$";
+const GITHUB_OWNER = "couch2coders";
+const GITHUB_REPO  = "NewsletterAutomation";
+const APP_PASSWORD = "Adm1n$$";
 
 // ── STYLES ────────────────────────────────────────────────────────────────────
 const styles = `
@@ -321,9 +319,101 @@ function RestaurantTile({ restaurant, onApprove, approving, approved }) {
   );
 }
 
-// ── RESTAURANTS PAGE ──────────────────────────────────────────────────────────
-function RestaurantsPage({ token, onApprove, onUnapprove, approvedSections, onNewslettersLoaded }) {
-  const [restaurants, setRestaurants]       = useState([]);
+// ── SECTIONS CONFIG ───────────────────────────────────────────────────────────
+const SECTIONS = {
+  pets: {
+    dataFile:        "pets.json",
+    idField:         "source_url",
+    nameField:       "pet_name",
+    approveWorkflow: "approve_pet.yml",
+    approveInputs:   (item) => ({ source_url: item.source_url }),
+    redoWorkflow:    "redo_pets.yml",
+    storageKey:      "approved_pet_ids",
+    sectionPrefix:   "pets",
+    TileComponent:   PetTile,
+    itemPropName:    "pet",
+    label:           "Pets",
+    navIcon:         "\uD83D\uDC3E",
+    loadingText:     "Loading this week's candidates...",
+    emptyText:       "No pending pets found. Run the pipeline to generate new candidates.",
+    statusBarText:   (count, extra) => `${count} ${extra.weekType} candidates this week`,
+    emptyCandidatesText: (_extra) => { const wt = _extra.weekType; return { title: `No ${wt} candidates`, sub: "Run the pipeline to generate new candidates." }; },
+    filterCandidates: (items) => {
+      const oddWeek  = isOddWeek();
+      const weekType = oddWeek ? "cat" : "dog";
+      return {
+        candidates: items.filter(p => (p.animal_type || "").toLowerCase() === weekType),
+        extra: { oddWeek, weekType },
+      };
+    },
+    renderDefaultWinners: (visibleItems, extra) => {
+      const overallWinner = visibleItems.find(p => p.default_winner === "yes");
+      const catWinner     = visibleItems.find(p => p.cat_default === "yes");
+      const dogWinner     = visibleItems.find(p => p.dog_default === "yes");
+      return {
+        label: `Default Winners \u2014 ${extra.oddWeek ? "Odd Week (Cat Week)" : "Even Week (Dog Week)"}`,
+        rows: [
+          { badgeClass: "winner-badge-overall", badgeText: "Overall",
+            name: overallWinner ? `${overallWinner.pet_name} (${overallWinner.animal_type})` : "None set",
+            score: overallWinner ? `${overallWinner.total_score}/30` : null },
+          { badgeClass: "winner-badge-cat", badgeText: "Cat",
+            name: catWinner ? catWinner.pet_name : "None set",
+            score: catWinner ? `${catWinner.total_score}/30` : null },
+          { badgeClass: "winner-badge-dog", badgeText: "Dog",
+            name: dogWinner ? dogWinner.pet_name : "None set",
+            score: dogWinner ? `${dogWinner.total_score}/30` : null },
+        ],
+      };
+    },
+    header: {
+      eyebrow:    "Newsletter Pet Review",
+      h1Prefix:   "Pick This Week's",
+      h1Emphasis: "Featured Friend",
+      sub:        "Review candidates and approve the one that best fits the newsletter.",
+    },
+  },
+
+  restaurants: {
+    dataFile:        "restaurants.json",
+    idField:         "place_id",
+    nameField:       "restaurant_name",
+    approveWorkflow: "approve_restaurant.yml",
+    approveInputs:   (item) => ({ place_id: item.place_id }),
+    redoWorkflow:    "redo_restaurants.yml",
+    storageKey:      "approved_restaurant_ids",
+    sectionPrefix:   "restaurants",
+    TileComponent:   RestaurantTile,
+    itemPropName:    "restaurant",
+    label:           "Restaurants",
+    navIcon:         "\uD83C\uDF7D",
+    loadingText:     "Loading this week's restaurant candidates...",
+    emptyText:       "No pending restaurants found. Run the pipeline to generate new candidates.",
+    statusBarText:   (count) => `${count} restaurant candidates this week`,
+    emptyCandidatesText: () => ({ title: "No candidates", sub: "Run the pipeline to generate new restaurant candidates." }),
+    filterCandidates: (items) => ({ candidates: items, extra: {} }),
+    renderDefaultWinners: (visibleItems) => {
+      const defaultWinner = visibleItems.find(r => r.default_winner === "yes");
+      return {
+        label: "Default Winner",
+        rows: [
+          { badgeClass: "winner-badge-rest", badgeText: "Restaurant",
+            name: defaultWinner ? defaultWinner.restaurant_name : "None set",
+            score: defaultWinner ? `${defaultWinner.total_score}/40` : null },
+        ],
+      };
+    },
+    header: {
+      eyebrow:    "Newsletter Restaurant Review",
+      h1Prefix:   "Pick This Week's",
+      h1Emphasis: "Featured Restaurant",
+      sub:        "Review candidates and approve the one that best fits the newsletter.",
+    },
+  },
+};
+
+// ── GENERIC REVIEW PAGE ──────────────────────────────────────────────────────
+function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, onNewslettersLoaded }) {
+  const [items, setItems]                   = useState([]);
   const [newsletters, setNewsletters]       = useState([]);
   const [selectedNewsletter, setNewsletter] = useState("");
   const [loading, setLoading]               = useState(true);
@@ -333,74 +423,84 @@ function RestaurantsPage({ token, onApprove, onUnapprove, approvedSections, onNe
   const [redoing, setRedoing]               = useState(false);
   const [approvedMap, setApprovedMap]       = useState(() => {
     const map = {};
-    const savedApprovals = JSON.parse(localStorage.getItem("approved_restaurant_ids") || "{}");
+    const savedApprovals = JSON.parse(localStorage.getItem(config.storageKey) || "{}");
     Object.keys(approvedSections).forEach(key => {
-      if (key.startsWith("restaurants:")) {
-        const nl = key.replace("restaurants:", "");
+      if (key.startsWith(config.sectionPrefix + ":")) {
+        const nl = key.replace(config.sectionPrefix + ":", "");
         map[nl] = savedApprovals[nl] || "__previously_approved__";
       }
     });
     return map;
   });
 
-  useEffect(() => { fetchRestaurants(); }, []);
+  const pollRef    = useRef(null);
+  const timeoutRef = useRef(null);
 
-  async function fetchRestaurants() {
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  useEffect(() => { fetchData(); }, []);
+
+  async function fetchData() {
     setLoading(true);
     setError("");
     try {
-      const res          = await fetch("/NewsletterAutomation/restaurants.json");
-      const rows         = await res.json();
-      const pending      = rows.filter(r => r.status === "pending");
+      const res     = await fetch(`/NewsletterAutomation/${config.dataFile}`);
+      const rows    = await res.json();
+      const pending = rows.filter(r => r.status === "pending");
       const pendingNames = [...new Set(pending.map(r => r.newsletter_name).filter(Boolean))];
 
       const approvedNames = Object.keys(approvedSections)
-        .filter(k => k.startsWith("restaurants:"))
-        .map(k => k.replace("restaurants:", ""));
+        .filter(k => k.startsWith(config.sectionPrefix + ":"))
+        .map(k => k.replace(config.sectionPrefix + ":", ""));
 
       const allNames = [...new Set([...pendingNames, ...approvedNames])];
 
-      // Restore _localStatus for previously approved restaurants
-      const savedApprovals = JSON.parse(localStorage.getItem("approved_restaurant_ids") || "{}");
-      const restoredPending = pending.map(r => {
-        const savedId = savedApprovals[r.newsletter_name];
+      const savedApprovals = JSON.parse(localStorage.getItem(config.storageKey) || "{}");
+      const restoredPending = pending.map(item => {
+        const savedId = savedApprovals[item.newsletter_name];
         if (savedId && savedId !== "__previously_approved__") {
-          if (r.place_id === savedId) return { ...r, _localStatus: "approved" };
-          return { ...r, _localStatus: "rejected" };
+          if (item[config.idField] === savedId) return { ...item, _localStatus: "approved" };
+          return { ...item, _localStatus: "rejected" };
         }
-        return r;
+        return item;
       });
 
       setNewsletters(allNames);
       if (allNames.length > 0) setNewsletter(prev => prev || allNames[0]);
-      setRestaurants(restoredPending);
+      setItems(restoredPending);
       onNewslettersLoaded(allNames);
     } catch (e) {
-      setError("Could not load restaurants data.");
+      setError("Could not load data.");
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleApprove(restaurant) {
+  async function handleApprove(item) {
     if (!token) return;
-    setApproving(restaurant.place_id);
+    const itemId = item[config.idField];
+    setApproving(itemId);
     setError("");
     try {
       const res = await fetch(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${GITHUB_WORKFLOW_REST}/dispatches`,
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${config.approveWorkflow}/dispatches`,
         { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
-          body: JSON.stringify({ ref: "main", inputs: { place_id: restaurant.place_id } }) }
+          body: JSON.stringify({ ref: "main", inputs: config.approveInputs(item) }) }
       );
       if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
-      setApprovedMap(prev => ({ ...prev, [selectedNewsletter]: restaurant.place_id }));
-      setSuccess(`${restaurant.restaurant_name} approved!`);
-      const savedApprovals = JSON.parse(localStorage.getItem("approved_restaurant_ids") || "{}");
-      savedApprovals[selectedNewsletter] = restaurant.place_id;
-      localStorage.setItem("approved_restaurant_ids", JSON.stringify(savedApprovals));
-      setRestaurants(prev => prev.map(r => {
-        if (r.newsletter_name !== selectedNewsletter) return r;
-        return { ...r, _localStatus: r.place_id === restaurant.place_id ? "approved" : "rejected" };
+      setApprovedMap(prev => ({ ...prev, [selectedNewsletter]: itemId }));
+      setSuccess(`${item[config.nameField]} approved!`);
+      const savedApprovals = JSON.parse(localStorage.getItem(config.storageKey) || "{}");
+      savedApprovals[selectedNewsletter] = itemId;
+      localStorage.setItem(config.storageKey, JSON.stringify(savedApprovals));
+      setItems(prev => prev.map(i => {
+        if (i.newsletter_name !== selectedNewsletter) return i;
+        return { ...i, _localStatus: i[config.idField] === itemId ? "approved" : "rejected" };
       }));
       onApprove(selectedNewsletter);
     } catch (e) {
@@ -416,41 +516,50 @@ function RestaurantsPage({ token, onApprove, onUnapprove, approvedSections, onNe
     setRedoing(true);
     try {
       const res = await fetch(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/redo_restaurants.yml/dispatches`,
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${config.redoWorkflow}/dispatches`,
         { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
           body: JSON.stringify({ ref: "main", inputs: { newsletter_name: selectedNewsletter } }) }
       );
       if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
-      const poll = setInterval(async () => {
+      pollRef.current = setInterval(async () => {
         try {
-          const r    = await fetch("/NewsletterAutomation/restaurants.json?t=" + Date.now());
+          const r    = await fetch(`/NewsletterAutomation/${config.dataFile}?t=` + Date.now());
           const rows = await r.json();
-          const pending = rows.filter(r => r.status === "pending" && r.newsletter_name === selectedNewsletter);
+          const pending = rows.filter(i => i.status === "pending" && i.newsletter_name === selectedNewsletter);
           if (pending.length > 0) {
-            clearInterval(poll);
+            clearInterval(pollRef.current);
+            pollRef.current = null;
             setApprovedMap(prev => { const next = { ...prev }; delete next[selectedNewsletter]; return next; });
             onUnapprove(selectedNewsletter);
-            const savedApprovals = JSON.parse(localStorage.getItem("approved_restaurant_ids") || "{}");
+            const savedApprovals = JSON.parse(localStorage.getItem(config.storageKey) || "{}");
             delete savedApprovals[selectedNewsletter];
-            localStorage.setItem("approved_restaurant_ids", JSON.stringify(savedApprovals));
+            localStorage.setItem(config.storageKey, JSON.stringify(savedApprovals));
             setRedoing(false);
-            setRestaurants(rows.filter(r => r.status === "pending"));
+            setItems(rows.filter(i => i.status === "pending"));
           }
         } catch {}
       }, 8000);
-      setTimeout(() => { clearInterval(poll); setRedoing(false); }, 300000);
+      timeoutRef.current = setTimeout(() => {
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = null;
+        setRedoing(false);
+      }, 300000);
     } catch (e) {
       setError(`Redo failed: ${e.message}`);
       setRedoing(false);
     }
   }
 
-  const visibleRest   = restaurants.filter(r => r.newsletter_name === selectedNewsletter);
-  const defaultWinner = visibleRest.find(r => r.default_winner === "yes");
+  const visibleItems = items.filter(i => i.newsletter_name === selectedNewsletter);
+  const { candidates, extra } = config.filterCandidates(visibleItems);
+  const winners = config.renderDefaultWinners(visibleItems, extra);
+  const approvedCandidates   = candidates.filter(i => i._localStatus === "approved");
+  const unapprovedCandidates = candidates.filter(i => i._localStatus !== "approved");
+  const TileComponent = config.TileComponent;
 
-  if (loading) return <div className="loading">Loading this week's restaurant candidates...</div>;
-  if (restaurants.length === 0 && newsletters.length === 0 && Object.keys(approvedMap).length === 0) return (
-    <div className="empty"><h2>All clear!</h2><p>No pending restaurants found. Run the pipeline to generate new candidates.</p></div>
+  if (loading) return <div className="loading">{config.loadingText}</div>;
+  if (items.length === 0 && newsletters.length === 0 && Object.keys(approvedMap).length === 0) return (
+    <div className="empty"><h2>All clear!</h2><p>{config.emptyText}</p></div>
   );
 
   return (
@@ -463,7 +572,7 @@ function RestaurantsPage({ token, onApprove, onUnapprove, approvedSections, onNe
           <select className="newsletter-select" value={selectedNewsletter} onChange={e => setNewsletter(e.target.value)}>
             {newsletters.map(n => (
               <option key={n} value={n}>
-                {approvedSections?.[`restaurants:${n}`] ? `✅ ${n.replace(/_/g, " ")}` : n.replace(/_/g, " ")}
+                {approvedSections?.[`${config.sectionPrefix}:${n}`] ? `\u2705 ${n.replace(/_/g, " ")}` : n.replace(/_/g, " ")}
               </option>
             ))}
           </select>
@@ -471,31 +580,33 @@ function RestaurantsPage({ token, onApprove, onUnapprove, approvedSections, onNe
       )}
 
       <div className="default-winners">
-        <div className="default-winners-label">Default Winner</div>
+        <div className="default-winners-label">{winners.label}</div>
         <div className="default-winners-rows">
-          <div className="default-winner-row">
-            <span className="winner-badge winner-badge-rest">Restaurant</span>
-            <span className="winner-name">{defaultWinner ? defaultWinner.restaurant_name : "None set"}</span>
-            {defaultWinner && <span className="winner-score">{defaultWinner.total_score}/40</span>}
-          </div>
+          {winners.rows.map((row, i) => (
+            <div className="default-winner-row" key={i}>
+              <span className={`winner-badge ${row.badgeClass}`}>{row.badgeText}</span>
+              <span className="winner-name">{row.name}</span>
+              {row.score && <span className="winner-score">{row.score}</span>}
+            </div>
+          ))}
         </div>
       </div>
 
       <hr className="divider" />
 
       <div className="status-bar">
-        <strong>{visibleRest.length}</strong> restaurant candidates this week &mdash; select one to feature
+        <strong>{config.statusBarText(candidates.length, extra)}</strong> &mdash; select one to feature
       </div>
 
       {approvedMap[selectedNewsletter] ? (
         <>
           <div className="status-bar" style={{background: "#EFF7F0", border: "1px solid #C0DFC4", marginBottom: 24}}>
-            <strong>✅ Winner selected!</strong> — approved and sent to Notion
+            <strong>{"\u2705"} Winner selected!</strong> — approved and sent to Notion
           </div>
-          {visibleRest.filter(r => r._localStatus === "approved").length > 0 ? (
+          {approvedCandidates.length > 0 ? (
             <div className="tiles">
-              {visibleRest.filter(r => r._localStatus === "approved").map((r, idx) => (
-                <RestaurantTile key={r.place_id || idx} restaurant={r} onApprove={handleApprove} approving={approving} approved={approvedMap[selectedNewsletter]} />
+              {approvedCandidates.map((item, idx) => (
+                <TileComponent key={item[config.idField] || idx} {...{[config.itemPropName]: item}} onApprove={handleApprove} approving={approving} approved={approvedMap[selectedNewsletter]} />
               ))}
             </div>
           ) : (
@@ -505,27 +616,27 @@ function RestaurantsPage({ token, onApprove, onUnapprove, approvedSections, onNe
           )}
           <div style={{textAlign: "center", marginTop: 32, marginBottom: 32}}>
             <button className="btn btn-redo" onClick={handleRedo} disabled={redoing}>
-              {redoing ? "⏳ Resetting candidates..." : "🔄 Redo Selection"}
+              {redoing ? "\u23F3 Resetting candidates..." : "\uD83D\uDD04 Redo Selection"}
             </button>
             {redoing && <p style={{marginTop: 12, fontSize: 13, color: "#6B5744"}}>Updating Notion and refreshing data, this may take a minute...</p>}
           </div>
-          {visibleRest.filter(r => r._localStatus !== "approved").length > 0 && (
+          {unapprovedCandidates.length > 0 && (
             <>
               <div className="default-winners-label" style={{textAlign: "center", marginBottom: 16}}>Other Candidates</div>
               <div className="tiles" style={{opacity: redoing ? 0.3 : 0.5, pointerEvents: "none"}}>
-                {visibleRest.filter(r => r._localStatus !== "approved").map((r, idx) => (
-                  <RestaurantTile key={r.place_id || idx} restaurant={r} onApprove={handleApprove} approving={approving} approved={approvedMap[selectedNewsletter]} />
+                {unapprovedCandidates.map((item, idx) => (
+                  <TileComponent key={item[config.idField] || idx} {...{[config.itemPropName]: item}} onApprove={handleApprove} approving={approving} approved={approvedMap[selectedNewsletter]} />
                 ))}
               </div>
             </>
           )}
         </>
-      ) : visibleRest.length === 0 ? (
-        <div className="empty"><h2>No candidates</h2><p>Run the pipeline to generate new restaurant candidates.</p></div>
+      ) : candidates.length === 0 ? (
+        (() => { const empty = config.emptyCandidatesText(extra); return <div className="empty"><h2>{empty.title}</h2><p>{empty.sub}</p></div>; })()
       ) : (
         <div className="tiles">
-          {visibleRest.map((r, idx) => (
-            <RestaurantTile key={r.place_id || idx} restaurant={r} onApprove={handleApprove} approving={approving} approved={approvedMap[selectedNewsletter]} />
+          {candidates.map((item, idx) => (
+            <TileComponent key={item[config.idField] || idx} {...{[config.itemPropName]: item}} onApprove={handleApprove} approving={approving} approved={approvedMap[selectedNewsletter]} />
           ))}
         </div>
       )}
@@ -533,244 +644,21 @@ function RestaurantsPage({ token, onApprove, onUnapprove, approvedSections, onNe
   );
 }
 
-// ── PETS PAGE ─────────────────────────────────────────────────────────────────
-function PetsPage({ token, onApprove, onUnapprove, approvedSections, onNewslettersLoaded }) {
-  const [pets, setPets]                     = useState([]);
-  const [newsletters, setNewsletters]       = useState([]);
-  const [selectedNewsletter, setNewsletter] = useState("");
-  const [loading, setLoading]               = useState(true);
-  const [approving, setApproving]           = useState(null);
-  const [error, setError]                   = useState("");
-  const [success, setSuccess]               = useState("");
-  const [redoing, setRedoing]               = useState(false);
-  const [approvedMap, setApprovedMap]       = useState(() => {
-    const map = {};
-    const savedApprovals = JSON.parse(localStorage.getItem("approved_pet_ids") || "{}");
-    Object.keys(approvedSections).forEach(key => {
-      if (key.startsWith("pets:")) {
-        const nl = key.replace("pets:", "");
-        map[nl] = savedApprovals[nl] || "__previously_approved__";
-      }
-    });
-    return map;
-  });
-
-  useEffect(() => { fetchPets(); }, []);
-
-  async function fetchPets() {
-    setLoading(true);
-    setError("");
-    try {
-      const res     = await fetch("/NewsletterAutomation/pets.json");
-      const rows    = await res.json();
-      const pending = rows.filter(r => r.status === "pending");
-      const pendingNames = [...new Set(pending.map(r => r.newsletter_name).filter(Boolean))];
-
-      const approvedNames = Object.keys(approvedSections)
-        .filter(k => k.startsWith("pets:"))
-        .map(k => k.replace("pets:", ""));
-
-      const allNames = [...new Set([...pendingNames, ...approvedNames])];
-
-      // Restore _localStatus for previously approved pets
-      const savedApprovals = JSON.parse(localStorage.getItem("approved_pet_ids") || "{}");
-      const restoredPending = pending.map(p => {
-        const savedId = savedApprovals[p.newsletter_name];
-        if (savedId && savedId !== "__previously_approved__") {
-          if (p.source_url === savedId) return { ...p, _localStatus: "approved" };
-          return { ...p, _localStatus: "rejected" };
-        }
-        return p;
-      });
-
-      setNewsletters(allNames);
-      if (allNames.length > 0) setNewsletter(prev => prev || allNames[0]);
-      setPets(restoredPending);
-      onNewslettersLoaded(allNames);
-    } catch (e) {
-      setError("Could not load pets data.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleApprove(pet) {
-    if (!token) return;
-    setApproving(pet.source_url);
-    setError("");
-    try {
-      const res = await fetch(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${GITHUB_WORKFLOW_PETS}/dispatches`,
-        { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
-          body: JSON.stringify({ ref: "main", inputs: { source_url: pet.source_url } }) }
-      );
-      if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
-      setApprovedMap(prev => ({ ...prev, [selectedNewsletter]: pet.source_url }));
-      setSuccess(`${pet.pet_name} approved!`);
-      const savedApprovals = JSON.parse(localStorage.getItem("approved_pet_ids") || "{}");
-      savedApprovals[selectedNewsletter] = pet.source_url;
-      localStorage.setItem("approved_pet_ids", JSON.stringify(savedApprovals));
-      setPets(prev => prev.map(p => {
-        if (p.newsletter_name !== selectedNewsletter) return p;
-        return { ...p, _localStatus: p.source_url === pet.source_url ? "approved" : "rejected" };
-      }));
-      onApprove(selectedNewsletter);
-    } catch (e) {
-      setError(`Approval failed: ${e.message}`);
-    } finally {
-      setApproving(null);
-    }
-  }
-
-  async function handleRedo() {
-    if (!token) return;
-    setError("");
-    setRedoing(true);
-    try {
-      const res = await fetch(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/redo_pets.yml/dispatches`,
-        { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
-          body: JSON.stringify({ ref: "main", inputs: { newsletter_name: selectedNewsletter } }) }
-      );
-      if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
-      const poll = setInterval(async () => {
-        try {
-          const r    = await fetch("/NewsletterAutomation/pets.json?t=" + Date.now());
-          const rows = await r.json();
-          const pending = rows.filter(p => p.status === "pending" && p.newsletter_name === selectedNewsletter);
-          if (pending.length > 0) {
-            clearInterval(poll);
-            setApprovedMap(prev => { const next = { ...prev }; delete next[selectedNewsletter]; return next; });
-            onUnapprove(selectedNewsletter);
-            const savedApprovals = JSON.parse(localStorage.getItem("approved_pet_ids") || "{}");
-            delete savedApprovals[selectedNewsletter];
-            localStorage.setItem("approved_pet_ids", JSON.stringify(savedApprovals));
-            setRedoing(false);
-            setPets(rows.filter(p => p.status === "pending"));
-          }
-        } catch {}
-      }, 8000);
-      setTimeout(() => { clearInterval(poll); setRedoing(false); }, 300000);
-    } catch (e) {
-      setError(`Redo failed: ${e.message}`);
-      setRedoing(false);
-    }
-  }
-  const oddWeek       = isOddWeek();
-  const weekType      = oddWeek ? "cat" : "dog";
-  const visiblePets   = pets.filter(p => p.newsletter_name === selectedNewsletter);
-  const overallWinner = visiblePets.find(p => p.default_winner === "yes");
-  const catWinner     = visiblePets.find(p => p.cat_default === "yes");
-  const dogWinner     = visiblePets.find(p => p.dog_default === "yes");
-  const candidates    = visiblePets.filter(p => (p.animal_type || "").toLowerCase() === weekType);
-
-  if (loading) return <div className="loading">Loading this week's candidates...</div>;
-  if (pets.length === 0 && newsletters.length === 0 && Object.keys(approvedMap).length === 0) return <div className="empty"><h2>All clear!</h2><p>No pending pets found. Run the pipeline to generate new candidates.</p></div>;
-
-  return (
-      <>
-        {success && <div className="success-banner"><strong>Approved!</strong>{success}</div>}
-        {error   && <div className="error-msg" style={{marginBottom: 24}}>{error}</div>}
-  
-        {newsletters.length > 0 && (
-          <div style={{marginBottom: 32, textAlign: "center"}}>
-            <select className="newsletter-select" value={selectedNewsletter} onChange={e => setNewsletter(e.target.value)}>
-              {newsletters.map(n => (
-                <option key={n} value={n}>
-                  {approvedSections?.[`pets:${n}`] ? `✅ ${n.replace(/_/g, " ")}` : n.replace(/_/g, " ")}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-  
-        <div className="default-winners">
-          <div className="default-winners-label">Default Winners — {oddWeek ? "Odd Week (Cat Week)" : "Even Week (Dog Week)"}</div>
-          <div className="default-winners-rows">
-            <div className="default-winner-row">
-              <span className="winner-badge winner-badge-overall">Overall</span>
-              <span className="winner-name">{overallWinner ? `${overallWinner.pet_name} (${overallWinner.animal_type})` : "None set"}</span>
-              {overallWinner && <span className="winner-score">{overallWinner.total_score}/30</span>}
-            </div>
-            <div className="default-winner-row">
-              <span className="winner-badge winner-badge-cat">Cat</span>
-              <span className="winner-name">{catWinner ? catWinner.pet_name : "None set"}</span>
-              {catWinner && <span className="winner-score">{catWinner.total_score}/30</span>}
-            </div>
-            <div className="default-winner-row">
-              <span className="winner-badge winner-badge-dog">Dog</span>
-              <span className="winner-name">{dogWinner ? dogWinner.pet_name : "None set"}</span>
-              {dogWinner && <span className="winner-score">{dogWinner.total_score}/30</span>}
-            </div>
-          </div>
-        </div>
-  
-        <hr className="divider" />
-  
-        <div className="status-bar">
-          <strong>{candidates.length}</strong> {weekType} candidates this week &mdash; select one to feature
-        </div>
-  
-        {approvedMap[selectedNewsletter] ? (
-          <>
-            <div className="status-bar" style={{background: "#EFF7F0", border: "1px solid #C0DFC4", marginBottom: 24}}>
-              <strong>✅ Winner selected!</strong> — approved and sent to Notion
-            </div>
-            {candidates.filter(p => p._localStatus === "approved").length > 0 ? (
-              <div className="tiles">
-                {candidates.filter(p => p._localStatus === "approved").map((pet, idx) => (
-                  <PetTile key={pet.source_url || idx} pet={pet} onApprove={handleApprove} approving={approving} approved={approvedMap[selectedNewsletter]} />
-                ))}
-              </div>
-            ) : (
-              <div className="empty" style={{padding: "32px 24px"}}>
-                <p style={{color: "#6B5744", fontSize: 14}}>A winner was selected for this newsletter. Click Redo to change the selection.</p>
-              </div>
-            )}
-            <div style={{textAlign: "center", marginTop: 32, marginBottom: 32}}>
-              <button className="btn btn-redo" onClick={handleRedo} disabled={redoing}>
-                {redoing ? "⏳ Resetting candidates..." : "🔄 Redo Selection"}
-              </button>
-              {redoing && <p style={{marginTop: 12, fontSize: 13, color: "#6B5744"}}>Updating Notion and refreshing data, this may take a minute...</p>}
-            </div>
-            {candidates.filter(p => p._localStatus !== "approved").length > 0 && (
-              <>
-                <div className="default-winners-label" style={{textAlign: "center", marginBottom: 16}}>Other Candidates</div>
-                <div className="tiles" style={{opacity: redoing ? 0.3 : 0.5, pointerEvents: "none"}}>
-                  {candidates.filter(p => p._localStatus !== "approved").map((pet, idx) => (
-                    <PetTile key={pet.source_url || idx} pet={pet} onApprove={handleApprove} approving={approving} approved={approvedMap[selectedNewsletter]} />
-                  ))}
-                </div>
-              </>
-            )}
-          </>
-        ) : candidates.length === 0 ? (
-          <div className="empty"><h2>No {weekType} candidates</h2><p>Run the pipeline to generate new candidates.</p></div>
-        ) : (
-          <div className="tiles">
-            {candidates.map((pet, idx) => (
-              <PetTile key={pet.source_url || idx} pet={pet} onApprove={handleApprove} approving={approving} approved={approvedMap[selectedNewsletter]} />
-            ))}
-          </div>
-        )}
-      </>
-    );
-  }
-
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
+const SECTION_KEYS       = Object.keys(SECTIONS);
+const EXPECTED_NEWSLETTERS = 2;
+
 export default function App() {
   const [token, setToken]           = useState(() => localStorage.getItem("gh_token") || "");
   const [tokenInput, setTokenInput] = useState("");
   const [error, setError]           = useState("");
-  const [activePage, setActivePage] = useState("pets");
+  const [activePage, setActivePage] = useState(SECTION_KEYS[0]);
   const [step, setStep]             = useState("password");
   const [approvedSections, setApprovedSections] = useState(() => {
     try { return JSON.parse(localStorage.getItem("approved_sections") || "{}"); }
     catch { return {}; }
   });
-
-  const [petNewsletters, setPetNewsletters]   = useState([]);
-  const [restNewsletters, setRestNewsletters] = useState([]);
+  const [sectionNewsletters, setSectionNewsletters] = useState({});
 
   const isAuthed = Boolean(token);
 
@@ -807,81 +695,84 @@ export default function App() {
     }
   }
 
-  const EXPECTED_NEWSLETTERS = 2;
-  const petsApproved = petNewsletters.length >= EXPECTED_NEWSLETTERS && petNewsletters.every(n => approvedSections[`pets:${n}`]);
-  const restApproved = restNewsletters.length >= EXPECTED_NEWSLETTERS && restNewsletters.every(n => approvedSections[`restaurants:${n}`]);
+  function handleNewslettersLoaded(sectionKey, newsletters) {
+    setSectionNewsletters(prev => ({ ...prev, [sectionKey]: newsletters }));
+  }
 
-  const pages = [
-    { id: "pets",        label: `${petsApproved ? "✅ " : ""}🐾 Pets` },
-    { id: "restaurants", label: `${restApproved ? "✅ " : ""}🍽 Restaurants` },
-  ];
+  const pages = SECTION_KEYS.map(key => {
+    const cfg    = SECTIONS[key];
+    const nlList = sectionNewsletters[key] || [];
+    const allApproved = nlList.length >= EXPECTED_NEWSLETTERS &&
+      nlList.every(n => approvedSections[`${cfg.sectionPrefix}:${n}`]);
+    return { id: key, label: `${allApproved ? "\u2705 " : ""}${cfg.navIcon} ${cfg.label}` };
+  });
 
-  const pageHeaders = {
-    pets:        { eyebrow: "Newsletter Pet Review",        h1: <>Pick This Week's<br/><em>Featured Friend</em></>,        sub: "Review candidates and approve the one that best fits the newsletter." },
-    restaurants: { eyebrow: "Newsletter Restaurant Review", h1: <>Pick This Week's<br/><em>Featured Restaurant</em></>, sub: "Review candidates and approve the one that best fits the newsletter." },
-  };
-
-  const currentHeader = pageHeaders[activePage];
+  const currentConfig = SECTIONS[activePage];
+  const currentHeader = currentConfig.header;
 
   return (
-      <>
-        <style>{styles}</style>
-        <div className="app">
-          {!isAuthed ? (
-            <>
-              <div className="header">
-                <p className="header-eyebrow">Newsletter Review</p>
-                <h1>Pick This Week's<br/><em>Best Content</em></h1>
-                <p className="header-sub">Review and approve pets and restaurants for your newsletters.</p>
+    <>
+      <style>{styles}</style>
+      <div className="app">
+        {!isAuthed ? (
+          <>
+            <div className="header">
+              <p className="header-eyebrow">Newsletter Review</p>
+              <h1>Pick This Week's<br/><em>Best Content</em></h1>
+              <p className="header-sub">Review and approve content for your newsletters.</p>
+            </div>
+            <div className="token-gate">
+              <h2>Sign In</h2>
+              <p>{step === "password" ? "Enter your password to get started." : "Enter your GitHub token to enable approvals."}</p>
+              <input
+                className="token-input"
+                type="password"
+                placeholder={step === "password" ? "Enter password" : "ghp_xxxxxxxxxxxx"}
+                value={tokenInput}
+                onChange={e => setTokenInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleTokenSubmit()}
+              />
+              <button className="btn btn-primary" onClick={handleTokenSubmit}>Continue</button>
+              {error && <div className="error-msg">{error}</div>}
+            </div>
+          </>
+        ) : (
+          <div className="app-layout">
+            <div className="nav-bar">
+              <div className="nav-tabs">
+                {pages.map(p => (
+                  <button key={p.id} className={`nav-btn ${activePage === p.id ? "active" : ""}`} onClick={() => setActivePage(p.id)}>
+                    {p.label}
+                  </button>
+                ))}
               </div>
-              <div className="token-gate">
-                <h2>Sign In</h2>
-                <p>{step === "password" ? "Enter your password to get started." : "Enter your GitHub token to enable approvals."}</p>
-                <input
-                  className="token-input"
-                  type="password"
-                  placeholder={step === "password" ? "Enter password" : "ghp_xxxxxxxxxxxx"}
-                  value={tokenInput}
-                  onChange={e => setTokenInput(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && handleTokenSubmit()}
-                />
-                <button className="btn btn-primary" onClick={handleTokenSubmit}>Continue</button>
-                {error && <div className="error-msg">{error}</div>}
-              </div>
-            </>
-          ) : (
-            <div className="app-layout">
-              {/* Sidebar Nav */}
-              <div className="nav-bar">
-                <div className="nav-tabs">
-                  {pages.map(p => (
-                    <button key={p.id} className={`nav-btn ${activePage === p.id ? "active" : ""}`} onClick={() => setActivePage(p.id)}>
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="nav-select-wrap">
-                  <select className="nav-select" value={activePage} onChange={e => setActivePage(e.target.value)}>
-                    {pages.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-                  </select>
-                </div>
-              </div>
-  
-              {/* Page header */}
-              <div className="header app-header">
-                <p className="header-eyebrow">{currentHeader.eyebrow}</p>
-                <h1>{currentHeader.h1}</h1>
-                <p className="header-sub">{currentHeader.sub}</p>
-              </div>
-  
-              {/* Page content */}
-              <div className="app-content">
-                {activePage === "pets"        && <PetsPage        token={token} onApprove={(n) => markApproved("pets", n)}        onUnapprove={(n) => markUnapproved("pets", n)}        approvedSections={approvedSections} onNewslettersLoaded={setPetNewsletters} />}
-                {activePage === "restaurants" && <RestaurantsPage token={token} onApprove={(n) => markApproved("restaurants", n)} onUnapprove={(n) => markUnapproved("restaurants", n)} approvedSections={approvedSections} onNewslettersLoaded={setRestNewsletters} />}
+              <div className="nav-select-wrap">
+                <select className="nav-select" value={activePage} onChange={e => setActivePage(e.target.value)}>
+                  {pages.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+                </select>
               </div>
             </div>
-          )}
-        </div>
-      </>
-    );
-  }
+
+            <div className="header app-header">
+              <p className="header-eyebrow">{currentHeader.eyebrow}</p>
+              <h1>{currentHeader.h1Prefix}<br/><em>{currentHeader.h1Emphasis}</em></h1>
+              <p className="header-sub">{currentHeader.sub}</p>
+            </div>
+
+            <div className="app-content">
+              <ReviewPage
+                key={activePage}
+                config={currentConfig}
+                token={token}
+                onApprove={(n) => markApproved(currentConfig.sectionPrefix, n)}
+                onUnapprove={(n) => markUnapproved(currentConfig.sectionPrefix, n)}
+                approvedSections={approvedSections}
+                onNewslettersLoaded={(nls) => handleNewslettersLoaded(activePage, nls)}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
