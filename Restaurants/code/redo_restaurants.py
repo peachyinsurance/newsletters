@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-import os, sys
+import os
+import sys
+import requests
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'Code'))
 from notion_helper import redo_restaurant_selection
-import requests
 
 NEWSLETTER_NAME = os.environ["NEWSLETTER_NAME"]
 GITHUB_TOKEN    = os.environ["GITHUB_TOKEN"]
