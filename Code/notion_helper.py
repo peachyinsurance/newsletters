@@ -192,18 +192,16 @@ def save_pets_to_notion(results: list, newsletter_name: str) -> None:
     print(f"Saving {len(results)} pets to Notion...")
     existing_urls = get_existing_pet_urls(newsletter_name)
     print(f"  Found {len(existing_urls)} existing entries to skip")
-
     saved = 0
     for data in results:
-        source_url = data.get("listing_url") or data.get("source_url", "")
+        source_url = data.get("source_url") or data.get("listing_url", "")
         if source_url and source_url in existing_urls:
             print(f"  ✗ Skipping duplicate: {data.get('pet_name')}")
             continue
-
         properties = {
-            "Name": {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - {data.get('pet_name', '')}"}}]},
-            "Source URL":   {"url": data.get("source_url") or None},
-            "Listing URL":  {"url": data.get("listing_url") or None},
+            "Name":               {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - {data.get('pet_name', '')}"}}]},
+            "Source URL":         {"url": data.get("source_url") or None},
+            "Listing URL":        {"url": data.get("listing_url") or None},
             "Shelter":            {"rich_text": [{"text": {"content": safe_str(data.get("shelter_name"))}}]},
             "Blurb":              {"rich_text": [{"text": {"content": safe_str(data.get("blurb"))[:2000]}}]},
             "Shelter Address":    {"rich_text": [{"text": {"content": safe_str(data.get("shelter_address"))}}]},
@@ -268,24 +266,20 @@ def approve_pet_in_notion(source_url: str) -> None:
         print(f"{new_status}: {name}")
         
 def get_existing_pet_urls(newsletter_name: str) -> set:
-    """Get source URLs of all pending and approved pets to avoid duplicates."""
-    try:
-        pages = query_database(NOTION_PETS_DB_ID, filters={
-            "property": "Newsletter",
-            "select":   {"equals": newsletter_name}
-        })
-        urls = set()
-        for page in pages:
-            status = page["properties"].get("Status", {}).get("select", {})
-            if status and status.get("name") == "rejected":
-                continue
-            url = page["properties"].get("Source URL", {}).get("url", "")
-            if url:
-                urls.add(url)
-        return urls
-    except Exception as e:
-        print(f"  Warning: could not load existing URLs: {e}")
-        return set()
+    pages = query_database(NOTION_PETS_DB_ID, filters={
+        "property": "Newsletter",
+        "select":   {"equals": newsletter_name}
+    })
+    urls = set()
+    for page in pages:
+        props  = page["properties"]
+        status = props.get("Status", {}).get("select", {})
+        if status and status.get("name") == "rejected":
+            continue
+        url = props.get("Source URL", {}).get("url", "")
+        if url:
+            urls.add(url)
+    return urls
 
 def redo_pet_selection(newsletter_name: str) -> None:
     """Reset all approved/rejected pets for a newsletter back to pending."""
