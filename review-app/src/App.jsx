@@ -261,71 +261,6 @@ function PetTile({ pet, onApprove, approving, approved }) {
   );
 }
 
-// ── RESTAURANT TILE ───────────────────────────────────────────────────────────
-function RestaurantTile({ restaurant, onApprove, approving, approved }) {
-  const localStatus = restaurant._localStatus;
-  const bullets     = parseBullets(restaurant.scoring_notes);
-  const total       = restaurant.total_score ? parseInt(restaurant.total_score) : null;
-  const rating      = parseFloat(restaurant.rating) || 0;
-  const price       = priceLabel(restaurant.price_level);
-
-  return (
-    <div className={`tile ${localStatus === "approved" ? "approved" : localStatus === "rejected" ? "rejected" : ""}`}>
-      {localStatus === "approved" && <div className="tile-badge">✓ Approved</div>}
-      <div className="tile-photo">
-        {restaurant.photo_url ? <img src={restaurant.photo_url} alt={restaurant.restaurant_name} /> : <span>No photo available</span>}
-      </div>
-      <div className="tile-body">
-        <div className="tile-meta">
-          {restaurant.cuisine_type && <span className="tile-cuisine">{restaurant.cuisine_type}</span>}
-          {rating > 0 && (
-            <span className="tile-rating">
-              <span style={{color: "#F4A523"}}>{"★".repeat(Math.floor(rating))}{"☆".repeat(5 - Math.floor(rating))}</span>
-              &nbsp;{rating} ({parseInt(restaurant.review_count || 0).toLocaleString()})
-            </span>
-          )}
-          {price && <span className="tile-price">{price}</span>}
-        </div>
-        <div className="tile-name">{restaurant.restaurant_name}</div>
-        {total !== null && (
-          <div className="score-bar">
-            <div className="score-total">{total}<span>/40</span></div>
-            <div className="score-pills">
-              {restaurant.appeal_score           && <span className="score-pill">✨ Appeal {restaurant.appeal_score}</span>}
-              {restaurant.uniqueness_score       && <span className="score-pill">🌟 Unique {restaurant.uniqueness_score}</span>}
-              {restaurant.neighborhood_fit_score && <span className="score-pill">🏘 Fit {restaurant.neighborhood_fit_score}</span>}
-              {restaurant.festive_score          && <span className="score-pill">🎉 Festive {restaurant.festive_score}</span>}
-            </div>
-          </div>
-        )}
-        {bullets.length > 0 && (
-          <div className="scoring-notes">
-            <div className="scoring-notes-label">Why feature this restaurant</div>
-            <ul>{bullets.map((b, i) => <li key={i}>{b}</li>)}</ul>
-          </div>
-        )}
-        <div className="tile-blurb">{restaurant.blurb}</div>
-        <div className="tile-info">
-          {restaurant.address && <div>{restaurant.address}</div>}
-          {restaurant.phone   && <div>{restaurant.phone}</div>}
-          {restaurant.hours   && <div style={{marginTop: 4, fontSize: 11}}>{restaurant.hours}</div>}
-          {restaurant.website_url && <a className="tile-link" href={restaurant.website_url} target="_blank" rel="noreferrer">Visit website →</a>}
-        </div>
-        {restaurant.google_maps_url && (
-          <a className="btn-maps" href={restaurant.google_maps_url} target="_blank" rel="noreferrer">
-            📍 View on Google Maps
-          </a>
-        )}
-        {!approved && (
-          <button className="btn btn-approve" onClick={() => onApprove(restaurant)} disabled={approving === restaurant.place_id}>
-            {approving === restaurant.place_id ? "Approving..." : "Approve this restaurant"}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── RESTAURANTS PAGE ──────────────────────────────────────────────────────────
 function RestaurantsPage({ token, onApprove, onUnapprove, approvedSections, onNewslettersLoaded }) {
   const [restaurants, setRestaurants]       = useState([]);
@@ -336,26 +271,19 @@ function RestaurantsPage({ token, onApprove, onUnapprove, approvedSections, onNe
   const [error, setError]                   = useState("");
   const [success, setSuccess]               = useState("");
   const [redoing, setRedoing]               = useState(false);
-  const [approvedMap, setApprovedMap] = useState(() => {
-  const map = {};
-  Object.keys(approvedSections).forEach(key => {
-    if (key.startsWith("restaurants:")) {
-      map[key.replace("restaurants:", "")] = "__previously_approved__";
-    }
+  const [approvedMap, setApprovedMap]       = useState(() => {
+    const map = {};
+    const savedApprovals = JSON.parse(localStorage.getItem("approved_restaurant_ids") || "{}");
+    Object.keys(approvedSections).forEach(key => {
+      if (key.startsWith("restaurants:")) {
+        const nl = key.replace("restaurants:", "");
+        map[nl] = savedApprovals[nl] || "__previously_approved__";
+      }
+    });
+    return map;
   });
-  return map;
-});
 
   useEffect(() => { fetchRestaurants(); }, []);
-
-  // Per-newsletter: detect previously approved newsletters on switch
-  useEffect(() => {
-    if (!selectedNewsletter) return;
-    const hasPending = restaurants.some(r => r.newsletter_name === selectedNewsletter);
-    if (approvedSections[`restaurants:${selectedNewsletter}`] && !hasPending) {
-      setApprovedMap(prev => ({ ...prev, [selectedNewsletter]: "__previously_approved__" }));
-    }
-  }, [selectedNewsletter, restaurants]);
 
   async function fetchRestaurants() {
     setLoading(true);
@@ -366,16 +294,26 @@ function RestaurantsPage({ token, onApprove, onUnapprove, approvedSections, onNe
       const pending      = rows.filter(r => r.status === "pending");
       const pendingNames = [...new Set(pending.map(r => r.newsletter_name).filter(Boolean))];
 
-      // Also include newsletters approved this session
       const approvedNames = Object.keys(approvedSections)
         .filter(k => k.startsWith("restaurants:"))
         .map(k => k.replace("restaurants:", ""));
 
       const allNames = [...new Set([...pendingNames, ...approvedNames])];
 
+      // Restore _localStatus for previously approved restaurants
+      const savedApprovals = JSON.parse(localStorage.getItem("approved_restaurant_ids") || "{}");
+      const restoredPending = pending.map(r => {
+        const savedId = savedApprovals[r.newsletter_name];
+        if (savedId && savedId !== "__previously_approved__") {
+          if (r.place_id === savedId) return { ...r, _localStatus: "approved" };
+          return { ...r, _localStatus: "rejected" };
+        }
+        return r;
+      });
+
       setNewsletters(allNames);
       if (allNames.length > 0) setNewsletter(prev => prev || allNames[0]);
-      setRestaurants(pending);
+      setRestaurants(restoredPending);
       onNewslettersLoaded(allNames);
     } catch (e) {
       setError("Could not load restaurants data.");
@@ -397,6 +335,9 @@ function RestaurantsPage({ token, onApprove, onUnapprove, approvedSections, onNe
       if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
       setApprovedMap(prev => ({ ...prev, [selectedNewsletter]: restaurant.place_id }));
       setSuccess(`${restaurant.restaurant_name} approved!`);
+      const savedApprovals = JSON.parse(localStorage.getItem("approved_restaurant_ids") || "{}");
+      savedApprovals[selectedNewsletter] = restaurant.place_id;
+      localStorage.setItem("approved_restaurant_ids", JSON.stringify(savedApprovals));
       setRestaurants(prev => prev.map(r => {
         if (r.newsletter_name !== selectedNewsletter) return r;
         return { ...r, _localStatus: r.place_id === restaurant.place_id ? "approved" : "rejected" };
@@ -429,6 +370,9 @@ function RestaurantsPage({ token, onApprove, onUnapprove, approvedSections, onNe
             clearInterval(poll);
             setApprovedMap(prev => { const next = { ...prev }; delete next[selectedNewsletter]; return next; });
             onUnapprove(selectedNewsletter);
+            const savedApprovals = JSON.parse(localStorage.getItem("approved_restaurant_ids") || "{}");
+            delete savedApprovals[selectedNewsletter];
+            localStorage.setItem("approved_restaurant_ids", JSON.stringify(savedApprovals));
             setRedoing(false);
             setRestaurants(rows.filter(r => r.status === "pending"));
           }
@@ -488,7 +432,6 @@ function RestaurantsPage({ token, onApprove, onUnapprove, approvedSections, onNe
           <div className="status-bar" style={{background: "#EFF7F0", border: "1px solid #C0DFC4", marginBottom: 24}}>
             <strong>✅ Winner selected!</strong> — approved and sent to Notion
           </div>
-          {/* Show winner tile if selected this session, otherwise show message */}
           {visibleRest.filter(r => r._localStatus === "approved").length > 0 ? (
             <div className="tiles">
               {visibleRest.filter(r => r._localStatus === "approved").map((r, idx) => (
@@ -500,14 +443,12 @@ function RestaurantsPage({ token, onApprove, onUnapprove, approvedSections, onNe
               <p style={{color: "#6B5744", fontSize: 14}}>A winner was selected for this newsletter. Click Redo to change the selection.</p>
             </div>
           )}
-          {/* Redo button */}
           <div style={{textAlign: "center", marginTop: 32, marginBottom: 32}}>
             <button className="btn btn-redo" onClick={handleRedo} disabled={redoing}>
               {redoing ? "⏳ Resetting candidates..." : "🔄 Redo Selection"}
             </button>
             {redoing && <p style={{marginTop: 12, fontSize: 13, color: "#6B5744"}}>Updating Notion and refreshing data, this may take a minute...</p>}
           </div>
-          {/* Show all other candidates below, grayed out without approve buttons */}
           {visibleRest.filter(r => r._localStatus !== "approved").length > 0 && (
             <>
               <div className="default-winners-label" style={{textAlign: "center", marginBottom: 16}}>Other Candidates</div>
@@ -542,26 +483,19 @@ function PetsPage({ token, onApprove, onUnapprove, approvedSections, onNewslette
   const [error, setError]                   = useState("");
   const [success, setSuccess]               = useState("");
   const [redoing, setRedoing]               = useState(false);
-  const [approvedMap, setApprovedMap] = useState(() => {
-  const map = {};
-  Object.keys(approvedSections).forEach(key => {
-    if (key.startsWith("pets:")) {
-      map[key.replace("pets:", "")] = "__previously_approved__";
-    }
+  const [approvedMap, setApprovedMap]       = useState(() => {
+    const map = {};
+    const savedApprovals = JSON.parse(localStorage.getItem("approved_pet_ids") || "{}");
+    Object.keys(approvedSections).forEach(key => {
+      if (key.startsWith("pets:")) {
+        const nl = key.replace("pets:", "");
+        map[nl] = savedApprovals[nl] || "__previously_approved__";
+      }
+    });
+    return map;
   });
-  return map;
-});
 
   useEffect(() => { fetchPets(); }, []);
-
-  // Per-newsletter: detect previously approved newsletters on switch
-  useEffect(() => {
-    if (!selectedNewsletter) return;
-    const hasPending = pets.some(p => p.newsletter_name === selectedNewsletter);
-    if (approvedSections[`pets:${selectedNewsletter}`] && !hasPending) {
-      setApprovedMap(prev => ({ ...prev, [selectedNewsletter]: "__previously_approved__" }));
-    }
-  }, [selectedNewsletter, pets]);
 
   async function fetchPets() {
     setLoading(true);
@@ -571,15 +505,27 @@ function PetsPage({ token, onApprove, onUnapprove, approvedSections, onNewslette
       const rows    = await res.json();
       const pending = rows.filter(r => r.status === "pending");
       const pendingNames = [...new Set(pending.map(r => r.newsletter_name).filter(Boolean))];
-  
+
       const approvedNames = Object.keys(approvedSections)
         .filter(k => k.startsWith("pets:"))
         .map(k => k.replace("pets:", ""));
-  
+
       const allNames = [...new Set([...pendingNames, ...approvedNames])];
+
+      // Restore _localStatus for previously approved pets
+      const savedApprovals = JSON.parse(localStorage.getItem("approved_pet_ids") || "{}");
+      const restoredPending = pending.map(p => {
+        const savedId = savedApprovals[p.newsletter_name];
+        if (savedId && savedId !== "__previously_approved__") {
+          if (p.source_url === savedId) return { ...p, _localStatus: "approved" };
+          return { ...p, _localStatus: "rejected" };
+        }
+        return p;
+      });
+
       setNewsletters(allNames);
       if (allNames.length > 0) setNewsletter(prev => prev || allNames[0]);
-      setPets(pending);
+      setPets(restoredPending);
       onNewslettersLoaded(allNames);
     } catch (e) {
       setError("Could not load pets data.");
@@ -601,6 +547,9 @@ function PetsPage({ token, onApprove, onUnapprove, approvedSections, onNewslette
       if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
       setApprovedMap(prev => ({ ...prev, [selectedNewsletter]: pet.source_url }));
       setSuccess(`${pet.pet_name} approved!`);
+      const savedApprovals = JSON.parse(localStorage.getItem("approved_pet_ids") || "{}");
+      savedApprovals[selectedNewsletter] = pet.source_url;
+      localStorage.setItem("approved_pet_ids", JSON.stringify(savedApprovals));
       setPets(prev => prev.map(p => {
         if (p.newsletter_name !== selectedNewsletter) return p;
         return { ...p, _localStatus: p.source_url === pet.source_url ? "approved" : "rejected" };
@@ -612,7 +561,7 @@ function PetsPage({ token, onApprove, onUnapprove, approvedSections, onNewslette
       setApproving(null);
     }
   }
-  
+
   async function handleRedo() {
     if (!token) return;
     setError("");
@@ -633,6 +582,9 @@ function PetsPage({ token, onApprove, onUnapprove, approvedSections, onNewslette
             clearInterval(poll);
             setApprovedMap(prev => { const next = { ...prev }; delete next[selectedNewsletter]; return next; });
             onUnapprove(selectedNewsletter);
+            const savedApprovals = JSON.parse(localStorage.getItem("approved_pet_ids") || "{}");
+            delete savedApprovals[selectedNewsletter];
+            localStorage.setItem("approved_pet_ids", JSON.stringify(savedApprovals));
             setRedoing(false);
             setPets(rows.filter(p => p.status === "pending"));
           }
@@ -704,7 +656,6 @@ function PetsPage({ token, onApprove, onUnapprove, approvedSections, onNewslette
             <div className="status-bar" style={{background: "#EFF7F0", border: "1px solid #C0DFC4", marginBottom: 24}}>
               <strong>✅ Winner selected!</strong> — approved and sent to Notion
             </div>
-            {/* Show winner tile if selected this session, otherwise show message */}
             {candidates.filter(p => p._localStatus === "approved").length > 0 ? (
               <div className="tiles">
                 {candidates.filter(p => p._localStatus === "approved").map((pet, idx) => (
@@ -716,14 +667,12 @@ function PetsPage({ token, onApprove, onUnapprove, approvedSections, onNewslette
                 <p style={{color: "#6B5744", fontSize: 14}}>A winner was selected for this newsletter. Click Redo to change the selection.</p>
               </div>
             )}
-            {/* Redo button */}
             <div style={{textAlign: "center", marginTop: 32, marginBottom: 32}}>
               <button className="btn btn-redo" onClick={handleRedo} disabled={redoing}>
                 {redoing ? "⏳ Resetting candidates..." : "🔄 Redo Selection"}
               </button>
               {redoing && <p style={{marginTop: 12, fontSize: 13, color: "#6B5744"}}>Updating Notion and refreshing data, this may take a minute...</p>}
             </div>
-            {/* Show all other candidates below, grayed out without approve buttons */}
             {candidates.filter(p => p._localStatus !== "approved").length > 0 && (
               <>
                 <div className="default-winners-label" style={{textAlign: "center", marginBottom: 16}}>Other Candidates</div>
@@ -798,8 +747,6 @@ export default function App() {
     }
   }
 
-  // Only show tab checkmark if we have loaded newsletters AND all of them are approved
-  // Require at least the known number of newsletters (2) to avoid false positives
   const EXPECTED_NEWSLETTERS = 2;
   const petsApproved = petNewsletters.length >= EXPECTED_NEWSLETTERS && petNewsletters.every(n => approvedSections[`pets:${n}`]);
   const restApproved = restNewsletters.length >= EXPECTED_NEWSLETTERS && restNewsletters.every(n => approvedSections[`restaurants:${n}`]);
