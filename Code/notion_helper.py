@@ -289,16 +289,20 @@ def get_existing_pet_urls(newsletter_name: str) -> set:
 
 def redo_pet_selection(newsletter_name: str) -> None:
     """Reset all approved/rejected pets for a newsletter back to pending."""
-    pages = query_database(NOTION_PETS_DB_ID, filters={
-        "property": "Newsletter",
-        "select":   {"equals": newsletter_name}
-    })
+    pages = query_database(NOTION_PETS_DB_ID)
     count = 0
     for page in pages:
         page_id    = page["id"]
         props      = page["properties"]
+        
+        # Only touch pages for this newsletter
+        newsletter = props.get("Newsletter", {}).get("select", {})
+        if not newsletter or newsletter.get("name") != newsletter_name:
+            continue
+        
         status     = props.get("Status", {}).get("select", {})
         status_name = status.get("name", "") if status else ""
+        
         if status_name in ("approved", "rejected"):
             update_page(page_id, {"Status": {"select": {"name": "pending"}}})
             name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
@@ -433,16 +437,20 @@ def approve_restaurant_in_notion(place_id: str) -> None:
 
 def redo_restaurant_selection(newsletter_name: str) -> None:
     """Reset all approved/rejected restaurants for a newsletter back to pending."""
-    pages = query_database(NOTION_RESTAURANTS_DB_ID, filters={
-        "property": "Newsletter",
-        "select":   {"equals": newsletter_name}
-    })
+    pages = query_database(NOTION_RESTAURANTS_DB_ID)
     count = 0
     for page in pages:
         page_id    = page["id"]
         props      = page["properties"]
+
+        # Only touch pages for this newsletter
+        newsletter = props.get("Newsletter", {}).get("select", {})
+        if not newsletter or newsletter.get("name") != newsletter_name:
+            continue
+
         status     = props.get("Status", {}).get("select", {})
         status_name = status.get("name", "") if status else ""
+
         if status_name in ("approved", "rejected"):
             update_page(page_id, {"Status": {"select": {"name": "pending"}}})
             name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
