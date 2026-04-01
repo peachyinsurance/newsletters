@@ -167,6 +167,7 @@ def setup_notion_databases():
         print("✓ Restaurants database schema created")
     else:
         print(f"✗ Restaurants schema error: {r.text[:300]}")
+        
 # ---------------------------------------------------------------------------
 # PETS HELPERS
 # ---------------------------------------------------------------------------
@@ -285,6 +286,26 @@ def get_existing_pet_urls(newsletter_name: str) -> set:
     except Exception as e:
         print(f"  Warning: could not load existing URLs: {e}")
         return set()
+
+def redo_pet_selection(newsletter_name: str) -> None:
+    """Reset all approved/rejected pets for a newsletter back to pending."""
+    pages = query_database(NOTION_PETS_DB_ID, filters={
+        "property": "Newsletter",
+        "select":   {"equals": newsletter_name}
+    })
+    count = 0
+    for page in pages:
+        page_id    = page["id"]
+        props      = page["properties"]
+        status     = props.get("Status", {}).get("select", {})
+        status_name = status.get("name", "") if status else ""
+        if status_name in ("approved", "rejected"):
+            update_page(page_id, {"Status": {"select": {"name": "pending"}}})
+            name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+            print(f"  Reset to pending: {name}")
+            count += 1
+    print(f"Reset {count} pets to pending for {newsletter_name}")
+
 # ---------------------------------------------------------------------------
 # RESTAURANTS HELPERS
 # ---------------------------------------------------------------------------
@@ -409,3 +430,22 @@ def approve_restaurant_in_notion(place_id: str) -> None:
         update_page(page_id, {"Status": {"select": {"name": new_status}}})
         name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
         print(f"{new_status}: {name}")
+
+def redo_restaurant_selection(newsletter_name: str) -> None:
+    """Reset all approved/rejected restaurants for a newsletter back to pending."""
+    pages = query_database(NOTION_RESTAURANTS_DB_ID, filters={
+        "property": "Newsletter",
+        "select":   {"equals": newsletter_name}
+    })
+    count = 0
+    for page in pages:
+        page_id    = page["id"]
+        props      = page["properties"]
+        status     = props.get("Status", {}).get("select", {})
+        status_name = status.get("name", "") if status else ""
+        if status_name in ("approved", "rejected"):
+            update_page(page_id, {"Status": {"select": {"name": "pending"}}})
+            name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+            print(f"  Reset to pending: {name}")
+            count += 1
+    print(f"Reset {count} restaurants to pending for {newsletter_name}")
