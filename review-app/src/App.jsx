@@ -393,18 +393,22 @@ export default function App() {
   const isAuthed = Boolean(token);
 
   function markApproved(section, newsletter) {
-    const key     = `${section}:${newsletter}`;
-    const updated = { ...approvedSections, [key]: true };
-    setApprovedSections(updated);
-    localStorage.setItem("approved_sections", JSON.stringify(updated));
+    const key = `${section}:${newsletter}`;
+    setApprovedSections(prev => {
+      const updated = { ...prev, [key]: true };
+      localStorage.setItem("approved_sections", JSON.stringify(updated));
+      return updated;
+    });
   }
 
   function markUnapproved(section, newsletter) {
-    const key     = `${section}:${newsletter}`;
-    const updated = { ...approvedSections };
-    delete updated[key];
-    setApprovedSections(updated);
-    localStorage.setItem("approved_sections", JSON.stringify(updated));
+    const key = `${section}:${newsletter}`;
+    setApprovedSections(prev => {
+      const updated = { ...prev };
+      delete updated[key];
+      localStorage.setItem("approved_sections", JSON.stringify(updated));
+      return updated;
+    });
   }
 
   async function handleTokenSubmit() {
