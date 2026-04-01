@@ -73,13 +73,15 @@ def export_pets():
     print(f"Exported {len(pets)} pending pets to pets.json")
 
 def export_restaurants():
-    pages = query_database(NOTION_RESTAURANTS_DB_ID, filters={
-        "property": "Status",
-        "select":   {"equals": "pending"}
-    })
+    pages = query_database(NOTION_RESTAURANTS_DB_ID)
 
     restaurants = []
     for page in pages:
+        props = page["properties"]
+        status = props.get("Status", {}).get("select", {})
+        status_name = status.get("name", "") if status else ""
+        if status_name != "pending":
+            continue
         props = page["properties"]
         restaurants.append({
             "place_id":               extract_text(props.get("Place ID", {})),
