@@ -34,14 +34,16 @@ def extract_text(prop) -> str:
     return ""
 
 def export_pets():
-    pages = query_database(NOTION_PETS_DB_ID, filters={
-        "property": "Status",
-        "select":   {"equals": "pending"}
-    })
+    # Fetch all pets, filter in Python
+    pages = query_database(NOTION_PETS_DB_ID)
 
     pets = []
     for page in pages:
         props = page["properties"]
+        status = props.get("Status", {}).get("select", {})
+        status_name = status.get("name", "") if status else ""
+        if status_name != "pending":
+            continue
         pets.append({
             "source_url":       extract_text(props.get("Source URL", {})),
             "pet_name":         extract_text(props.get("Name", {})),
