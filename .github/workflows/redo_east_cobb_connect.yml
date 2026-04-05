@@ -1,10 +1,10 @@
-name: Redo Restaurant Selection
+name: Redo East Cobb Connect
 
 on:
   workflow_dispatch:
     inputs:
-      newsletter_name:
-        description: 'Newsletter name to reset'
+      section:
+        description: 'Section to reset (pets or restaurants)'
         required: true
 
 jobs:
@@ -19,11 +19,12 @@ jobs:
 
       - run: pip install requests
 
-      - name: Redo restaurant selection and update gh-pages JSON
+      - name: Redo section and update gh-pages JSON
         env:
           NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
           NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
-          NEWSLETTER_NAME:          ${{ github.event.inputs.newsletter_name }}
+          NEWSLETTER_NAME:          East_Cobb_Connect
+          SECTION:                  ${{ github.event.inputs.section }}
           GITHUB_TOKEN:             ${{ secrets.PAT_TOKEN }}
-        run: python Restaurants/code/redo_restaurants.py
+        run: python Code/redo_section.py

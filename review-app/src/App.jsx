@@ -16,7 +16,8 @@ const SECTIONS = {
     nameField:       "pet_name",
     approveWorkflow: "approve_pet.yml",
     approveInputs:   (item) => ({ source_url: item.source_url }),
-    redoWorkflow:    "redo_pets.yml",
+    redoWorkflow:    (newsletter) => `redo_${newsletter.toLowerCase()}.yml`,
+    redoSection:     "pets",
     storageKey:      "approved_pet_ids",
     sectionPrefix:   "pets",
     TileComponent:   PetTile,
@@ -68,7 +69,8 @@ const SECTIONS = {
     nameField:       "restaurant_name",
     approveWorkflow: "approve_restaurant.yml",
     approveInputs:   (item) => ({ place_id: item.place_id }),
-    redoWorkflow:    "redo_restaurants.yml",
+    redoWorkflow:    (newsletter) => `redo_${newsletter.toLowerCase()}.yml`,
+    redoSection:     "restaurants",
     storageKey:      "approved_restaurant_ids",
     sectionPrefix:   "restaurants",
     TileComponent:   RestaurantTile,
@@ -222,10 +224,11 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
     setError("");
     setRedoing(true);
     try {
+      const workflowFile = config.redoWorkflow(selectedNewsletter);
       const res = await fetch(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${config.redoWorkflow}/dispatches`,
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${workflowFile}/dispatches`,
         { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
-          body: JSON.stringify({ ref: "main", inputs: { newsletter_name: selectedNewsletter } }) }
+          body: JSON.stringify({ ref: "main", inputs: { section: config.redoSection } }) }
       );
       if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
       pollRef.current = setInterval(async () => {
