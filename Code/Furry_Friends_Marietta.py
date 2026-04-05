@@ -87,7 +87,7 @@ async function pageFunction(context) {
                 },
                 timeout=APIFY_SCRAPER_TIMEOUT,
             )
-            if res.status_code != 200:
+            if res.status_code not in (200, 201):
                 print(f"  Apify error {res.status_code}: {res.text[:200]}")
                 if attempt < retries - 1:
                     time.sleep(3)
