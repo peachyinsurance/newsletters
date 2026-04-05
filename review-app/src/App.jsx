@@ -18,6 +18,8 @@ const SECTIONS = {
     approveInputs:   (item) => ({ source_url: item.source_url }),
     redoWorkflow:    (newsletter) => `redo_${newsletter.toLowerCase()}.yml`,
     redoSection:     "pets",
+    approvedStatus:  "approved",
+    rejectedStatus:  "rejected",
     storageKey:      "approved_pet_ids",
     sectionPrefix:   "pets",
     TileComponent:   PetTile,
@@ -71,6 +73,8 @@ const SECTIONS = {
     approveInputs:   (item) => ({ place_id: item.place_id }),
     redoWorkflow:    (newsletter) => `redo_${newsletter.toLowerCase()}.yml`,
     redoSection:     "restaurants",
+    approvedStatus:  "Tier 1 Winner",
+    rejectedStatus:  "Tier 2 Winner",
     storageKey:      "approved_restaurant_ids",
     sectionPrefix:   "restaurants",
     TileComponent:   RestaurantTile,
@@ -152,10 +156,12 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
 
       const allNames = [...new Set(rows.map(r => r.newsletter_name).filter(Boolean))];
 
+      const approvedLower = config.approvedStatus.toLowerCase();
+      const rejectedLower = config.rejectedStatus.toLowerCase();
       const withStatus = rows.map(item => {
         const s = (item.status || "").toLowerCase();
-        if (s === "approved") return { ...item, _localStatus: "approved" };
-        if (s === "rejected") return { ...item, _localStatus: "rejected" };
+        if (s === approvedLower) return { ...item, _localStatus: "approved" };
+        if (s === rejectedLower) return { ...item, _localStatus: "rejected" };
         return item;
       });
 
@@ -203,13 +209,13 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
       const fileInfo = await fileRes.json();
       const rows = JSON.parse(atob(fileInfo.content.replace(/\n/g, "")));
 
-      // 2. Set approved/rejected statuses for this newsletter
+      // 2. Set statuses for this newsletter (uses section-specific status names)
       for (const row of rows) {
         if (row.newsletter_name !== selectedNewsletter) continue;
         if (row[config.idField] === itemId) {
-          row.status = "approved";
+          row.status = config.approvedStatus;
         } else if (row.status === "pending" || row.status === "Pending") {
-          row.status = "rejected";
+          row.status = config.rejectedStatus;
         }
       }
 
@@ -232,10 +238,12 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
       const savedApprovals = JSON.parse(localStorage.getItem(config.storageKey) || "{}");
       savedApprovals[selectedNewsletter] = itemId;
       localStorage.setItem(config.storageKey, JSON.stringify(savedApprovals));
+      const aLower = config.approvedStatus.toLowerCase();
+      const rLower = config.rejectedStatus.toLowerCase();
       setItems(rows.map(row => {
         const s = (row.status || "").toLowerCase();
-        if (s === "approved") return { ...row, _localStatus: "approved" };
-        if (s === "rejected") return { ...row, _localStatus: "rejected" };
+        if (s === aLower) return { ...row, _localStatus: "approved" };
+        if (s === rLower) return { ...row, _localStatus: "rejected" };
         return { ...row, _localStatus: undefined };
       }));
       onApprove(selectedNewsletter);
@@ -269,7 +277,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
       let changed = 0;
       for (const item of rows) {
         if (item.newsletter_name === selectedNewsletter) {
-          if (["approved", "rejected", "Approved", "Rejected"].includes(item.status)) {
+          if (["approved", "rejected", "Approved", "Rejected", "Tier 1 Winner", "Tier 2 Winner"].includes(item.status)) {
             item.status = "pending";
             changed++;
           }

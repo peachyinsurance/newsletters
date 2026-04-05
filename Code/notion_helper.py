@@ -63,6 +63,17 @@ def create_page(db_id: str, properties: dict) -> dict:
     r.raise_for_status()
     return r.json()
 
+def archive_page(page_id: str) -> dict:
+    """Archive (soft-delete) a Notion page."""
+    r = requests.patch(
+        f"https://api.notion.com/v1/pages/{page_id}",
+        headers=HEADERS,
+        json={"archived": True},
+        timeout=30
+    )
+    r.raise_for_status()
+    return r.json()
+
 def safe_str(value) -> str:
     """Convert any value to a safe non-null string."""
     if value is None:
@@ -126,9 +137,9 @@ def setup_notion_databases():
         "Price Level":            {"select": {}},
         "Date Generated":         {"date": {}},
         "Status":                 {"select": {"options": [
-            {"name": "pending",  "color": "yellow"},
-            {"name": "approved", "color": "green"},
-            {"name": "rejected", "color": "red"}
+            {"name": "pending",        "color": "yellow"},
+            {"name": "Tier 1 Winner",  "color": "green"},
+            {"name": "Tier 2 Winner",  "color": "blue"}
         ]}},
         "Section":                {"select": {"options": [{"name": "restaurant_blurb", "color": "blue"}]}},
         "Newsletter":             {"select": {"options": [
@@ -304,18 +315,30 @@ def redo_pet_selection(newsletter_name: str) -> None:
             count += 1
     print(f"Reset {count} pets to pending for {newsletter_name}")
 
+def cleanup_pets_notion() -> None:
+    """Delete all pet entries that are not approved."""
+    pages = query_database(NOTION_PETS_DB_ID)
+    count = 0
+    for page in pages:
+        status = page["properties"].get("Status", {}).get("select", {})
+        status_name = status.get("name", "") if status else ""
+        if status_name == "approved":
+            continue
+        name = page["properties"].get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+        archive_page(page["id"])
+        print(f"  Archived: {name} (status: {status_name})")
+        count += 1
+    print(f"Archived {count} non-approved pets")
+
 # ---------------------------------------------------------------------------
 # RESTAURANTS HELPERS
 # ---------------------------------------------------------------------------
 def get_featured_place_ids(newsletter_name: str) -> set:
-    cutoff = (datetime.today() - timedelta(weeks=8)).strftime("%Y-%m-%d")
+    """Get ALL place IDs in Notion for this newsletter to prevent duplicates."""
     try:
         pages = query_database(NOTION_RESTAURANTS_DB_ID, filters={
-            "and": [
-                {"property": "Status",     "status":   {"equals": "approved"}},
-                {"property": "Newsletter", "select":   {"equals": newsletter_name}},
-                {"property": "Date Generated", "date": {"on_or_after": cutoff}}
-            ]
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
         })
     except Exception:
         return set()
@@ -324,11 +347,11 @@ def get_featured_place_ids(newsletter_name: str) -> set:
         pid = page["properties"].get("Place ID", {}).get("rich_text", [{}])
         if pid:
             place_ids.add(pid[0].get("text", {}).get("content", ""))
-    print(f"Loaded {len(place_ids)} featured restaurants to exclude")
+    print(f"Loaded {len(place_ids)} existing restaurants to exclude")
     return place_ids
 
 def get_existing_place_ids(newsletter_name: str) -> set:
-    """Get place IDs of all non-rejected restaurants to avoid duplicates."""
+    """Get ALL place IDs in Notion for this newsletter to avoid duplicates."""
     try:
         pages = query_database(NOTION_RESTAURANTS_DB_ID, filters={
             "property": "Newsletter",
@@ -336,9 +359,6 @@ def get_existing_place_ids(newsletter_name: str) -> set:
         })
         place_ids = set()
         for page in pages:
-            status = page["properties"].get("Status", {}).get("select", {})
-            if status and status.get("name") == "rejected":
-                continue
             pid = page["properties"].get("Place ID", {}).get("rich_text", [])
             if pid:
                 place_ids.add(pid[0].get("text", {}).get("content", ""))
@@ -391,10 +411,10 @@ def save_restaurants_to_notion(results: list, newsletter_name: str) -> None:
     print(f"Saved {saved} new restaurants to Notion")
     
 def approve_restaurant_in_notion(place_id: str) -> None:
-    """Set approved restaurant to approved, all others in same newsletter to rejected."""
+    """Set selected restaurant to Tier 1 Winner, others in same newsletter to Tier 2 Winner."""
     pages = query_database(NOTION_RESTAURANTS_DB_ID)
 
-    # First find the approved restaurant to get its newsletter
+    # First find the selected restaurant to get its newsletter
     approved_newsletter = None
     for page in pages:
         props     = page["properties"]
@@ -405,7 +425,7 @@ def approve_restaurant_in_notion(place_id: str) -> None:
             approved_newsletter = newsletter.get("name", "") if newsletter else ""
             break
 
-    print(f"Approving for newsletter: {approved_newsletter}")
+    print(f"Selecting Tier 1 for newsletter: {approved_newsletter}")
 
     for page in pages:
         page_id    = page["id"]
@@ -416,7 +436,6 @@ def approve_restaurant_in_notion(place_id: str) -> None:
         if status_name != "pending":
             continue
 
-        # Only reject restaurants from the same newsletter
         newsletter  = props.get("Newsletter", {}).get("select", {})
         newsletter_name = newsletter.get("name", "") if newsletter else ""
         if newsletter_name != approved_newsletter:
@@ -424,13 +443,13 @@ def approve_restaurant_in_notion(place_id: str) -> None:
 
         pid_prop      = props.get("Place ID", {}).get("rich_text", [])
         page_place_id = pid_prop[0].get("text", {}).get("content", "") if pid_prop else ""
-        new_status    = "approved" if page_place_id == place_id else "rejected"
+        new_status    = "Tier 1 Winner" if page_place_id == place_id else "Tier 2 Winner"
         update_page(page_id, {"Status": {"select": {"name": new_status}}})
         name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
         print(f"{new_status}: {name}")
 
 def redo_restaurant_selection(newsletter_name: str) -> None:
-    """Reset all approved/rejected restaurants for a newsletter back to pending."""
+    """Reset all Tier 1/Tier 2 restaurants for a newsletter back to pending."""
     pages = query_database(NOTION_RESTAURANTS_DB_ID)
     count = 0
     for page in pages:
@@ -445,9 +464,26 @@ def redo_restaurant_selection(newsletter_name: str) -> None:
         status     = props.get("Status", {}).get("select", {})
         status_name = status.get("name", "") if status else ""
 
-        if status_name in ("approved", "rejected"):
+        if status_name in ("Tier 1 Winner", "Tier 2 Winner"):
             update_page(page_id, {"Status": {"select": {"name": "pending"}}})
             name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
             print(f"  Reset to pending: {name}")
             count += 1
     print(f"Reset {count} restaurants to pending for {newsletter_name}")
+
+def cleanup_old_restaurants_notion() -> None:
+    """Delete restaurant entries older than 8 weeks."""
+    cutoff = (datetime.today() - timedelta(weeks=8)).strftime("%Y-%m-%d")
+    pages = query_database(NOTION_RESTAURANTS_DB_ID, filters={
+        "property": "Date Generated",
+        "date":     {"before": cutoff}
+    })
+    count = 0
+    for page in pages:
+        name = page["properties"].get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+        date_prop = page["properties"].get("Date Generated", {}).get("date", {})
+        date_str = date_prop.get("start", "") if date_prop else ""
+        archive_page(page["id"])
+        print(f"  Archived: {name} (generated: {date_str})")
+        count += 1
+    print(f"Archived {count} restaurants older than 8 weeks")

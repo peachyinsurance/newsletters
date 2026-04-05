@@ -237,17 +237,57 @@ def parse_petfinder_html(html: str, species: str) -> list[dict]:
     return pets
 
 
-def scrape_pet_detail(pet_url: str) -> dict:
-    """Scrape a single Petfinder pet detail page for description and shelter info."""
-    html = fetch_html_apify(pet_url, retries=1)
-    if not html:
+def fetch_html_batch_apify(urls: list[str]) -> dict[str, str]:
+    """Fetch multiple pages in a single Apify run. Returns {url: html} dict."""
+    if not urls:
+        return {}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {APIFY_API_KEY}",
+    }
+    print(f"  Batch-fetching {len(urls)} pages in one Apify run...")
+    try:
+        res = requests.post(
+            "https://api.apify.com/v2/acts/apify~web-scraper/run-sync-get-dataset-items",
+            headers=headers,
+            json={
+                "startUrls": [{"url": u} for u in urls],
+                "pageFunction": """
+async function pageFunction(context) {
+    return {
+        url: context.request.url,
+        html: document.documentElement.outerHTML
+    };
+}
+""",
+                "maxConcurrency": 5,
+                "maxRequestsPerCrawl": len(urls),
+            },
+            timeout=APIFY_SCRAPER_TIMEOUT + (len(urls) * 15),
+        )
+        if res.status_code not in (200, 201):
+            print(f"  Batch Apify error {res.status_code}: {res.text[:200]}")
+            return {}
+        items = res.json()
+        result = {}
+        for item in items:
+            url = item.get("url", "")
+            html = item.get("html", "")
+            if url and html:
+                result[url] = html
+        print(f"  Batch returned {len(result)} pages")
+        return result
+    except requests.exceptions.ReadTimeout:
+        print(f"  Batch Apify timeout")
         return {}
 
+
+def parse_pet_detail_html(html: str) -> dict:
+    """Parse a single pet detail page HTML into a detail dict."""
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html, "html.parser")
     detail = {}
 
-    # Try __NEXT_DATA__ on detail page
     next_tag = soup.find("script", id="__NEXT_DATA__")
     if next_tag:
         try:
@@ -264,7 +304,6 @@ def scrape_pet_detail(pet_url: str) -> dict:
                 detail["org_phone"] = contact.get("phone", "")
                 detail["org_email"] = contact.get("email", "")
                 detail["org_name"] = animal.get("organization_id", "")
-                # Get more photos
                 photos = []
                 for p in (animal.get("photos") or []):
                     url = p.get("large") or p.get("full") or p.get("medium") or ""
@@ -278,13 +317,11 @@ def scrape_pet_detail(pet_url: str) -> dict:
                 detail["breed"] = (animal.get("breeds") or {}).get("primary", "")
                 return detail
         except Exception as e:
-            print(f"    Detail __NEXT_DATA__ error: {e}")
+            print(f"    Detail parse error: {e}")
 
-    # Fallback: parse detail page DOM
     desc_el = soup.select_one("[data-test='Pet_Story_Section'], [class*='description'], [class*='Description']")
     if desc_el:
         detail["description"] = desc_el.get_text(strip=True)
-
     return detail
 
 
@@ -292,6 +329,7 @@ def fetch_petfinder_apify(species: str, excluded_urls: set, state: str, zip_code
     """Scrape Petfinder via Apify and return pet profiles."""
     print(f"\n--- Fetching {species}s from Petfinder via Apify ---")
 
+    # Step 1: Scrape search page (1 Apify call)
     search_url = f"https://www.petfinder.com/search/{species.lower()}s-for-adoption/us/{state}/{zip_code}/"
     html = fetch_html_apify(search_url)
     if not html:
@@ -300,7 +338,7 @@ def fetch_petfinder_apify(species: str, excluded_urls: set, state: str, zip_code
     print(f"  Got {len(html)} chars of HTML")
     raw_items = parse_petfinder_html(html, species.lower())
 
-    # Filter out excluded pets, then scrape detail pages for descriptions
+    # Step 2: Filter out excluded pets
     candidates = []
     for item in raw_items:
         pet_url = item.get("url", "").rstrip("/")
@@ -311,34 +349,43 @@ def fetch_petfinder_apify(species: str, excluded_urls: set, state: str, zip_code
             continue
         candidates.append(item)
 
+    # Take more than target in case some lack descriptions
+    candidates = candidates[:target * 2]
     print(f"  {len(candidates)} candidates after exclusion filter (need {target})")
 
+    if not candidates:
+        return []
+
+    # Step 3: Batch-scrape all detail pages (1 Apify call for all)
+    detail_urls = [c["url"].rstrip("/") for c in candidates]
+    detail_htmls = fetch_html_batch_apify(detail_urls)
+
+    # Step 4: Parse details and build pet profiles
     pets = []
     for item in candidates:
         if len(pets) >= target:
             break
 
         source_url = item["url"].rstrip("/")
-        name       = item.get("name", "Unknown")
+        name = item.get("name", "Unknown")
 
-        # Scrape the detail page for description and shelter info
-        print(f"  Fetching detail page for {name}...")
-        detail = scrape_pet_detail(source_url)
+        detail_html = detail_htmls.get(source_url, "")
+        detail = parse_pet_detail_html(detail_html) if detail_html else {}
 
         description = detail.get("description") or item.get("description") or ""
         if not description or len(description.strip()) < 30:
             print(f"  ✗ No description for {name}, skipping")
             continue
 
-        breed      = detail.get("breed") or item.get("breed", "")
-        age        = detail.get("age") or item.get("age", "")
-        gender     = detail.get("gender") or item.get("gender", "")
-        size       = detail.get("size") or item.get("size", "")
-        photos     = detail.get("photos") or item.get("photos", [])
-        org_name   = detail.get("org_name") or item.get("org_name", "")
+        breed       = detail.get("breed") or item.get("breed", "")
+        age         = detail.get("age") or item.get("age", "")
+        gender      = detail.get("gender") or item.get("gender", "")
+        size        = detail.get("size") or item.get("size", "")
+        photos      = detail.get("photos") or item.get("photos", [])
+        org_name    = detail.get("org_name") or item.get("org_name", "")
         org_address = detail.get("org_address") or item.get("org_address", "")
-        org_phone  = detail.get("org_phone") or item.get("org_phone", "")
-        org_email  = detail.get("org_email") or item.get("org_email", "")
+        org_phone   = detail.get("org_phone") or item.get("org_phone", "")
+        org_email   = detail.get("org_email") or item.get("org_email", "")
 
         org_info = {
             "name": org_name, "address": org_address,

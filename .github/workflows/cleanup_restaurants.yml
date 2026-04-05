@@ -1,0 +1,22 @@
+name: Cleanup Restaurants
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 13 * * 6'  # Every Saturday at 8am EST (1pm UTC)
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+      - name: Delete restaurants older than 8 weeks from Notion
+        env:
+          NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
+          NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+        run: python Code/cleanup_restaurants.py
