@@ -232,12 +232,15 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
       const fileInfo = await fileRes.json();
       const rows = JSON.parse(atob(fileInfo.content));
 
-      // 2. Reset statuses for this newsletter to pending
+      // 2. Reset statuses and default_winner for this newsletter to pending
       let changed = 0;
       for (const item of rows) {
-        if (item.newsletter_name === selectedNewsletter && ["approved", "rejected", "Approved", "Rejected"].includes(item.status)) {
-          item.status = "pending";
-          changed++;
+        if (item.newsletter_name === selectedNewsletter) {
+          if (["approved", "rejected", "Approved", "Rejected"].includes(item.status)) {
+            item.status = "pending";
+            changed++;
+          }
+          item.default_winner = "";
         }
       }
 
