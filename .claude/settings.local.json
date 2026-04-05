@@ -3,7 +3,11 @@
     "allow": [
       "Bash(npm run:*)",
       "Bash(export NVM_DIR=\"$HOME/.nvm\")",
-      "Bash(source \"$NVM_DIR/nvm.sh\")"
+      "Bash(source \"$NVM_DIR/nvm.sh\")",
+      "WebSearch",
+      "WebFetch(domain:stevesie.com)",
+      "WebFetch(domain:apify.com)",
+      "WebFetch(domain:api.apify.com)"
     ]
   }
 }

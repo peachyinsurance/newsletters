@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Newsletter Automation - Pet Adoption Section
-Uses RescueGroups.org API to find adoptable cats and dogs near East Cobb,
+Scrapes Petfinder via Apify to find adoptable cats and dogs near each newsletter area,
 generates blurbs via Claude, scores them, flags defaults,
-and writes results to Google Sheets.
+and saves results to Notion.
 """
 
 import os
@@ -23,25 +23,24 @@ NEWSLETTERS = [
     {
         "name":   "East_Cobb_Connect",
         "zip":    "30062",
-        "radius": 10
+        "state":  "ga",
     },
     {
         "name":   "Perimeter_Post",
         "zip":    "30346",
-        "radius": 10
-    }
+        "state":  "ga",
+    },
 ]
-
-# NEWSLETTER_NAME     = "East_Cobb_Connect"
-# ANCHOR_ZIP          = "30062"
-# SEARCH_RADIUS_MILES = 25
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT
 # ---------------------------------------------------------------------------
-CLAUDE_API_KEY          = os.environ["CLAUDE_API_KEY"]
-RESCUEGROUPS_API_KEY    = os.environ["RESCUE_GROUP_API_KEY"]
-SKILL_PROMPT_PATH       = Path(__file__).parent.parent / "Skills" / "newsletter-pet-adoption-skill_auto.md"
+CLAUDE_API_KEY    = os.environ["CLAUDE_API_KEY"]
+APIFY_API_KEY     = os.environ["APIFY_API_KEY"]
+SKILL_PROMPT_PATH = Path(__file__).parent.parent / "Skills" / "newsletter-pet-adoption-skill_auto.md"
+
+APIFY_ACTOR_ID    = "easyapi~petfinder-pet-listings-scraper"
+APIFY_TIMEOUT     = 300  # seconds to wait for scraper run
 
 
 # ---------------------------------------------------------------------------
@@ -60,156 +59,141 @@ def load_skill_prompt() -> str:
 approved_urls = get_approved_pet_urls()
 
 # ---------------------------------------------------------------------------
-# 5. FETCH PETS FROM RESCUEGROUPS API
+# 5. FETCH PETS FROM PETFINDER VIA APIFY
 # ---------------------------------------------------------------------------
 
-def extract_url_from_description(description: str) -> str:
-    """Extract the first https URL from the description text."""
-    urls = re.findall(r'https?://[^\s<>"]+', description)
-    # Filter out tracker and facebook URLs
-    for url in urls:
-        if "tracker.rescuegroups" not in url and "facebook.com" not in url:
-            return url.rstrip('/')
-    return ""
-    
-def fetch_rescuegroups(species: str, excluded_urls: set, anchor_zip: str, radius_miles: int, target: int = 5) -> list[dict]:
-    print(f"\n--- Fetching {species}s from RescueGroups API ---")
-
-    url = f"https://api.rescuegroups.org/v5/public/animals/search/available/{species.lower()}s/"
-
-    headers = {
-        "Authorization": RESCUEGROUPS_API_KEY,
-        "Content-Type": "application/vnd.api+json"
-    }
-
+def run_apify_actor(search_url: str, max_items: int = 20) -> list[dict]:
+    """Run the Petfinder scraper on Apify and return results."""
+    api_url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR_ID}/runs?token={APIFY_API_KEY}&waitForFinish={APIFY_TIMEOUT}"
     payload = {
-        "data": {
-            "filterRadius": {
-            "postalcode": anchor_zip,
-            "miles": radius_miles
-            }
-        },
-        "fields": {
-            "orgs": ["name", "street", "city", "state", "postalcode", "phone", "email", "url", "adoptionProcess"]
-        },
-        "include": ["pictures", "orgs"]
+        "searchUrls": [search_url],
+        "maxItems": max_items,
     }
+    print(f"  Starting Apify run for: {search_url}")
+    res = requests.post(api_url, json=payload, timeout=APIFY_TIMEOUT + 30)
+    res.raise_for_status()
+    run_data = res.json().get("data", {})
+    run_status = run_data.get("status")
+    dataset_id = run_data.get("defaultDatasetId")
 
-    for attempt in range(3):
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=60)
-            if response.status_code != 200:
-                print(f"Status: {response.status_code} | {response.text[:200]}")
-                return []
-            data = response.json()
-            break
-        except requests.exceptions.ReadTimeout:
-            print(f"  Timeout on attempt {attempt + 1}, retrying...")
+    if run_status != "SUCCEEDED":
+        # Poll until done
+        run_id = run_data.get("id")
+        for _ in range(60):
             time.sleep(5)
-    else:
-        print(f"  Failed after 3 attempts")
-        return []
+            check = requests.get(
+                f"https://api.apify.com/v2/acts/{APIFY_ACTOR_ID}/runs/{run_id}?token={APIFY_API_KEY}",
+                timeout=30,
+            ).json().get("data", {})
+            run_status = check.get("status")
+            if run_status in ("SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"):
+                dataset_id = check.get("defaultDatasetId")
+                break
+        if run_status != "SUCCEEDED":
+            print(f"  Apify run failed with status: {run_status}")
+            return []
 
-    animals  = data.get("data", [])
-    included = data.get("included", [])
-    
-    # Build org lookup from included data
-    org_lookup = {}
-    photo_lookup = {}
-    
-    for item in included:
-        if item.get("type") == "orgs":
-            org_id     = item["id"]
-            item_attrs = item.get("attributes", {})
-            org_lookup[org_id] = {
-                "name":            item_attrs.get("name", ""),
-                "address":         f"{item_attrs.get('street', '')} {item_attrs.get('city', '')} {item_attrs.get('state', '')} {item_attrs.get('postalcode', '')}".strip(),
-                "phone":           item_attrs.get("phone", ""),
-                "email":           item_attrs.get("email", ""),
-                "hours":           item_attrs.get("hours", ""),
-                "url":             item_attrs.get("url", ""),
-                "adoptionProcess": item_attrs.get("adoptionProcess", "")
-            }
-        if item.get("type") == "pictures":
-            pic_id     = item["id"]
-            item_attrs = item.get("attributes", {})
-            pic_url    = item_attrs.get("large") if isinstance(item_attrs.get("large"), str) else item_attrs.get("large", {}).get("url", "")
-            if not pic_url:
-                pic_url = item_attrs.get("original", "") or item_attrs.get("small", "")
-            if pic_url:
-                photo_lookup[pic_id] = pic_url
+    # Fetch dataset items
+    items_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?token={APIFY_API_KEY}&format=json"
+    items_res = requests.get(items_url, timeout=60)
+    items_res.raise_for_status()
+    items = items_res.json()
+    print(f"  Apify returned {len(items)} items")
+    return items
 
-    for org_id, org_data in org_lookup.items():
-        print(f"  Org {org_id}: {org_data}")
-        break  # just first org
-    
+
+def fetch_petfinder_apify(species: str, excluded_urls: set, state: str, zip_code: str, target: int = 5) -> list[dict]:
+    """Scrape Petfinder via Apify and return pet profiles."""
+    print(f"\n--- Fetching {species}s from Petfinder via Apify ---")
+
+    search_url = f"https://www.petfinder.com/search/{species.lower()}s-for-adoption/us/{state}/{zip_code}/"
+    raw_items = run_apify_actor(search_url, max_items=target * 3)
+
     pets = []
-    for animal in animals:
+    for item in raw_items:
         if len(pets) >= target:
             break
-    
-        attrs     = animal.get("attributes", {})
-        relations = animal.get("relationships", {})
-        animal_id = animal.get("id", "")
-        
-        description = attrs.get("descriptionText") or attrs.get("descriptionHtml", "")
-        if not description or len(description.strip()) < 50:
+
+        # Build the Petfinder listing URL (source of truth for dedup)
+        pet_url = item.get("url") or item.get("petfinderUrl") or ""
+        if not pet_url:
             continue
-        
-        org_id   = relations.get("orgs", {}).get("data", [{}])[0].get("id", "") if relations.get("orgs", {}).get("data") else ""
-        org_info = org_lookup.get(org_id, {})
-        
-        desc_html  = attrs.get("descriptionHtml", "")
-        desc_url   = extract_url_from_description(desc_html)
-        org_url    = org_info.get("url", "")
-        source_url = f"https://rescuegroups.org/animals/detail/{animal_id}/"
-        listing_url = org_url or desc_url or f"https://www.google.com/search?q={org_info.get('name', '').replace(' ', '+')}+adopt+{attrs.get('name', '').replace(' ', '+')}"
-        
+
+        # Normalize URL for dedup
+        source_url = pet_url.rstrip("/")
+
         if source_url in excluded_urls:
-            print(f"  Skipping previously approved: {source_url}")
+            print(f"  ✗ Skipping previously approved: {source_url}")
             continue
-            
-        photo_ids = [p.get("id") for p in relations.get("pictures", {}).get("data", [])]
-        photos    = [photo_lookup[pid] for pid in photo_ids if pid in photo_lookup][:3]
-        print(f"  Photo lookup size: {len(photo_lookup)}")
-        print(f"  First animal photo_ids: {photo_ids[:3]}")
-        print(f"  First animal photos: {photos[:1]}")
-        print(f"  Photo lookup size: {len(photo_lookup)}")
-        print(f"  Org lookup size: {len(org_lookup)}")
-    
+
+        name        = item.get("name") or item.get("petName") or "Unknown"
+        description = item.get("description") or ""
+        if not description or len(description.strip()) < 30:
+            continue
+
+        breed   = item.get("breed") or item.get("breedPrimary") or item.get("breeds", {}).get("primary", "") or ""
+        age     = item.get("age") or ""
+        gender  = item.get("gender") or item.get("sex") or ""
+        size    = item.get("size") or ""
+
+        # Photos
+        photos_raw = item.get("photos") or item.get("images") or []
+        photos = []
+        for p in photos_raw[:3]:
+            if isinstance(p, str):
+                photos.append(p)
+            elif isinstance(p, dict):
+                photos.append(p.get("large") or p.get("full") or p.get("medium") or p.get("small") or "")
+
+        # Organization / shelter info
+        org = item.get("organization") or item.get("shelter") or {}
+        if isinstance(org, str):
+            org = {"name": org}
+        org_name    = org.get("name") or item.get("organizationName") or item.get("shelterName") or ""
+        org_address = org.get("address") or ""
+        if isinstance(org_address, dict):
+            parts = [org_address.get("address1", ""), org_address.get("city", ""),
+                     org_address.get("state", ""), org_address.get("postcode", "")]
+            org_address = " ".join(p for p in parts if p).strip()
+        org_phone = org.get("phone") or item.get("phone") or ""
+        org_email = org.get("email") or item.get("email") or ""
+
+        org_info = {
+            "name":    org_name,
+            "address": org_address,
+            "phone":   org_phone,
+            "email":   org_email,
+            "hours":   "",
+        }
+
+        listing_url = source_url
+
         profile = f"""
-    Name: {attrs.get('name', 'Unknown')}
-    Species: {species}
-    Breed: {attrs.get('breedPrimary', '')}
-    Age: {attrs.get('ageString', '')}
-    Gender: {attrs.get('sex', '')}
-    Size: {attrs.get('sizeGroup', '')}
-    Description: {description}
-    Good with kids: {attrs.get('isKidsOk', 'Unknown')}
-    Good with dogs: {attrs.get('isDogsOk', 'Unknown')}
-    Good with cats: {attrs.get('isCatsOk', 'Unknown')}
-    House trained: {attrs.get('isHousetrained', 'Unknown')}
-    Spayed/Neutered: {attrs.get('isAltered', 'Unknown')}
-    Vaccinated: {attrs.get('isCurrentVaccinations', 'Unknown')}
-    Shelter: {org_info.get('name', '')}
-    Address: {org_info.get('address', '')}
-    Phone: {org_info.get('phone', '')}
-    Email: {org_info.get('email', '')}
-    Hours: {org_info.get('hours', '')}
-    """.strip()
-        
+Name: {name}
+Species: {species}
+Breed: {breed}
+Age: {age}
+Gender: {gender}
+Size: {size}
+Description: {description}
+Shelter: {org_name}
+Address: {org_address}
+Phone: {org_phone}
+Email: {org_email}
+""".strip()
+
         pets.append({
-        "url":         source_url,        # unique per pet (for internal tracking)
-        "listing_url": org_url,           # org website (for readers to click)
-        "profile":     profile,
-        "photos":      photos,
-        "animal_type": species.lower(),
-        "org_info":    org_info
+            "url":         source_url,
+            "listing_url": listing_url,
+            "profile":     profile,
+            "photos":      [p for p in photos if p],
+            "animal_type": species.lower(),
+            "org_info":    org_info,
         })
 
-        print(f"  ✓ {attrs.get('name', 'Unknown')} | {org_info.get('name', 'Unknown org')} | {len(photos)} photos")
-    
-    print(f"RescueGroups {species}s: {len(pets)} with descriptions")
+        print(f"  ✓ {name} | {org_name} | {len(photos)} photos")
+
+    print(f"Petfinder {species}s: {len(pets)} with descriptions")
     return pets
 
 # ---------------------------------------------------------------------------
@@ -438,9 +422,9 @@ if __name__ == "__main__":
         print(f"Processing: {newsletter['name']}")
         print(f"{'='*60}")
 
-        # Fetch cats and dogs
-        all_cats = fetch_rescuegroups("Cat", approved_urls, newsletter["zip"], newsletter["radius"], target=5)
-        all_dogs = fetch_rescuegroups("Dog", approved_urls, newsletter["zip"], newsletter["radius"], target=5)
+        # Fetch cats and dogs from Petfinder via Apify
+        all_cats = fetch_petfinder_apify("Cat", approved_urls, newsletter["state"], newsletter["zip"], target=5)
+        all_dogs = fetch_petfinder_apify("Dog", approved_urls, newsletter["state"], newsletter["zip"], target=5)
 
         print(f"\nTotal cats: {len(all_cats)}")
         print(f"Total dogs: {len(all_dogs)}")
