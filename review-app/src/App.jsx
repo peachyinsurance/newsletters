@@ -140,7 +140,9 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
     setLoading(true);
     setError("");
     try {
-      const res  = await fetch(`/NewsletterAutomation/${config.dataFile}`, { cache: "no-store" });
+      // Fetch from raw GitHub to bypass CDN cache — data is always fresh
+      const rawUrl = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/gh-pages/${config.dataFile}?t=${Date.now()}`;
+      const res  = await fetch(rawUrl, { cache: "no-store" });
       const rows = await res.json();
 
       const allNames = [...new Set(rows.map(r => r.newsletter_name).filter(Boolean))];
@@ -152,30 +154,22 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
         return item;
       });
 
-      // Build approvedMap from the data (source of truth)
+      // Build approvedMap purely from data (source of truth)
       const dataApprovedMap = {};
       withStatus.forEach(item => {
         if (item._localStatus === "approved" && item.newsletter_name) {
           dataApprovedMap[item.newsletter_name] = item[config.idField];
         }
       });
-      // Sync approvedMap: data wins, localStorage is fallback for in-flight approvals
-      // (redo already clears localStorage, so stale entries don't linger)
-      const savedApprovals = JSON.parse(localStorage.getItem(config.storageKey) || "{}");
-      setApprovedMap(() => {
-        const merged = {};
-        allNames.forEach(nl => {
-          if (dataApprovedMap[nl]) {
-            merged[nl] = dataApprovedMap[nl];
-          } else if (savedApprovals[nl]) {
-            merged[nl] = savedApprovals[nl];
-          }
-        });
-        return merged;
-      });
+      // Sync localStorage to match data — clear stale entries
+      const savedApprovals = {};
+      Object.keys(dataApprovedMap).forEach(nl => { savedApprovals[nl] = dataApprovedMap[nl]; });
+      localStorage.setItem(config.storageKey, JSON.stringify(savedApprovals));
+
+      setApprovedMap(() => ({ ...dataApprovedMap }));
       // Sync section checkmarks
       allNames.forEach(nl => {
-        if (dataApprovedMap[nl] || savedApprovals[nl]) onApprove(nl);
+        if (dataApprovedMap[nl]) onApprove(nl);
         else onUnapprove(nl);
       });
 
@@ -195,23 +189,57 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
     const itemId = item[config.idField];
     setApproving(itemId);
     setError("");
+    const ghHeaders = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" };
     try {
-      const res = await fetch(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${config.approveWorkflow}/dispatches`,
-        { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
-          body: JSON.stringify({ ref: "main", inputs: config.approveInputs(item) }) }
-      );
-      if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub API error"); }
+      // 1. Fetch current JSON from gh-pages
+      const fileUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${config.dataFile}?ref=gh-pages`;
+      const fileRes = await fetch(fileUrl, { headers: ghHeaders });
+      if (!fileRes.ok) throw new Error("Could not fetch data file from gh-pages");
+      const fileInfo = await fileRes.json();
+      const rows = JSON.parse(atob(fileInfo.content.replace(/\n/g, "")));
+
+      // 2. Set approved/rejected statuses for this newsletter
+      for (const row of rows) {
+        if (row.newsletter_name !== selectedNewsletter) continue;
+        if (row[config.idField] === itemId) {
+          row.status = "approved";
+        } else if (row.status === "pending" || row.status === "Pending") {
+          row.status = "rejected";
+        }
+      }
+
+      // 3. Commit updated JSON back to gh-pages
+      const commitRes = await fetch(fileUrl, {
+        method: "PUT",
+        headers: ghHeaders,
+        body: JSON.stringify({
+          message: `approve: ${item[config.nameField]} for ${selectedNewsletter}`,
+          content: btoa(unescape(encodeURIComponent(JSON.stringify(rows, null, 2)))),
+          sha: fileInfo.sha,
+          branch: "gh-pages",
+        }),
+      });
+      if (!commitRes.ok) throw new Error("Could not update data file on gh-pages");
+
+      // 4. Update local state immediately
       setApprovedMap(prev => ({ ...prev, [selectedNewsletter]: itemId }));
       setSuccess({ newsletter: selectedNewsletter, name: item[config.nameField] });
       const savedApprovals = JSON.parse(localStorage.getItem(config.storageKey) || "{}");
       savedApprovals[selectedNewsletter] = itemId;
       localStorage.setItem(config.storageKey, JSON.stringify(savedApprovals));
-      setItems(prev => prev.map(i => {
-        if (i.newsletter_name !== selectedNewsletter) return i;
-        return { ...i, _localStatus: i[config.idField] === itemId ? "approved" : "rejected" };
+      setItems(rows.map(row => {
+        const s = (row.status || "").toLowerCase();
+        if (s === "approved") return { ...row, _localStatus: "approved" };
+        if (s === "rejected") return { ...row, _localStatus: "rejected" };
+        return { ...row, _localStatus: undefined };
       }));
       onApprove(selectedNewsletter);
+
+      // 5. Fire-and-forget: dispatch Action to sync Notion in the background
+      fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${config.approveWorkflow}/dispatches`,
+        { method: "POST", headers: ghHeaders, body: JSON.stringify({ ref: "main", inputs: config.approveInputs(item) }) }
+      ).catch(() => {}); // Notion sync is best-effort
     } catch (e) {
       setError(`Approval failed: ${e.message}`);
     } finally {

@@ -16,11 +16,10 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install requests
-      - name: Approve restaurant
+      - name: Sync approval to Notion
         env:
           NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
           NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
           APPROVED_PLACE_ID:        ${{ github.event.inputs.place_id }}
-          GITHUB_TOKEN:             ${{ secrets.PAT_TOKEN }}
         run: python Restaurants/code/approve_restaurant.py
