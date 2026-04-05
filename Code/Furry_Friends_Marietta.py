@@ -39,7 +39,7 @@ CLAUDE_API_KEY    = os.environ["CLAUDE_API_KEY"]
 APIFY_API_KEY     = os.environ["APIFY_API_KEY"]
 SKILL_PROMPT_PATH = Path(__file__).parent.parent / "Skills" / "newsletter-pet-adoption-skill_auto.md"
 
-APIFY_SCRAPER_TIMEOUT = 120  # seconds
+APIFY_SCRAPER_TIMEOUT = 300  # seconds for the single combined run
 
 
 # ---------------------------------------------------------------------------
@@ -61,8 +61,53 @@ approved_urls = get_approved_pet_urls()
 # 5. FETCH PETS FROM PETFINDER VIA APIFY
 # ---------------------------------------------------------------------------
 
+def fetch_all_html_apify(urls: list[str]) -> dict[str, str]:
+    """Fetch ALL URLs in a single Apify web-scraper run. Returns {url: html} dict."""
+    if not urls:
+        return {}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {APIFY_API_KEY}",
+    }
+    print(f"  Starting single Apify run for {len(urls)} URLs (concurrency=5)...")
+    try:
+        res = requests.post(
+            "https://api.apify.com/v2/acts/apify~web-scraper/run-sync-get-dataset-items",
+            headers=headers,
+            json={
+                "startUrls": [{"url": u} for u in urls],
+                "pageFunction": """
+async function pageFunction(context) {
+    return {
+        url: context.request.url,
+        html: document.documentElement.outerHTML
+    };
+}
+""",
+                "maxConcurrency": 5,
+                "maxRequestsPerCrawl": len(urls),
+            },
+            timeout=APIFY_SCRAPER_TIMEOUT,
+        )
+        if res.status_code not in (200, 201):
+            print(f"  Apify error {res.status_code}: {res.text[:200]}")
+            return {}
+        items = res.json()
+        result = {}
+        for item in items:
+            u = item.get("url", "")
+            h = item.get("html", "")
+            if u and h:
+                result[u] = h
+        print(f"  Apify returned {len(result)} pages")
+        return result
+    except requests.exceptions.ReadTimeout:
+        print(f"  Apify timeout after {APIFY_SCRAPER_TIMEOUT}s")
+        return {}
+
+
 def fetch_html_apify(url: str, retries: int = 2) -> str | None:
-    """Fetch a page's rendered HTML via Apify web-scraper."""
+    """Fetch a single page's rendered HTML via Apify web-scraper."""
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {APIFY_API_KEY}",
@@ -104,7 +149,7 @@ async function pageFunction(context) {
     return None
 
 
-def parse_petfinder_html(html: str, species: str) -> list[dict]:
+def parse_search_html(html: str, species: str) -> list[dict]:
     """Parse Petfinder search results HTML into pet dicts."""
     from bs4 import BeautifulSoup
 
@@ -237,52 +282,7 @@ def parse_petfinder_html(html: str, species: str) -> list[dict]:
     return pets
 
 
-def fetch_html_batch_apify(urls: list[str]) -> dict[str, str]:
-    """Fetch multiple pages in a single Apify run. Returns {url: html} dict."""
-    if not urls:
-        return {}
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {APIFY_API_KEY}",
-    }
-    print(f"  Batch-fetching {len(urls)} pages in one Apify run...")
-    try:
-        res = requests.post(
-            "https://api.apify.com/v2/acts/apify~web-scraper/run-sync-get-dataset-items",
-            headers=headers,
-            json={
-                "startUrls": [{"url": u} for u in urls],
-                "pageFunction": """
-async function pageFunction(context) {
-    return {
-        url: context.request.url,
-        html: document.documentElement.outerHTML
-    };
-}
-""",
-                "maxConcurrency": 5,
-                "maxRequestsPerCrawl": len(urls),
-            },
-            timeout=APIFY_SCRAPER_TIMEOUT + (len(urls) * 15),
-        )
-        if res.status_code not in (200, 201):
-            print(f"  Batch Apify error {res.status_code}: {res.text[:200]}")
-            return {}
-        items = res.json()
-        result = {}
-        for item in items:
-            url = item.get("url", "")
-            html = item.get("html", "")
-            if url and html:
-                result[url] = html
-        print(f"  Batch returned {len(result)} pages")
-        return result
-    except requests.exceptions.ReadTimeout:
-        print(f"  Batch Apify timeout")
-        return {}
-
-
-def parse_pet_detail_html(html: str) -> dict:
+def parse_detail_html(html: str) -> dict:
     """Parse a single pet detail page HTML into a detail dict."""
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html, "html.parser")
@@ -325,20 +325,21 @@ def parse_pet_detail_html(html: str) -> dict:
     return detail
 
 
-def fetch_petfinder_apify(species: str, excluded_urls: set, state: str, zip_code: str, target: int = 5) -> list[dict]:
-    """Scrape Petfinder via Apify and return pet profiles."""
-    print(f"\n--- Fetching {species}s from Petfinder via Apify ---")
+def fetch_petfinder_apify(species: str, excluded_urls: set, state: str, zip_code: str,
+                          target: int = 5, _html_cache: dict = None) -> list[dict]:
+    """Build pet profiles from pre-fetched HTML cache."""
+    print(f"\n--- Building {species} profiles from cache ---")
 
-    # Step 1: Scrape search page (1 Apify call)
     search_url = f"https://www.petfinder.com/search/{species.lower()}s-for-adoption/us/{state}/{zip_code}/"
-    html = fetch_html_apify(search_url)
-    if not html:
-        print(f"  Failed to fetch HTML for {search_url}")
-        return []
-    print(f"  Got {len(html)} chars of HTML")
-    raw_items = parse_petfinder_html(html, species.lower())
+    cache = _html_cache or {}
 
-    # Step 2: Filter out excluded pets
+    search_html = cache.get(search_url, "")
+    if not search_html:
+        print(f"  No cached HTML for {search_url}")
+        return []
+
+    raw_items = parse_search_html(search_html, species.lower())
+
     candidates = []
     for item in raw_items:
         pet_url = item.get("url", "").rstrip("/")
@@ -348,19 +349,12 @@ def fetch_petfinder_apify(species: str, excluded_urls: set, state: str, zip_code
             print(f"  ✗ Skipping previously approved: {item.get('name')}")
             continue
         candidates.append(item)
-
-    # Take more than target in case some lack descriptions
     candidates = candidates[:target * 2]
-    print(f"  {len(candidates)} candidates after exclusion filter (need {target})")
+    print(f"  {len(candidates)} candidates (need {target})")
 
     if not candidates:
         return []
 
-    # Step 3: Batch-scrape all detail pages (1 Apify call for all)
-    detail_urls = [c["url"].rstrip("/") for c in candidates]
-    detail_htmls = fetch_html_batch_apify(detail_urls)
-
-    # Step 4: Parse details and build pet profiles
     pets = []
     for item in candidates:
         if len(pets) >= target:
@@ -369,8 +363,8 @@ def fetch_petfinder_apify(species: str, excluded_urls: set, state: str, zip_code
         source_url = item["url"].rstrip("/")
         name = item.get("name", "Unknown")
 
-        detail_html = detail_htmls.get(source_url, "")
-        detail = parse_pet_detail_html(detail_html) if detail_html else {}
+        detail_html = cache.get(source_url, "")
+        detail = parse_detail_html(detail_html) if detail_html else {}
 
         description = detail.get("description") or item.get("description") or ""
         if not description or len(description.strip()) < 30:
@@ -641,14 +635,68 @@ if __name__ == "__main__":
     skill_prompt  = load_skill_prompt()
     approved_urls = get_approved_pet_urls()
 
+    # ── PHASE 1: Scrape all search pages in ONE Apify call ─────────────
+    search_urls = []
+    for nl in NEWSLETTERS:
+        for species in ["cats", "dogs"]:
+            search_urls.append(f"https://www.petfinder.com/search/{species}-for-adoption/us/{nl['state']}/{nl['zip']}/")
+
+    print(f"\n{'='*60}")
+    print(f"Phase 1: Scraping {len(search_urls)} search pages")
+    print(f"{'='*60}")
+    html_cache = fetch_all_html_apify(search_urls)
+
+    # ── PHASE 2: Parse search pages, collect detail URLs ───────────────
+    print(f"\nPhase 2: Parsing search pages and collecting detail URLs")
+    detail_urls = []
+    search_results = {}  # key = (newsletter_name, species) -> list of pet dicts
+
+    for nl in NEWSLETTERS:
+        for species in ["Cat", "Dog"]:
+            search_url = f"https://www.petfinder.com/search/{species.lower()}s-for-adoption/us/{nl['state']}/{nl['zip']}/"
+            search_html = html_cache.get(search_url, "")
+            if not search_html:
+                print(f"  No HTML for {search_url}")
+                search_results[(nl["name"], species)] = []
+                continue
+
+            pets = parse_search_html(search_html, species.lower())
+            # Filter excluded and take candidates
+            candidates = []
+            for p in pets:
+                url = p.get("url", "").rstrip("/")
+                if url and url not in approved_urls:
+                    candidates.append(p)
+            candidates = candidates[:10]  # take up to 10 per species/newsletter
+            search_results[(nl["name"], species)] = candidates
+            for c in candidates:
+                detail_urls.append(c["url"].rstrip("/"))
+            print(f"  {nl['name']} {species}: {len(candidates)} candidates")
+
+    # Deduplicate detail URLs
+    detail_urls = list(dict.fromkeys(detail_urls))
+    print(f"\n  Total detail pages to scrape: {len(detail_urls)}")
+
+    # ── PHASE 3: Scrape all detail pages in ONE Apify call ─────────────
+    if detail_urls:
+        print(f"\n{'='*60}")
+        print(f"Phase 3: Scraping {len(detail_urls)} detail pages")
+        print(f"{'='*60}")
+        detail_cache = fetch_all_html_apify(detail_urls)
+        html_cache.update(detail_cache)
+    else:
+        print("\n  No detail pages to scrape")
+
+    # ── PHASE 4: Process each newsletter ───────────────────────────────
     for newsletter in NEWSLETTERS:
         print(f"\n{'='*60}")
         print(f"Processing: {newsletter['name']}")
         print(f"{'='*60}")
 
-        # Fetch cats and dogs from Petfinder via Apify
-        all_cats = fetch_petfinder_apify("Cat", approved_urls, newsletter["state"], newsletter["zip"], target=5)
-        all_dogs = fetch_petfinder_apify("Dog", approved_urls, newsletter["state"], newsletter["zip"], target=5)
+        all_cats = fetch_petfinder_apify("Cat", approved_urls, newsletter["state"], newsletter["zip"],
+                                         target=5, _html_cache=html_cache)
+        all_dogs = fetch_petfinder_apify("Dog", approved_urls, newsletter["state"], newsletter["zip"],
+                                         target=5, _html_cache=html_cache)
 
         print(f"\nTotal cats: {len(all_cats)}")
         print(f"Total dogs: {len(all_dogs)}")
