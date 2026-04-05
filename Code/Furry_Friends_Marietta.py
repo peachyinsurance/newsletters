@@ -667,7 +667,7 @@ if __name__ == "__main__":
                 url = p.get("url", "").rstrip("/")
                 if url and url not in approved_urls:
                     candidates.append(p)
-            candidates = candidates[:10]  # take up to 10 per species/newsletter
+            candidates = candidates[:7]  # take up to 7 per species/newsletter (need 5, buffer for missing descriptions)
             search_results[(nl["name"], species)] = candidates
             for c in candidates:
                 detail_urls.append(c["url"].rstrip("/"))
@@ -677,13 +677,17 @@ if __name__ == "__main__":
     detail_urls = list(dict.fromkeys(detail_urls))
     print(f"\n  Total detail pages to scrape: {len(detail_urls)}")
 
-    # ── PHASE 3: Scrape all detail pages in ONE Apify call ─────────────
+    # ── PHASE 3: Scrape detail pages in batches of 10 ────────────────
+    BATCH_SIZE = 10
     if detail_urls:
         print(f"\n{'='*60}")
-        print(f"Phase 3: Scraping {len(detail_urls)} detail pages")
+        print(f"Phase 3: Scraping {len(detail_urls)} detail pages in batches of {BATCH_SIZE}")
         print(f"{'='*60}")
-        detail_cache = fetch_all_html_apify(detail_urls)
-        html_cache.update(detail_cache)
+        for i in range(0, len(detail_urls), BATCH_SIZE):
+            batch = detail_urls[i:i + BATCH_SIZE]
+            print(f"\n  Batch {i // BATCH_SIZE + 1}: {len(batch)} URLs")
+            batch_cache = fetch_all_html_apify(batch)
+            html_cache.update(batch_cache)
     else:
         print("\n  No detail pages to scrape")
 
