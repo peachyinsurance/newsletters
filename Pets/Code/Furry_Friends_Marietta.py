@@ -38,7 +38,7 @@ NEWSLETTERS = [
 # ---------------------------------------------------------------------------
 CLAUDE_API_KEY    = os.environ["CLAUDE_API_KEY"]
 APIFY_API_KEY     = os.environ["APIFY_API_KEY"]
-SKILL_PROMPT_PATH = Path(__file__).parent.parent / "Skills" / "newsletter-pet-adoption-skill_auto.md"
+SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-pet-adoption-skill_auto.md"
 
 
 APIFY_SCRAPER_TIMEOUT = 300  # seconds for the single combined run

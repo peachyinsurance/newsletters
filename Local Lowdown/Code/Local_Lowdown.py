@@ -29,7 +29,7 @@ NOTION_API_KEY = os.environ["NOTION_API_KEY"]
 CLAUDE_API_KEY  = os.environ["CLAUDE_API_KEY"]
 APIFY_API_KEY   = os.environ["APIFY_API_KEY"]
 
-SKILL_PROMPT_PATH = Path(__file__).parent.parent / "Skills" / "newsletter-local-lowdown-skill_auto.md"
+SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-local-lowdown-skill_auto.md"
 
 APIFY_NEWS_ACTOR = "automation-lab~google-news-scraper"
 APIFY_TIMEOUT    = 120
