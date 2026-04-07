@@ -544,8 +544,10 @@ def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
         if source_links:
             section_text += f"More: {source_links}\n\n"
 
-    # Notion rich_text has a 2000 char limit per block
-    section_text_truncated = section_text[:2000]
+    # Notion rich_text has a 2000 char limit per text block — split into chunks
+    chunks = []
+    for i in range(0, len(section_text), 2000):
+        chunks.append({"text": {"content": section_text[i:i + 2000]}})
 
     properties = {
         "Name":           {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - Local Lowdown - {datetime.today().strftime('%Y-%m-%d')}"}}]},
@@ -554,7 +556,7 @@ def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
         "Status":         {"select": {"name": "pending"}},
         "Section Header": {"rich_text": [{"text": {"content": safe_str(section_header)}}]},
         "Stories Count":  {"number": len(stories)},
-        "Full Section":   {"rich_text": [{"text": {"content": section_text_truncated}}]},
+        "Full Section":   {"rich_text": chunks},
     }
 
     create_page(NOTION_LOWDOWN_DB_ID, properties)
