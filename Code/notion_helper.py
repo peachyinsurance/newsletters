@@ -545,9 +545,10 @@ def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
             section_text += f"More: {source_links}\n\n"
 
     # Notion rich_text has a 2000 char limit per text block — split into chunks
+    CHUNK_SIZE = 1900  # under 2000 to account for multi-byte characters
     chunks = []
-    for i in range(0, len(section_text), 2000):
-        chunks.append({"text": {"content": section_text[i:i + 2000]}})
+    for i in range(0, len(section_text), CHUNK_SIZE):
+        chunks.append({"text": {"content": section_text[i:i + CHUNK_SIZE]}})
 
     properties = {
         "Name":           {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - Local Lowdown - {datetime.today().strftime('%Y-%m-%d')}"}}]},
