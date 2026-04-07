@@ -23,3 +23,14 @@ jobs:
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
           APPROVED_URL:             ${{ github.event.inputs.source_url }}
         run: python Code/approve_pet.py
+
+      - name: Trigger newsletter page rebuild
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/couch2coders/NewsletterAutomation/actions/workflows/assemble_newsletter.yml/dispatches \
+            -d '{"ref":"main"}'
+          echo "✓ Newsletter page rebuild triggered"
