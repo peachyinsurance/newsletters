@@ -27,3 +27,14 @@ jobs:
           NEWSLETTER_NAME:          Perimeter_Post
           SECTION:                  ${{ github.event.inputs.section }}
         run: python Code/redo_section.py
+
+      - name: Trigger newsletter page rebuild
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/couch2coders/NewsletterAutomation/actions/workflows/assemble_newsletter.yml/dispatches \
+            -d '{"ref":"main"}'
+          echo "✓ Newsletter page rebuild triggered"
