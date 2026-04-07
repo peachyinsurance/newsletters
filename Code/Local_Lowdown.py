@@ -19,17 +19,13 @@ import requests
 import anthropic
 
 sys.path.append(os.path.dirname(__file__))
-from notion_helper import create_page, query_database, HEADERS
+from notion_helper import save_lowdown_to_notion
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
 # ---------------------------------------------------------------------------
 CLAUDE_API_KEY  = os.environ["CLAUDE_API_KEY"]
 APIFY_API_KEY   = os.environ["APIFY_API_KEY"]
-NOTION_API_KEY  = os.environ["NOTION_API_KEY"]
-
-# Optional: save lowdown results to a Notion database
-NOTION_LOWDOWN_DB_ID = os.environ.get("NOTION_LOWDOWN_DB_ID", "")
 
 SKILL_PROMPT_PATH = Path(__file__).parent.parent / "Skills" / "newsletter-local-lowdown-skill_auto.md"
 
@@ -171,23 +167,22 @@ Articles:
 
 
 # ---------------------------------------------------------------------------
-# 5. SAVE TO NOTION (optional)
+# 5. SAVE RESULTS
 # ---------------------------------------------------------------------------
-def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
-    """Save the Local Lowdown section to Notion."""
-    if not NOTION_LOWDOWN_DB_ID:
-        print("  No NOTION_LOWDOWN_DB_ID set, skipping Notion save")
-        return
+def save_results(result: dict, newsletter_name: str) -> None:
+    """Save to Notion and local files."""
+    # Save to Notion database
+    save_lowdown_to_notion(result, newsletter_name)
 
+    # Save local files for easy access
     stories = result.get("stories", [])
     section_header = result.get("section_header", "")
 
-    # Build the full section text for easy copy-paste
     section_text = f"## {section_header}\n\n"
     for story in stories:
         emoji = story.get("emoji", "")
         headline = story.get("headline", "")
-        body = story.get("body", "")
+        body = story.get("body", "").replace("\\n\\n", "\n\n").replace("\\n", "\n")
         sources = story.get("source_urls", [])
         source_links = " | ".join(f"[{s['label']}]({s['url']})" for s in sources)
 
@@ -196,28 +191,13 @@ def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
         if source_links:
             section_text += f"More: {source_links}\n\n"
 
-    properties = {
-        "Name":           {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - Local Lowdown - {datetime.today().strftime('%Y-%m-%d')}"}}]},
-        "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
-        "Newsletter":     {"select": {"name": newsletter_name}},
-        "Section":        {"select": {"name": "local_lowdown"}},
-        "Status":         {"select": {"name": "pending"}},
-    }
-
-    try:
-        create_page(NOTION_LOWDOWN_DB_ID, properties)
-        print(f"  ✓ Saved to Notion")
-    except Exception as e:
-        print(f"  ✗ Notion save failed: {e}")
-
-    # Also save the full text to a local file for easy access
     output_dir = Path(__file__).parent / "output"
     output_dir.mkdir(exist_ok=True)
+
     output_file = output_dir / f"lowdown_{newsletter_name}_{datetime.today().strftime('%Y%m%d')}.md"
     output_file.write_text(section_text, encoding="utf-8")
     print(f"  ✓ Saved to {output_file}")
 
-    # Save raw JSON too
     json_file = output_dir / f"lowdown_{newsletter_name}_{datetime.today().strftime('%Y%m%d')}.json"
     json_file.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(f"  ✓ Saved JSON to {json_file}")
@@ -258,7 +238,7 @@ if __name__ == "__main__":
         )
 
         # Save
-        save_lowdown_to_notion(result, newsletter["name"])
+        save_results(result, newsletter["name"])
         print(f"\n  Done with {newsletter['name']}.")
 
     print(f"\nAll newsletters complete.")

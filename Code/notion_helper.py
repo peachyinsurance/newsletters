@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 NOTION_API_KEY           = os.environ["NOTION_API_KEY"]
 NOTION_PETS_DB_ID        = os.environ["NOTION_PETS_DB_ID"]
 NOTION_RESTAURANTS_DB_ID = os.environ["NOTION_RESTAURANTS_DB_ID"]
+NOTION_LOWDOWN_DB_ID     = os.environ.get("NOTION_LOWDOWN_DB_ID", "")
 
 HEADERS = {
     "Authorization":  f"Bearer {NOTION_API_KEY}",
@@ -178,6 +179,35 @@ def setup_notion_databases():
         print("✓ Restaurants database schema created")
     else:
         print(f"✗ Restaurants schema error: {r.text[:300]}")
+
+    # Local Lowdown database properties
+    if NOTION_LOWDOWN_DB_ID:
+        lowdown_properties = {
+            "Name":            {"title": {}},
+            "Newsletter":      {"select": {"options": [
+                {"name": "East_Cobb_Connect", "color": "purple"},
+                {"name": "Perimeter_Post",    "color": "pink"}
+            ]}},
+            "Date Generated":  {"date": {}},
+            "Status":          {"select": {"options": [
+                {"name": "pending",  "color": "yellow"},
+                {"name": "approved", "color": "green"}
+            ]}},
+            "Section Header":  {"rich_text": {}},
+            "Stories Count":   {"number": {"format": "number"}},
+            "Full Section":    {"rich_text": {}},
+        }
+        r = requests.patch(
+            f"https://api.notion.com/v1/databases/{NOTION_LOWDOWN_DB_ID}",
+            headers=HEADERS,
+            json={"properties": lowdown_properties},
+            timeout=30
+        )
+        if r.ok:
+            print("✓ Local Lowdown database schema created")
+        else:
+            print(f"✗ Local Lowdown schema error: {r.text[:300]}")
+
 # ---------------------------------------------------------------------------
 # PETS HELPERS
 # ---------------------------------------------------------------------------
@@ -487,3 +517,45 @@ def cleanup_old_restaurants_notion() -> None:
         print(f"  Archived: {name} (generated: {date_str})")
         count += 1
     print(f"Archived {count} restaurants older than 8 weeks")
+
+# ---------------------------------------------------------------------------
+# LOCAL LOWDOWN HELPERS
+# ---------------------------------------------------------------------------
+def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
+    """Save the Local Lowdown section to Notion."""
+    if not NOTION_LOWDOWN_DB_ID:
+        print("  No NOTION_LOWDOWN_DB_ID set, skipping Notion save")
+        return
+
+    stories = result.get("stories", [])
+    section_header = result.get("section_header", "")
+
+    # Build full section markdown for easy copy-paste
+    section_text = ""
+    for story in stories:
+        emoji = story.get("emoji", "")
+        headline = story.get("headline", "")
+        body = story.get("body", "").replace("\\n\\n", "\n\n").replace("\\n", "\n")
+        sources = story.get("source_urls", [])
+        source_links = " | ".join(f"[{s['label']}]({s['url']})" for s in sources)
+
+        section_text += f"### {emoji} {headline}\n\n"
+        section_text += f"{body}\n\n"
+        if source_links:
+            section_text += f"More: {source_links}\n\n"
+
+    # Notion rich_text has a 2000 char limit per block
+    section_text_truncated = section_text[:2000]
+
+    properties = {
+        "Name":           {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - Local Lowdown - {datetime.today().strftime('%Y-%m-%d')}"}}]},
+        "Newsletter":     {"select": {"name": newsletter_name}},
+        "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
+        "Status":         {"select": {"name": "pending"}},
+        "Section Header": {"rich_text": [{"text": {"content": safe_str(section_header)}}]},
+        "Stories Count":  {"number": len(stories)},
+        "Full Section":   {"rich_text": [{"text": {"content": section_text_truncated}}]},
+    }
+
+    create_page(NOTION_LOWDOWN_DB_ID, properties)
+    print(f"  ✓ Saved Local Lowdown to Notion ({len(stories)} stories)")
