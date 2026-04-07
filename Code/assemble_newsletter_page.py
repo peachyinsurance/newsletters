@@ -257,9 +257,12 @@ def get_approved_pet(newsletter_name: str) -> dict | None:
                 {"property": "Newsletter", "select": {"equals": newsletter_name}},
             ]
         })
-    except Exception:
+        print(f"  Pet query returned {len(pages)} results for {newsletter_name}")
+    except Exception as e:
+        print(f"  Pet query FAILED: {e}")
         return None
     if not pages:
+        print(f"  No approved pet found for {newsletter_name}")
         return None
     props = pages[0]["properties"]
     return {
