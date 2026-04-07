@@ -22,10 +22,10 @@ jobs:
           NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
           NOTION_LOWDOWN_DB_ID:     ${{ secrets.NOTION_LOWDOWN_DB_ID }}
-        run: python Code/Local_Lowdown.py
+        run: python "Local Lowdown/Code/Local_Lowdown.py"
       - name: Upload output artifacts
         uses: actions/upload-artifact@v4
         with:
           name: local-lowdown-output
-          path: Code/output/lowdown_*.md
+          path: "Local Lowdown/Code/output/lowdown_*.md"
           if-no-files-found: ignore

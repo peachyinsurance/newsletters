@@ -26,7 +26,7 @@ jobs:
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
           NEWSLETTER_NAME:          East_Cobb_Connect
           SECTION:                  ${{ github.event.inputs.section }}
-        run: python Code/redo_section.py
+        run: python NewsletterCreation/Code/redo_section.py
 
       - name: Trigger newsletter page rebuild
         env:

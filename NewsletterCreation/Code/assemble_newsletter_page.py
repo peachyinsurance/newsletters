@@ -74,6 +74,11 @@ def notion_create_page(title: str, parent_id: str) -> str:
 
 def notion_clear_page(page_id: str) -> None:
     """Delete all blocks from a page (to overwrite content)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def delete_block(block_id):
+        requests.delete(f"https://api.notion.com/v1/blocks/{block_id}", headers=HEADERS, timeout=30)
+
     while True:
         r = requests.get(
             f"https://api.notion.com/v1/blocks/{page_id}/children?page_size=100",
@@ -84,12 +89,10 @@ def notion_clear_page(page_id: str) -> None:
         blocks = r.json().get("results", [])
         if not blocks:
             break
-        for block in blocks:
-            requests.delete(
-                f"https://api.notion.com/v1/blocks/{block['id']}",
-                headers=HEADERS,
-                timeout=30,
-            )
+        block_ids = [b["id"] for b in blocks]
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            pool.map(delete_block, block_ids)
+        print(f"    Cleared {len(block_ids)} blocks")
 
 
 def notion_get_blocks(page_id: str) -> list[dict]:

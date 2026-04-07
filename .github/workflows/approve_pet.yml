@@ -22,7 +22,7 @@ jobs:
           NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
           APPROVED_URL:             ${{ github.event.inputs.source_url }}
-        run: python Code/approve_pet.py
+        run: python Pets/Code/approve_pet.py
 
       - name: Trigger newsletter page rebuild
         env:

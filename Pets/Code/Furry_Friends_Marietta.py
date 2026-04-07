@@ -17,6 +17,7 @@ import math
 
 import requests
 import anthropic
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import get_approved_pet_urls, save_pets_to_notion
 
 NEWSLETTERS = [
@@ -38,6 +39,7 @@ NEWSLETTERS = [
 CLAUDE_API_KEY    = os.environ["CLAUDE_API_KEY"]
 APIFY_API_KEY     = os.environ["APIFY_API_KEY"]
 SKILL_PROMPT_PATH = Path(__file__).parent.parent / "Skills" / "newsletter-pet-adoption-skill_auto.md"
+
 
 APIFY_SCRAPER_TIMEOUT = 300  # seconds for the single combined run
 

@@ -19,7 +19,7 @@ jobs:
           python-version: '3.11'
           
       - name: Install dependencies
-        run: pip install -r Code/requirements.txt
+        run: pip install -r NewsletterCreation/Code/requirements.txt
 
       - name: Install dependencies
         run: pip install anthropic requests notion-client
@@ -32,7 +32,7 @@ jobs:
           NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
           RESCUE_GROUP_API_KEY:    ${{ secrets.RESCUE_GROUP_API_KEY }}
-        run: python Code/Furry_Friends_Marietta.py
+        run: python Pets/Code/Furry_Friends_Marietta.py
 
       - name: Trigger deploy to refresh review app
         env:

@@ -18,7 +18,7 @@ from pathlib import Path
 import requests
 import anthropic
 
-sys.path.append(os.path.dirname(__file__))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import HEADERS as NOTION_HEADERS, save_lowdown_to_notion
 
 NOTION_API_KEY = os.environ["NOTION_API_KEY"]

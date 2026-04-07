@@ -7,7 +7,7 @@ and saves results to Notion.
 """
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'Code'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 
 import json
 import math
@@ -25,7 +25,7 @@ import anthropic
 # ---------------------------------------------------------------------------
 CLAUDE_API_KEY          = os.environ["CLAUDE_API_KEY"]
 GOOGLE_PLACES_API_KEY   = os.environ["GOOGLE_PLACES_API_KEY"]
-SKILL_PROMPT_PATH       = Path(__file__).parent.parent / "skills" / "newsletter-restaurant-blurb-skill.md"
+SKILL_PROMPT_PATH       = Path(__file__).parent.parent.parent / "Skills" / "newsletter-restaurant-blurb-skill.md"
 SEARCH_RADIUS_METERS    = 8047  # 5 miles in meters
 MAX_CANDIDATES          = 30    # fetch before filtering
 TARGET_TOP_5            = 5

@@ -28,10 +28,10 @@ jobs:
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
         run: |
           pip install requests
-          cd Code
+          cd NewsletterCreation/Code
           python export_notion_data.py
-          cp pets.json ../review-app/public/pets.json
-          cp restaurants.json ../review-app/public/restaurants.json
+          cp pets.json ../../review-app/public/pets.json
+          cp restaurants.json ../../review-app/public/restaurants.json
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
