@@ -282,6 +282,26 @@ def parse_search_html(html: str, species: str) -> list[dict]:
     return pets
 
 
+def clean_text(text: str) -> str:
+    """Fix double-encoded UTF-8 and clean up special characters."""
+    import html as html_module
+    if not text:
+        return ""
+    # Decode HTML entities (e.g. &amp; &#39;)
+    text = html_module.unescape(text)
+    # Fix double-encoded UTF-8 (e.g. Ã¢ÂÂ → ')
+    try:
+        text = text.encode("latin-1").decode("utf-8")
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        pass
+    # Replace common problematic characters
+    text = text.replace("\u2019", "'").replace("\u2018", "'")
+    text = text.replace("\u201c", '"').replace("\u201d", '"')
+    text = text.replace("\u2013", "-").replace("\u2014", "-")
+    text = text.replace("\u00a0", " ")
+    return text.strip()
+
+
 def parse_detail_html(html: str) -> dict:
     """Parse a single pet detail page HTML into a detail dict."""
     from bs4 import BeautifulSoup
@@ -295,7 +315,7 @@ def parse_detail_html(html: str) -> dict:
             pp = nd.get("props", {}).get("pageProps", {})
             animal = pp.get("animal") or pp.get("pet") or {}
             if animal:
-                detail["description"] = animal.get("description", "")
+                detail["description"] = clean_text(animal.get("description", ""))
                 contact = animal.get("contact", {})
                 org_addr = contact.get("address", {})
                 addr_parts = [org_addr.get("address1", ""), org_addr.get("city", ""),
@@ -321,7 +341,7 @@ def parse_detail_html(html: str) -> dict:
 
     desc_el = soup.select_one("[data-test='Pet_Story_Section'], [class*='description'], [class*='Description']")
     if desc_el:
-        detail["description"] = desc_el.get_text(strip=True)
+        detail["description"] = clean_text(desc_el.get_text(strip=True))
     return detail
 
 
