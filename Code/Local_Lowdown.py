@@ -169,18 +169,110 @@ Articles:
 
 
 # ---------------------------------------------------------------------------
-# 5. SAVE RESULTS
+# 5. WRITE TO NOTION CURRENT EDITION PAGE
 # ---------------------------------------------------------------------------
+
+def notion_search_page(title: str) -> str | None:
+    """Search for an existing page by title. Returns page_id or None."""
+    r = requests.post(
+        "https://api.notion.com/v1/search",
+        headers=NOTION_HEADERS,
+        json={"query": title, "filter": {"value": "page", "property": "object"}},
+        timeout=30,
+    )
+    r.raise_for_status()
+    for result in r.json().get("results", []):
+        page_title = result.get("properties", {}).get("title", {}).get("title", [])
+        if page_title and page_title[0].get("text", {}).get("content", "") == title:
+            if not result.get("archived", False):
+                return result["id"]
+    return None
+
+
+def notion_get_blocks(page_id: str) -> list[dict]:
+    """Get all child blocks of a page."""
+    blocks = []
+    has_more = True
+    cursor = None
+    while has_more:
+        url = f"https://api.notion.com/v1/blocks/{page_id}/children?page_size=100"
+        if cursor:
+            url += f"&start_cursor={cursor}"
+        r = requests.get(url, headers=NOTION_HEADERS, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        blocks += data.get("results", [])
+        has_more = data.get("has_more", False)
+        cursor = data.get("next_cursor")
+    return blocks
+
+
+def find_section_and_replace(page_id: str, heading_text: str, new_blocks: list[dict]) -> bool:
+    """Find a section by heading text, clear its content, insert new blocks."""
+    blocks = notion_get_blocks(page_id)
+
+    found_heading = False
+    heading_id = None
+    section_block_ids = []
+
+    for block in blocks:
+        block_type = block.get("type", "")
+        if not found_heading:
+            if block_type.startswith("heading_"):
+                rich_text = block.get(block_type, {}).get("rich_text", [])
+                text = "".join(t.get("text", {}).get("content", "") for t in rich_text)
+                if heading_text.lower() in text.lower():
+                    found_heading = True
+                    heading_id = block["id"]
+                    continue
+        else:
+            if block_type.startswith("heading_") or block_type == "divider":
+                break
+            section_block_ids.append(block["id"])
+
+    if not heading_id:
+        print(f"  Could not find heading '{heading_text}' on page")
+        return False
+
+    # Delete old content
+    for bid in section_block_ids:
+        requests.delete(f"https://api.notion.com/v1/blocks/{bid}", headers=NOTION_HEADERS, timeout=30)
+
+    # Insert new blocks after the heading
+    if new_blocks:
+        r = requests.patch(
+            f"https://api.notion.com/v1/blocks/{page_id}/children",
+            headers=NOTION_HEADERS,
+            json={"children": new_blocks, "after": heading_id},
+            timeout=30,
+        )
+        if not r.ok:
+            print(f"  Failed to insert blocks: {r.text[:300]}")
+            return False
+
+    return True
+
+
+def paragraph_block(text: str, bold: bool = False) -> dict:
+    annotations = {"bold": bold} if bold else {}
+    return {
+        "object": "block", "type": "paragraph",
+        "paragraph": {"rich_text": [{"type": "text", "text": {"content": text}, "annotations": annotations}]},
+    }
+
+
 def save_results(result: dict, newsletter_name: str) -> None:
-    """Save to Notion and local files."""
-    # Save to Notion database
-    save_lowdown_to_notion(result, newsletter_name)
+    """Write Local Lowdown stories into the Current Edition Notion page."""
+    display_name = newsletter_name.replace("_", " ")
+    page_title = f"{display_name} — Current Edition"
 
-    # Save local files for easy access
+    page_id = notion_search_page(page_title)
+    if not page_id:
+        print(f"  Could not find Notion page: {page_title}")
+        return
+
     stories = result.get("stories", [])
-    section_header = result.get("section_header", "")
-
-    section_text = f"## {section_header}\n\n"
+    blocks = []
     for story in stories:
         emoji = story.get("emoji", "")
         headline = story.get("headline", "")
@@ -188,18 +280,24 @@ def save_results(result: dict, newsletter_name: str) -> None:
         sources = story.get("source_urls", [])
         source_links = " | ".join(f"[{s['label']}]({s['url']})" for s in sources)
 
-        section_text += f"### {emoji} **{headline}**\n\n"
-        section_text += f"{body}\n\n"
+        blocks.append(paragraph_block(f"{emoji} {headline}", bold=True))
+        # Split body into paragraphs (Notion has 2000 char limit per block)
+        for para in body.split("\n\n"):
+            para = para.strip()
+            if para:
+                blocks.append(paragraph_block(para[:2000]))
         if source_links:
-            section_text += f"More: {source_links}\n\n"
+            blocks.append(paragraph_block(f"More: {source_links}"))
+        blocks.append(paragraph_block(""))  # spacer
 
+    if find_section_and_replace(page_id, "Local Lowdown", blocks):
+        print(f"  ✓ Wrote {len(stories)} stories to '{page_title}' → Local Lowdown section")
+    else:
+        print(f"  ✗ Failed to update Local Lowdown section")
+
+    # Also save local files
     output_dir = Path(__file__).parent / "output"
     output_dir.mkdir(exist_ok=True)
-
-    output_file = output_dir / f"lowdown_{newsletter_name}_{datetime.today().strftime('%Y%m%d')}.md"
-    output_file.write_text(section_text, encoding="utf-8")
-    print(f"  ✓ Saved to {output_file}")
-
     json_file = output_dir / f"lowdown_{newsletter_name}_{datetime.today().strftime('%Y%m%d')}.json"
     json_file.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(f"  ✓ Saved JSON to {json_file}")
