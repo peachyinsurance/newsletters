@@ -557,12 +557,25 @@ def _ensure_lowdown_schema():
 
 
 def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
-    """Save the Local Lowdown section to Notion."""
+    """Save the Local Lowdown section to Notion. Replaces any existing entry for this newsletter."""
     if not NOTION_LOWDOWN_DB_ID:
         print("  No NOTION_LOWDOWN_DB_ID set, skipping Notion save")
         return
 
     _ensure_lowdown_schema()
+
+    # Delete existing entries for this newsletter (prevents duplicates)
+    try:
+        existing = query_database(NOTION_LOWDOWN_DB_ID, filters={
+            "property": "Newsletter",
+            "select": {"equals": newsletter_name}
+        })
+        for page in existing:
+            archive_page(page["id"])
+        if existing:
+            print(f"  Archived {len(existing)} old Local Lowdown entries for {newsletter_name}")
+    except Exception:
+        pass
 
     stories = result.get("stories", [])
     section_header = result.get("section_header", "")
@@ -591,7 +604,7 @@ def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
         "Name":           {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - Local Lowdown - {datetime.today().strftime('%Y-%m-%d')}"}}]},
         "Newsletter":     {"select": {"name": newsletter_name}},
         "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
-        "Status":         {"select": {"name": "pending"}},
+        "Status":         {"select": {"name": "approved"}},
         "Section Header": {"rich_text": [{"text": {"content": safe_str(section_header)}}]},
         "Stories Count":  {"number": len(stories)},
         "Full Section":   {"rich_text": chunks},

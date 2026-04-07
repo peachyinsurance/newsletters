@@ -361,7 +361,7 @@ def get_latest_lowdown(newsletter_name: str) -> str | None:
     props = pages[0]["properties"]
     section_text = props.get("Full Section", {}).get("rich_text", [])
     if section_text:
-        return section_text[0].get("text", {}).get("content", "")
+        return "".join(chunk.get("text", {}).get("content", "") for chunk in section_text)
     return None
 
 
