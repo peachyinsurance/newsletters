@@ -416,6 +416,7 @@ def get_real_estate(newsletter_name: str) -> list[dict]:
             "baths":    props.get("Baths", {}).get("number", 0),
             "sqft":     props.get("Sqft", {}).get("number", 0),
             "photo":    props.get("Photo URL", {}).get("url", ""),
+            "gif":      props.get("GIF URL", {}).get("url", ""),
             "url":      props.get("Listing URL", {}).get("url", ""),
         })
     # Sort: Starter, Sweet Spot, Showcase
@@ -499,6 +500,11 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
             tier_emoji = {"Starter": "🏠", "Sweet Spot": "🏡", "Showcase": "🏰"}.get(listing["tier"], "🏠")
             price_str = f"${listing['price']:,}" if listing.get("price") else ""
             blocks.append(paragraph_block(f"{tier_emoji} {listing['tier']}: {listing.get('headline', '')}", bold=True))
+            # Show GIF inline if available, otherwise static photo
+            if listing.get("gif"):
+                blocks.append(image_block(listing["gif"]))
+            elif listing.get("photo"):
+                blocks.append(image_block(listing["photo"]))
             if listing.get("blurb"):
                 blocks.append(paragraph_block(listing["blurb"]))
             details = f"{price_str} | {listing.get('beds', 0)}bd/{listing.get('baths', 0)}ba"
@@ -509,8 +515,8 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
                 blocks.append(paragraph_block(listing["address"]))
             if listing.get("url"):
                 blocks.append(link_block("🔗 View Listing", listing['url']))
-            if listing.get("photo"):
-                blocks.append(link_block("📷 Download Photo", listing['photo']))
+            if listing.get("gif"):
+                blocks.append(link_block("📷 Download GIF", listing['gif']))
             blocks.append(paragraph_block(""))
     else:
         blocks.append(callout_block("No real estate listings yet. Run the Real Estate Corner pipeline.", emoji="⏳"))
