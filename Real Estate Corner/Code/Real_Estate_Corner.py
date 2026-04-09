@@ -1,0 +1,321 @@
+#!/usr/bin/env python3
+"""
+Newsletter Automation - Real Estate Corner
+Pulls one listing per price tier (Starter, Sweet Spot, Showcase) from Realtor.com
+via RapidAPI, generates blurbs via Claude, and saves to Notion.
+"""
+import os
+import sys
+import json
+import time
+from datetime import datetime
+from pathlib import Path
+
+import requests
+import anthropic
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
+from notion_helper import create_page, query_database, safe_str, HEADERS as NOTION_HEADERS
+
+# ---------------------------------------------------------------------------
+# 1. ENVIRONMENT & CONFIG
+# ---------------------------------------------------------------------------
+CLAUDE_API_KEY    = os.environ["CLAUDE_API_KEY"]
+REALTOR_API_KEY   = os.environ["REALTOR_API_KEY"]
+NOTION_API_KEY    = os.environ["NOTION_API_KEY"]
+
+SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-real-estate-skill_auto.md"
+
+REALTOR_HOST = "realtor-search.p.rapidapi.com"
+
+NEWSLETTERS = [
+    {
+        "name":     "East_Cobb_Connect",
+        "location": "city:Marietta, GA",
+        "display":  "East Cobb",
+    },
+    {
+        "name":     "Perimeter_Post",
+        "location": "city:Dunwoody, GA",
+        "display":  "Perimeter",
+    },
+]
+
+TIERS = [
+    {"name": "Starter",    "label": "🏠 Starter Home",    "max_price": 400000, "min_price": 0,       "min_beds": 3, "min_baths": 2},
+    {"name": "Sweet Spot", "label": "🏡 Sweet Spot",      "max_price": 700000, "min_price": 400000,  "min_beds": 0, "min_baths": 0},
+    {"name": "Showcase",   "label": "🏰 Showcase",        "max_price": None,   "min_price": 1000000, "min_beds": 0, "min_baths": 0},
+]
+
+# ---------------------------------------------------------------------------
+# 2. LOAD SKILL PROMPT
+# ---------------------------------------------------------------------------
+def load_skill_prompt() -> str:
+    if SKILL_PROMPT_PATH.exists():
+        return SKILL_PROMPT_PATH.read_text(encoding="utf-8")
+    return "You are a local newsletter writer. Write short, neighbor-style real estate blurbs."
+
+# ---------------------------------------------------------------------------
+# 3. FETCH LISTINGS FROM REALTOR.COM API
+# ---------------------------------------------------------------------------
+def fetch_listings(location: str, limit: int = 20) -> list[dict]:
+    """Fetch listings from Realtor.com API. Returns raw results — filter by price in Python."""
+    headers = {
+        "Content-Type": "application/json",
+        "x-rapidapi-host": REALTOR_HOST,
+        "x-rapidapi-key": REALTOR_API_KEY,
+    }
+
+    params = {
+        "location": location,
+        "limit": str(limit),
+    }
+
+    try:
+        res = requests.get(
+            f"https://{REALTOR_HOST}/properties/search-buy",
+            headers=headers,
+            params=params,
+            timeout=30,
+        )
+        if res.status_code != 200:
+            print(f"    API error {res.status_code}: {res.text[:200]}")
+            return []
+
+        data = res.json().get("data", {})
+        results = data.get("results", [])
+        print(f"  Got {len(results)} total listings from API")
+        return results
+
+    except Exception as e:
+        print(f"    API error: {e}")
+        return []
+
+
+def filter_by_tier(listings: list[dict], min_price: int, max_price: int | None,
+                   min_beds: int = 0, min_baths: int = 0) -> list[dict]:
+    """Filter raw listings by price range and bed/bath minimums."""
+    filtered = []
+    for r in listings:
+        price = r.get("list_price", 0) or 0
+        beds = r.get("description", {}).get("beds", 0) or 0
+        baths = r.get("description", {}).get("baths", 0) or 0
+
+        if price < min_price:
+            continue
+        if max_price and price > max_price:
+            continue
+        if beds < min_beds or baths < min_baths:
+            continue
+        filtered.append(r)
+    return filtered
+
+
+def parse_listing(raw: dict) -> dict:
+    """Parse a raw API listing into a clean dict."""
+    loc = raw.get("location", {}).get("address", {})
+    desc = raw.get("description", {})
+    href = raw.get("href", "")
+    # Fix double-prefixed URLs
+    if href.startswith("https://www.realtor.com"):
+        listing_url = href
+    elif href.startswith("/"):
+        listing_url = f"https://www.realtor.com{href}"
+    else:
+        listing_url = href
+
+    photo = raw.get("primary_photo", {}).get("href", "")
+
+    return {
+        "price":       raw.get("list_price", 0),
+        "address":     f"{loc.get('line', '')} {loc.get('city', '')} {loc.get('state_code', '')} {loc.get('postal_code', '')}".strip(),
+        "city":        loc.get("city", ""),
+        "zip":         loc.get("postal_code", ""),
+        "beds":        desc.get("beds", 0),
+        "baths":       desc.get("baths", 0),
+        "sqft":        desc.get("sqft") or 0,
+        "type":        (desc.get("type") or "").replace("_", " ").title(),
+        "lot_sqft":    desc.get("lot_sqft") or 0,
+        "year_built":  desc.get("year_built") or "",
+        "photo_url":   photo,
+        "listing_url": listing_url,
+        "list_date":   raw.get("list_date", ""),
+        "property_id": raw.get("property_id", ""),
+    }
+
+
+def pick_best_listing(listings: list[dict], min_beds: int = 0, min_baths: int = 0) -> dict | None:
+    """Pick the most newsletter-worthy listing from a set."""
+    if not listings:
+        return None
+    parsed = [parse_listing(r) for r in listings]
+    # Filter by bed/bath minimums
+    if min_beds or min_baths:
+        parsed = [p for p in parsed if (p["beds"] or 0) >= min_beds and (p["baths"] or 0) >= min_baths]
+    if not parsed:
+        return None
+    # Prefer listings with photos and complete data
+    scored = []
+    for p in parsed:
+        score = 0
+        if p["photo_url"]:
+            score += 3
+        if p["sqft"]:
+            score += 2
+        if p["beds"] and p["baths"]:
+            score += 2
+        if p["year_built"]:
+            score += 1
+        scored.append((score, p))
+    scored.sort(key=lambda x: -x[0])
+    return scored[0][1]
+
+
+# ---------------------------------------------------------------------------
+# 4. GENERATE BLURBS VIA CLAUDE
+# ---------------------------------------------------------------------------
+def generate_blurbs(listings: list[dict], skill_prompt: str, newsletter_display: str) -> list[dict]:
+    """Generate blurbs for the three tier listings."""
+    client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+
+    listings_text = ""
+    for listing in listings:
+        listings_text += f"""
+--- {listing['tier']} ---
+Price: ${listing['price']:,}
+Address: {listing['address']}
+Beds: {listing['beds']} | Baths: {listing['baths']} | Sqft: {listing['sqft']:,} | Type: {listing['type']}
+Year Built: {listing['year_built']}
+Listing URL: {listing['listing_url']}
+Photo: {listing['photo_url']}
+
+"""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=3000,
+        system=skill_prompt,
+        messages=[{
+            "role": "user",
+            "content": f"""
+Write a Real Estate Corner section for the {newsletter_display} area newsletter.
+There are 3 listings, one per price tier. Write a short, neighbor-style blurb for each.
+
+Return ONLY a JSON array with exactly 3 objects, no preamble or markdown.
+Exact format:
+[
+  {{
+    "tier": "Starter",
+    "headline": "Short catchy headline",
+    "blurb": "2-3 sentence blurb about the listing",
+    "price": 350000,
+    "address": "123 Main St Marietta GA 30062",
+    "beds": 3,
+    "baths": 2,
+    "sqft": 1500,
+    "photo_url": "https://...",
+    "listing_url": "https://..."
+  }}
+]
+
+Listings:
+{listings_text}
+"""
+        }]
+    )
+
+    raw = next(block.text for block in response.content if block.type == "text")
+    clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
+    results = json.loads(clean)
+    print(f"  Generated {len(results)} real estate blurbs")
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 5. SAVE TO NOTION
+# ---------------------------------------------------------------------------
+NOTION_RE_DB_ID = os.environ.get("NOTION_RE_DB_ID", "")
+
+def save_real_estate_to_notion(results: list[dict], newsletter_name: str) -> None:
+    """Save real estate listings to Notion database."""
+    if not NOTION_RE_DB_ID:
+        print("  No NOTION_RE_DB_ID set, skipping Notion save")
+        return
+
+    for listing in results:
+        properties = {
+            "Name":           {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - {listing.get('tier', '')} - {listing.get('address', '')}"}}]},
+            "Tier":           {"select": {"name": listing.get("tier", "")}},
+            "Price":          {"number": listing.get("price", 0)},
+            "Address":        {"rich_text": [{"text": {"content": safe_str(listing.get("address", ""))}}]},
+            "Beds":           {"number": listing.get("beds", 0)},
+            "Baths":          {"number": listing.get("baths", 0)},
+            "Sqft":           {"number": listing.get("sqft", 0)},
+            "Headline":       {"rich_text": [{"text": {"content": safe_str(listing.get("headline", ""))}}]},
+            "Blurb":          {"rich_text": [{"text": {"content": safe_str(listing.get("blurb", ""))[:2000]}}]},
+            "Photo URL":      {"url": listing.get("photo_url") or None},
+            "Listing URL":    {"url": listing.get("listing_url") or None},
+            "Newsletter":     {"select": {"name": newsletter_name}},
+            "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
+            "Status":         {"select": {"name": "approved"}},
+        }
+        create_page(NOTION_RE_DB_ID, properties)
+        print(f"  ✓ Saved: {listing.get('tier')} - {listing.get('address')}")
+
+
+# ---------------------------------------------------------------------------
+# 6. MAIN
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    print(f"Starting Real Estate Corner — {datetime.today().strftime('%Y-%m-%d')}")
+    skill_prompt = load_skill_prompt()
+
+    for newsletter in NEWSLETTERS:
+        print(f"\n{'='*60}")
+        print(f"Processing: {newsletter['name']} ({newsletter['display']})")
+        print(f"{'='*60}")
+
+        # Fetch all listings once, then filter per tier
+        all_listings = fetch_listings(location=newsletter["location"], limit=20)
+        if not all_listings:
+            print(f"  No listings found for {newsletter['name']}. Skipping.")
+            continue
+
+        tier_listings = []
+        used_ids = set()  # Prevent same listing appearing in multiple tiers
+
+        for tier in TIERS:
+            print(f"\n  {tier['label']} (${tier['min_price']:,} - {'$' + str(tier['max_price']//1000) + 'k' if tier['max_price'] else '1M+'})")
+            tier_filtered = filter_by_tier(
+                all_listings,
+                min_price=tier["min_price"],
+                max_price=tier["max_price"],
+                min_beds=tier.get("min_beds", 0),
+                min_baths=tier.get("min_baths", 0),
+            )
+            # Remove listings already picked for other tiers
+            tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
+            print(f"    {len(tier_filtered)} listings in range")
+
+            best = pick_best_listing(tier_filtered)
+            if best:
+                best["tier"] = tier["name"]
+                best["tier_label"] = tier["label"]
+                tier_listings.append(best)
+                used_ids.add(best["property_id"])
+                print(f"    ✓ ${best['price']:,} | {best['address']} | {best['beds']}bd/{best['baths']}ba")
+            else:
+                print(f"    ✗ No listings in this range")
+
+        if not tier_listings:
+            print(f"  No listings found for {newsletter['name']}. Skipping.")
+            continue
+
+        # Generate blurbs
+        print(f"\n  Generating blurbs for {len(tier_listings)} listings...")
+        results = generate_blurbs(tier_listings, skill_prompt, newsletter["display"])
+
+        # Save
+        save_real_estate_to_notion(results, newsletter["name"])
+
+    print(f"\nAll newsletters complete.")

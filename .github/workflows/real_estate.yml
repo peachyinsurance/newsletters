@@ -1,0 +1,36 @@
+name: Generate Real Estate Corner
+
+on:
+  schedule:
+    - cron: '0 13 * * 3'  # Every Wednesday at 8am EST (1pm UTC)
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests anthropic
+      - name: Generate Real Estate Corner
+        env:
+          CLAUDE_API_KEY:           ${{ secrets.CLAUDE_API_KEY }}
+          REALTOR_API_KEY:          ${{ secrets.REALTOR_API_KEY }}
+          NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
+          NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+          NOTION_RE_DB_ID:          ${{ secrets.NOTION_RE_DB_ID }}
+        run: python "Real Estate Corner/Code/Real_Estate_Corner.py"
+
+      - name: Trigger newsletter page rebuild
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/couch2coders/NewsletterAutomation/actions/workflows/assemble_newsletter.yml/dispatches \
+            -d '{"ref":"main"}'
+          echo "✓ Newsletter page rebuild triggered"

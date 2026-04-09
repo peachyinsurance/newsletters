@@ -7,7 +7,23 @@
       "WebSearch",
       "WebFetch(domain:stevesie.com)",
       "WebFetch(domain:apify.com)",
-      "WebFetch(domain:api.apify.com)"
+      "WebFetch(domain:api.apify.com)",
+      "WebFetch(domain:rapidapi.com)",
+      "WebFetch(domain:dev.to)",
+      "Bash(curl -s --request GET --url 'https://realtor-com4.p.rapidapi.com/' --header 'x-rapidapi-host: realtor-com4.p.rapidapi.com' --header 'x-rapidapi-key: 6c895d1cd2mshb3c7e5d71f3e858p142a29jsn030c773c5768')",
+      "Bash(python3 -m json.tool)",
+      "Bash(for endpoint:*)",
+      "Bash(do echo:*)",
+      "Bash(curl -s --request GET --url 'https://realtor-search.p.rapidapi.com/properties/search?location=30062&limit=3&status=for_sale' --header 'Content-Type: application/json' --header 'x-rapidapi-host: realtor-search.p.rapidapi.com' --header 'x-rapidapi-key: 6c895d1cd2mshb3c7e5d71f3e858p142a29jsn030c773c5768')",
+      "Bash(curl -s --request GET --url 'https://realtor-search.p.rapidapi.com/properties/search-buy?location=East%20Cobb%2C%20GA&limit=3' --header 'Content-Type: application/json' --header 'x-rapidapi-host: realtor-search.p.rapidapi.com' --header 'x-rapidapi-key: 6c895d1cd2mshb3c7e5d71f3e858p142a29jsn030c773c5768')",
+      "Bash(curl -s --request GET --url 'https://realtor-search.p.rapidapi.com/properties/search-buy?location=Marietta%2C%20GA&limit=3' --header 'Content-Type: application/json' --header 'x-rapidapi-host: realtor-search.p.rapidapi.com' --header 'x-rapidapi-key: 6c895d1cd2mshb3c7e5d71f3e858p142a29jsn030c773c5768')",
+      "Bash(curl -s --request GET --url 'https://realtor-search.p.rapidapi.com/properties/search-buy?location=Marietta%2C+GA' --header 'Content-Type: application/json' --header 'x-rapidapi-host: realtor-search.p.rapidapi.com' --header 'x-rapidapi-key: 6c895d1cd2mshb3c7e5d71f3e858p142a29jsn030c773c5768')",
+      "Bash(for loc:*)",
+      "Bash(curl -s --request GET --url 'https://realtor-search.p.rapidapi.com/properties/auto-complete?input=Marietta%20GA' --header 'Content-Type: application/json' --header 'x-rapidapi-host: realtor-search.p.rapidapi.com' --header 'x-rapidapi-key: 6c895d1cd2mshb3c7e5d71f3e858p142a29jsn030c773c5768')",
+      "Bash(curl -s --request GET --url 'https://realtor-search.p.rapidapi.com/properties/search-buy?location=Marietta_GA&limit=3' --header 'Content-Type: application/json' --header 'x-rapidapi-host: realtor-search.p.rapidapi.com' --header 'x-rapidapi-key: 6c895d1cd2mshb3c7e5d71f3e858p142a29jsn030c773c5768')",
+      "Bash(curl -s --request GET --url 'https://realtor-search.p.rapidapi.com/properties/search-buy?location=Marietta%2C+GA&limit=3' --header 'Content-Type: application/json' --header 'x-rapidapi-host: realtor-search.p.rapidapi.com' --header 'x-rapidapi-key: 6c895d1cd2mshb3c7e5d71f3e858p142a29jsn030c773c5768')",
+      "Bash(curl -s --request GET --url 'https://realtor-search.p.rapidapi.com/properties/search-buy?location=city%3AMarietta%2C+GA&limit=3' --header 'Content-Type: application/json' --header 'x-rapidapi-host: realtor-search.p.rapidapi.com' --header 'x-rapidapi-key: 6c895d1cd2mshb3c7e5d71f3e858p142a29jsn030c773c5768')",
+      "Bash(curl -s --request GET --url 'https://realtor-search.p.rapidapi.com/properties/search-buy?location=city%3AMarietta%2C+GA&limit=2' --header 'Content-Type: application/json' --header 'x-rapidapi-host: realtor-search.p.rapidapi.com' --header 'x-rapidapi-key: 6c895d1cd2mshb3c7e5d71f3e858p142a29jsn030c773c5768')"
     ]
   }
 }
