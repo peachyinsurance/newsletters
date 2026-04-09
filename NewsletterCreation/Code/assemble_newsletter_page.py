@@ -219,6 +219,30 @@ def paragraph_block(text: str, bold: bool = False) -> dict:
     }
 
 
+def link_block(label: str, url: str) -> dict:
+    """A paragraph with clickable hyperlinked text."""
+    return {
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {
+            "rich_text": [{
+                "type": "text",
+                "text": {"content": label, "link": {"url": url}},
+                "annotations": {"color": "blue"},
+            }]
+        },
+    }
+
+
+def image_block(url: str) -> dict:
+    """An embedded image block."""
+    return {
+        "object": "block",
+        "type": "image",
+        "image": {"type": "external", "external": {"url": url}},
+    }
+
+
 def divider_block() -> dict:
     return {"object": "block", "type": "divider", "divider": {}}
 
@@ -456,7 +480,7 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
             if r.get("blurb"):
                 blocks.append(paragraph_block(r["blurb"]))
             if r.get("photo"):
-                blocks.append(paragraph_block(f"Photo: {r['photo']}"))
+                blocks.append(link_block("📷 Download Photo", r['photo']))
             blocks.append(paragraph_block(""))
     else:
         blocks.append(callout_block("No restaurants selected yet. Run the pipeline and approve in the review app.", emoji="⏳"))
@@ -484,9 +508,9 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
             if listing.get("address"):
                 blocks.append(paragraph_block(listing["address"]))
             if listing.get("url"):
-                blocks.append(paragraph_block(f"Link: {listing['url']}"))
+                blocks.append(link_block("🔗 View Listing", listing['url']))
             if listing.get("photo"):
-                blocks.append(paragraph_block(f"Photo: {listing['photo']}"))
+                blocks.append(link_block("📷 Download Photo", listing['photo']))
             blocks.append(paragraph_block(""))
     else:
         blocks.append(callout_block("No real estate listings yet. Run the Real Estate Corner pipeline.", emoji="⏳"))
@@ -529,9 +553,9 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
         if shelter_lines:
             blocks.append(paragraph_block("\n".join(shelter_lines)))
         if pet.get("url"):
-            blocks.append(paragraph_block(f"Link: {pet['url']}"))
+            blocks.append(link_block("🔗 View Pet Listing", pet['url']))
         if pet.get("photo"):
-            blocks.append(paragraph_block(f"Photo: {pet['photo']}"))
+            blocks.append(link_block("📷 Download Photo", pet['photo']))
     else:
         blocks.append(callout_block("No approved pet yet. Run the pipeline and approve a pet in the review app.", emoji="⏳"))
     blocks.append(divider_block())

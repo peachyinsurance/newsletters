@@ -124,7 +124,12 @@ def parse_listing(raw: dict) -> dict:
     else:
         listing_url = href
 
+    # Get full-size photo (API returns small thumbnails ending in 's.jpg')
     photo = raw.get("primary_photo", {}).get("href", "")
+    if photo:
+        import re
+        photo = re.sub(r's\.jpg$', 'od.jpg', photo)  # od = original dimensions
+        photo = photo.replace("http://", "https://")
 
     return {
         "price":       raw.get("list_price", 0),
