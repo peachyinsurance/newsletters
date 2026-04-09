@@ -234,13 +234,19 @@ def link_block(label: str, url: str) -> dict:
     }
 
 
-def image_block(url: str) -> dict:
-    """An embedded image block."""
-    return {
+def image_block(url: str, caption: str = "") -> dict:
+    """An embedded image block with optional caption."""
+    block = {
         "object": "block",
         "type": "image",
-        "image": {"type": "external", "external": {"url": url}},
+        "image": {
+            "type": "external",
+            "external": {"url": url},
+        },
     }
+    if caption:
+        block["image"]["caption"] = [{"type": "text", "text": {"content": caption}}]
+    return block
 
 
 def divider_block() -> dict:
