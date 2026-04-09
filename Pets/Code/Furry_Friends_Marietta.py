@@ -7,6 +7,7 @@ and saves results to Notion.
 """
 
 import os
+import sys
 import re
 import json
 import time
@@ -15,9 +16,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import math
 
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
+
 import requests
 import anthropic
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import get_approved_pet_urls, save_pets_to_notion
 
 NEWSLETTERS = [
