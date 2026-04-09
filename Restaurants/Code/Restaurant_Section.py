@@ -295,13 +295,16 @@ Summary/Review: {r['summary'][:500] if r['summary'] else 'Not available'}
 
 """
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4000,
-        system=skill_prompt,
-        messages=[{
-            "role": "user",
-            "content": f"""
+    response = None
+    for attempt in range(3):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=4000,
+                system=skill_prompt,
+                messages=[{
+                    "role": "user",
+                    "content": f"""
 Write a neighbor-style restaurant blurb for each of these local restaurants.
 Each blurb should feel like a trusted neighbor recommending a place -- warm, specific, and conversational.
 Mention the vibe, 1-2 must-try dishes or drinks, and what kind of occasion it's good for.
@@ -328,8 +331,15 @@ Return ONLY a JSON array with no preamble or markdown. Exact format:
 Restaurants:
 {combined}
 """
-        }]
-    )
+                }]
+            )
+            break
+        except Exception as e:
+            if attempt < 2:
+                print(f"  Claude API error (attempt {attempt + 1}): {e}")
+                time.sleep(10 * (attempt + 1))
+            else:
+                raise
 
     raw    = next(block.text for block in response.content if block.type == "text")
     clean  = raw.strip().removeprefix("```json").removesuffix("```").strip()
@@ -375,32 +385,42 @@ def score_restaurants(results: list[dict]) -> list[dict]:
         
         """
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        messages=[{
-            "role": "user",
-            "content": f"""
+    response = None
+    for attempt in range(3):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2000,
+                messages=[{
+                    "role": "user",
+                    "content": f"""
         You are scoring local restaurant blurbs for a community newsletter editor.
         Score each on 0-10 for:
-        
+
         1. Appeal: How exciting and interesting is this restaurant for newsletter readers?
         2. Uniqueness: How different is it from typical chain options in the area?
         3. Neighborhood Fit: How well does it fit a suburban Atlanta community (families, professionals)?
-        
+
         The festive score has already been calculated separately -- do NOT score it.
-        
+
         CRITICAL: Return the exact place_id value provided above for each restaurant.
         Do not modify, slugify, or shorten the place_id. Copy it exactly as given.
-        
+
         Return ONLY a JSON array with no preamble or markdown:
         ...
-        
+
         Restaurants to score:
         {scoring_input}
         """
-        }]
-    )
+                }]
+            )
+            break
+        except Exception as e:
+            if attempt < 2:
+                print(f"  Claude API error (attempt {attempt + 1}): {e}")
+                time.sleep(10 * (attempt + 1))
+            else:
+                raise
 
     raw    = next(block.text for block in response.content if block.type == "text")
     clean  = raw.strip().removeprefix("```json").removesuffix("```").strip()

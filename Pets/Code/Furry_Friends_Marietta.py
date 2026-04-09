@@ -461,13 +461,16 @@ def generate_blurb(pets: list[dict], skill_prompt: str, animal_type: str) -> lis
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
     combined_profiles = build_combined_profiles(pets)
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4000,
-        system=skill_prompt,
-        messages=[{
-            "role": "user",
-            "content": f"""
+    response = None
+    for attempt in range(3):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=4000,
+                system=skill_prompt,
+                messages=[{
+                    "role": "user",
+                    "content": f"""
 Here are adoptable {animal_type}s from shelters near East Cobb, GA.
 Pick the TOP 3 with the best story potential and write a blurb for each.
 Use the pet's actual description -- do not invent details.
@@ -493,8 +496,15 @@ Exact format:
 
 {combined_profiles}
 """
-        }]
-    )
+                }]
+            )
+            break
+        except Exception as e:
+            if attempt < 2:
+                print(f"  Claude API error (attempt {attempt + 1}): {e}")
+                time.sleep(10 * (attempt + 1))
+            else:
+                raise
 
     raw = next(block.text for block in response.content if block.type == "text")
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
@@ -529,12 +539,15 @@ Source URL: {result['source_url']}
 
 """
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        messages=[{
-            "role": "user",
-            "content": f"""
+    response = None
+    for attempt in range(3):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2000,
+                messages=[{
+                    "role": "user",
+                    "content": f"""
 You are evaluating pet adoption blurbs for a local newsletter editor.
 Score each candidate on a 0-10 scale for each criteria:
 
@@ -564,8 +577,15 @@ Rules for scoring_notes:
 Candidates to score:
 {scoring_input}
 """
-        }]
-    )
+                }]
+            )
+            break
+        except Exception as e:
+            if attempt < 2:
+                print(f"  Claude API error (attempt {attempt + 1}): {e}")
+                time.sleep(10 * (attempt + 1))
+            else:
+                raise
 
     raw = next(block.text for block in response.content if block.type == "text")
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()

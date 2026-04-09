@@ -175,13 +175,16 @@ def write_local_lowdown(articles: list[dict], newsletter_name: str, display_area
 
     articles_json = json.dumps(articles, indent=2)
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4000,
-        system=skill_prompt,
-        messages=[{
-            "role": "user",
-            "content": f"""
+    response = None
+    for attempt in range(3):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=4000,
+                system=skill_prompt,
+                messages=[{
+                    "role": "user",
+                    "content": f"""
 Here are recent local news articles scraped from Google News for the {display_area} area.
 
 Newsletter: {newsletter_name}
@@ -194,8 +197,15 @@ Return ONLY valid JSON, no preamble or markdown fences.
 Articles:
 {articles_json}
 """
-        }]
-    )
+                }]
+            )
+            break
+        except Exception as e:
+            if attempt < 2:
+                print(f"  Claude API error (attempt {attempt + 1}): {e}")
+                time.sleep(10 * (attempt + 1))
+            else:
+                raise
 
     raw = next(block.text for block in response.content if block.type == "text")
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
