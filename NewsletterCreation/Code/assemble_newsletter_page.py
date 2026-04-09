@@ -236,17 +236,15 @@ def link_block(label: str, url: str) -> dict:
 
 def image_block(url: str, caption: str = "") -> dict:
     """An embedded image block with optional caption."""
-    block = {
+    return {
         "object": "block",
         "type": "image",
         "image": {
             "type": "external",
             "external": {"url": url},
+            "caption": [{"type": "text", "text": {"content": caption}}] if caption else [],
         },
     }
-    if caption:
-        block["image"]["caption"] = [{"type": "text", "text": {"content": caption}}]
-    return block
 
 
 def divider_block() -> dict:
@@ -435,6 +433,7 @@ def get_real_estate(newsletter_name: str) -> list[dict]:
             "sqft":     props.get("Sqft", {}).get("number", 0),
             "photo":    props.get("Photo URL", {}).get("url", ""),
             "gif":      props.get("GIF URL", {}).get("url", ""),
+            "template": props.get("Template Image", {}).get("url", ""),
             "url":      props.get("Listing URL", {}).get("url", ""),
         })
     # Sort: Starter, Sweet Spot, Showcase
@@ -517,11 +516,11 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
             if r.get("hours"):
                 blocks.append(paragraph_block(r["hours"]))
             if r.get("website"):
-                blocks.append(link_block("🔗 Website", r["website"]))
+                blocks.append(link_block("Website", r["website"]))
             if r.get("maps_url"):
-                blocks.append(link_block("📍 Google Maps", r["maps_url"]))
+                blocks.append(link_block("Google Maps", r["maps_url"]))
             if r.get("photo"):
-                blocks.append(link_block("📷 Download Photo", r["photo"]))
+                blocks.append(link_block("Download Photo", r["photo"]))
             blocks.append(paragraph_block(""))
     else:
         blocks.append(callout_block("No restaurants selected yet. Run the pipeline and approve in the review app.", emoji="⏳"))
@@ -540,23 +539,21 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
             tier_emoji = {"Starter": "🏠", "Sweet Spot": "🏡", "Showcase": "🏰"}.get(listing["tier"], "🏠")
             price_str = f"${listing['price']:,}" if listing.get("price") else ""
             blocks.append(paragraph_block(f"{tier_emoji} {listing['tier']}: {listing.get('headline', '')}", bold=True))
-            # Show GIF inline if available, otherwise static photo
-            if listing.get("gif"):
+            # Show template image (preferred) > GIF > static photo
+            if listing.get("template"):
+                blocks.append(image_block(listing["template"]))
+            elif listing.get("gif"):
                 blocks.append(image_block(listing["gif"]))
             elif listing.get("photo"):
                 blocks.append(image_block(listing["photo"]))
             if listing.get("blurb"):
                 blocks.append(paragraph_block(listing["blurb"]))
-            details = f"{price_str} | {listing.get('beds', 0)}bd/{listing.get('baths', 0)}ba"
-            if listing.get("sqft"):
-                details += f" | {listing['sqft']:,} sqft"
-            blocks.append(paragraph_block(details))
-            if listing.get("address"):
-                blocks.append(paragraph_block(listing["address"]))
             if listing.get("url"):
-                blocks.append(link_block("🔗 View Listing", listing['url']))
+                blocks.append(link_block("View Listing", listing['url']))
             if listing.get("gif"):
-                blocks.append(link_block("📷 Download GIF", listing['gif']))
+                blocks.append(link_block("Download GIF", listing['gif']))
+            if listing.get("template"):
+                blocks.append(link_block("Download Template Image", listing['template']))
             blocks.append(paragraph_block(""))
     else:
         blocks.append(callout_block("No real estate listings yet. Run the Real Estate Corner pipeline.", emoji="⏳"))
@@ -608,11 +605,11 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
             if shelter_lines:
                 blocks.append(paragraph_block("\n".join(shelter_lines)))
         if pet.get("url"):
-            blocks.append(link_block("🔗 View Pet Listing", pet['url']))
+            blocks.append(link_block("View Pet Listing", pet['url']))
         if pet.get("gif"):
-            blocks.append(link_block("📷 Download GIF", pet['gif']))
+            blocks.append(link_block("Download GIF", pet['gif']))
         elif pet.get("photo"):
-            blocks.append(link_block("📷 Download Photo", pet['photo']))
+            blocks.append(link_block("Download Photo", pet['photo']))
     else:
         blocks.append(callout_block("No approved pet yet. Run the pipeline and approve a pet in the review app.", emoji="⏳"))
     blocks.append(divider_block())

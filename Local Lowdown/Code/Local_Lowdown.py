@@ -70,6 +70,48 @@ def load_skill_prompt() -> str:
 # ---------------------------------------------------------------------------
 # 3. FETCH NEWS VIA BRAVE SEARCH API
 # ---------------------------------------------------------------------------
+def is_paywalled(url: str) -> bool:
+    """Check if a URL is behind a paywall.
+    Detects: hard paywalls (403), soft paywalls (JS popups), and metered paywalls."""
+    try:
+        r = requests.get(url, timeout=8, allow_redirects=True,
+                         headers={"User-Agent": "Mozilla/5.0 (compatible; newsletter-bot)"})
+
+        # Blocked or auth required
+        if r.status_code in (401, 403, 451):
+            return True
+
+        # Redirected to a login/subscribe page
+        final_url = r.url.lower()
+        if any(kw in final_url for kw in ["login", "signin", "subscribe", "paywall", "register", "create-account"]):
+            return True
+
+        # Check HTML for paywall indicators (catches soft/JS paywalls too)
+        content = r.text[:10000].lower()
+        paywall_signals = [
+            # Hard paywall text
+            "subscribe to read", "subscribers only", "premium content",
+            "create a free account", "sign in to continue",
+            "to continue reading", "exclusive to subscribers",
+            # Soft/JS paywall indicators
+            "paywall", "metered", "leaky-paywall", "piano-paywall",
+            "tp-modal", "subscriber-overlay", "regwall",
+            "blox-paywall", "tnt-paywall", "lee-paywall",
+            # Common local news paywall systems (Lee Enterprises, Blox CMS, TownNews)
+            "townnews.com/static/paywall", "bloxcms", "lee-enterprises",
+            "data-paywall", "data-meter", "pw-content-gate",
+            # Generic modal/gate patterns
+            "subscribe-modal", "subscription-required", "article-gate",
+        ]
+        if any(signal in content for signal in paywall_signals):
+            return True
+
+    except Exception:
+        pass  # If we can't check, assume it's fine
+
+    return False
+
+
 def fetch_news_brave(search_terms: list[str]) -> list[dict]:
     """Fetch recent news articles via Brave Search News API. Returns real source URLs."""
     headers = {
@@ -116,10 +158,16 @@ def fetch_news_brave(search_terms: list[str]) -> list[dict]:
                     print(f"    ✗ Skipping excluded topic ({matched_keyword}): {title[:60]}")
                     continue
 
+                # Check for paywall
+                if is_paywalled(url):
+                    source = item.get("meta_url", {}).get("hostname", "") if isinstance(item.get("meta_url"), dict) else url[:50]
+                    print(f"    ✗ Skipping paywalled: {source}")
+                    continue
+
                 seen_urls.add(url)
 
                 all_articles.append({
-                    "title":   item.get("title", ""),
+                    "title":   title,
                     "url":     url,
                     "source":  item.get("meta_url", {}).get("hostname", "") if isinstance(item.get("meta_url"), dict) else "",
                     "date":    item.get("age", "") or item.get("page_age", ""),
