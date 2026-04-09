@@ -240,13 +240,16 @@ Photo: {listing['photo_url']}
 
 """
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=3000,
-        system=skill_prompt,
-        messages=[{
-            "role": "user",
-            "content": f"""
+    response = None
+    for attempt in range(3):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=3000,
+                system=skill_prompt,
+                messages=[{
+                    "role": "user",
+                    "content": f"""
 Write a Real Estate Corner section for the {newsletter_display} area newsletter.
 There are 3 listings, one per price tier. Write a short, neighbor-style blurb for each.
 
@@ -270,8 +273,15 @@ Exact format:
 Listings:
 {listings_text}
 """
-        }]
-    )
+                }]
+            )
+            break
+        except Exception as e:
+            if attempt < 2:
+                print(f"  Claude API error (attempt {attempt + 1}): {e}")
+                time.sleep(10 * (attempt + 1))
+            else:
+                raise
 
     raw = next(block.text for block in response.content if block.type == "text")
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
