@@ -32,7 +32,7 @@ jobs:
           NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
           NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
-        run: python Restaurants/code/Restaurant_Section.py
+        run: python Restaurants/Code/Restaurant_Section.py
 
       - name: Trigger deploy to refresh review app
         env:

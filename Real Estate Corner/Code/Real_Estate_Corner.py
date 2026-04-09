@@ -484,18 +484,18 @@ if __name__ == "__main__":
         print(f"\n  Generating blurbs for {len(tier_listings)} listings...")
         results = generate_blurbs(tier_listings, skill_prompt, newsletter["display"])
 
-        # Generate GIF from the tier photos
-        print(f"\n  Creating GIF from {len(results)} listing photos...")
+        # Generate GIF from the tier photos (use tier_listings which has the actual photo URLs)
+        print(f"\n  Creating GIF from {len(tier_listings)} listing photos...")
         gif_urls = []
         gif_labels = []
-        for r in results:
-            photo = r.get("photo_url", "")
+        for listing in tier_listings:
+            photo = listing.get("photo_url", "")
             if photo:
                 gif_urls.append(photo)
-                price = r.get("price", 0)
-                tier = r.get("tier", "")
-                beds = r.get("beds", 0)
-                baths = r.get("baths", 0)
+                price = listing.get("price", 0)
+                tier = listing.get("tier", "")
+                beds = listing.get("beds", 0)
+                baths = listing.get("baths", 0)
                 tier_emoji = {"Starter": "🏠", "Sweet Spot": "🏡", "Showcase": "🏰"}.get(tier, "🏠")
                 gif_labels.append(f"{tier_emoji} {tier}  •  ${price:,}  •  {beds}bd/{baths}ba")
 
