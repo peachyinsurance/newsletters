@@ -24,26 +24,29 @@ jobs:
           NOTION_RE_DB_ID:          ${{ secrets.NOTION_RE_DB_ID }}
         run: python "Real Estate Corner/Code/Real_Estate_Corner.py"
 
-      - name: Upload GIF artifacts
+      - name: Upload image artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: real-estate-gifs
-          path: "Real Estate Corner/Code/output/*.gif"
+          name: real-estate-images
+          path: |
+            Real Estate Corner/Code/output/*.gif
+            Real Estate Corner/Code/output/*.png
           if-no-files-found: ignore
 
-      - name: Publish GIFs to gh-pages for public URLs
+      - name: Publish images to gh-pages for public URLs
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          if ls "Real Estate Corner/Code/output/"*.gif 1>/dev/null 2>&1; then
+          if ls "Real Estate Corner/Code/output/"*.gif "Real Estate Corner/Code/output/"*.png 1>/dev/null 2>&1; then
             git config user.name "github-actions"
             git config user.email "github-actions@github.com"
             git fetch origin gh-pages
             git checkout gh-pages
             mkdir -p gifs
-            cp "Real Estate Corner/Code/output/"*.gif gifs/
+            cp "Real Estate Corner/Code/output/"*.gif gifs/ 2>/dev/null || true
+            cp "Real Estate Corner/Code/output/"*.png gifs/ 2>/dev/null || true
             git add gifs/
-            git commit -m "update real estate GIFs" || true
+            git commit -m "update real estate images" || true
             git push origin gh-pages
             git checkout main
             echo "✓ GIFs published to gh-pages/gifs/"

@@ -359,6 +359,7 @@ def save_real_estate_to_notion(results: list[dict], newsletter_name: str) -> Non
             "Blurb":          {"rich_text": [{"text": {"content": safe_str(listing.get("blurb", ""))[:2000]}}]},
             "Photo URL":      {"url": listing.get("photo_url") or None},
             "GIF URL":        {"url": listing.get("gif_url") or None},
+            "Template Image": {"url": listing.get("template_image_url") or None},
             "Listing URL":    {"url": listing.get("listing_url") or None},
             "Newsletter":     {"select": {"name": newsletter_name}},
             "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
@@ -561,6 +562,29 @@ if __name__ == "__main__":
             tier = r.get("tier", "")
             if tier in gif_url_map:
                 r["gif_url"] = gif_url_map[tier]
+
+        # Generate template images (matching Canva design)
+        print(f"\n  Creating listing images...")
+        try:
+            from re_image_maker import generate_re_images
+            image_results = generate_re_images(tier_listings, newsletter["name"], str(output_dir))
+
+            # Build image URL map and merge into results
+            for img_result in image_results:
+                tier = img_result["tier"]
+                img_filename = img_result["image_filename"]
+                img_url = f"https://couch2coders.github.io/NewsletterAutomation/gifs/{img_filename}"
+                for r in results:
+                    if r.get("tier") == tier:
+                        r["template_image_url"] = img_url
+                        break
+                # Also store on tier_listings for gh-pages publish
+                for listing in tier_listings:
+                    if listing.get("tier") == tier:
+                        listing["image_filename"] = img_filename
+                        break
+        except Exception as e:
+            print(f"  ✗ Image generation failed: {e}")
 
         # Save to Notion
         save_real_estate_to_notion(results, newsletter["name"])

@@ -25,7 +25,9 @@
       "Bash(curl -s --request GET --url 'https://realtor-search.p.rapidapi.com/properties/search-buy?location=city%3AMarietta%2C+GA&limit=3' --header 'Content-Type: application/json' --header 'x-rapidapi-host: realtor-search.p.rapidapi.com' --header 'x-rapidapi-key: 6c895d1cd2mshb3c7e5d71f3e858p142a29jsn030c773c5768')",
       "Bash(curl -s --request GET --url 'https://realtor-search.p.rapidapi.com/properties/search-buy?location=city%3AMarietta%2C+GA&limit=2' --header 'Content-Type: application/json' --header 'x-rapidapi-host: realtor-search.p.rapidapi.com' --header 'x-rapidapi-key: 6c895d1cd2mshb3c7e5d71f3e858p142a29jsn030c773c5768')",
       "Bash(git mv:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "mcp__fba16c43-3dfc-476f-880e-b405bf562b58__start-editing-transaction",
+      "mcp__fba16c43-3dfc-476f-880e-b405bf562b58__cancel-editing-transaction"
     ]
   }
 }

@@ -66,21 +66,23 @@ approved_urls = get_approved_pet_urls()
 # ---------------------------------------------------------------------------
 
 def fetch_all_html_apify(urls: list[str]) -> dict[str, str]:
-    """Fetch ALL URLs in a single Apify web-scraper run. Returns {url: html} dict."""
+    """Fetch ALL URLs in a single Apify web-scraper run. Returns {url: html} dict.
+    Retries up to 2 times on connection errors."""
     if not urls:
         return {}
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {APIFY_API_KEY}",
     }
-    print(f"  Starting single Apify run for {len(urls)} URLs (concurrency=5)...")
-    try:
-        res = requests.post(
-            "https://api.apify.com/v2/acts/apify~web-scraper/run-sync-get-dataset-items",
-            headers=headers,
-            json={
-                "startUrls": [{"url": u} for u in urls],
-                "pageFunction": """
+    for attempt in range(3):
+        try:
+            print(f"  Starting Apify run for {len(urls)} URLs (concurrency=5){' (retry)' if attempt > 0 else ''}...")
+            res = requests.post(
+                "https://api.apify.com/v2/acts/apify~web-scraper/run-sync-get-dataset-items",
+                headers=headers,
+                json={
+                    "startUrls": [{"url": u} for u in urls],
+                    "pageFunction": """
 async function pageFunction(context) {
     return {
         url: context.request.url,
@@ -88,26 +90,33 @@ async function pageFunction(context) {
     };
 }
 """,
-                "maxConcurrency": 5,
-                "maxRequestsPerCrawl": len(urls),
-            },
-            timeout=APIFY_SCRAPER_TIMEOUT,
-        )
-        if res.status_code not in (200, 201):
-            print(f"  Apify error {res.status_code}: {res.text[:200]}")
-            return {}
-        items = res.json()
-        result = {}
-        for item in items:
-            u = item.get("url", "")
-            h = item.get("html", "")
-            if u and h:
-                result[u] = h
-        print(f"  Apify returned {len(result)} pages")
-        return result
-    except requests.exceptions.ReadTimeout:
-        print(f"  Apify timeout after {APIFY_SCRAPER_TIMEOUT}s")
-        return {}
+                    "maxConcurrency": 5,
+                    "maxRequestsPerCrawl": len(urls),
+                },
+                timeout=APIFY_SCRAPER_TIMEOUT,
+            )
+            if res.status_code not in (200, 201):
+                print(f"  Apify error {res.status_code}: {res.text[:200]}")
+                if attempt < 2:
+                    time.sleep(10)
+                    continue
+                return {}
+            items = res.json()
+            result = {}
+            for item in items:
+                u = item.get("url", "")
+                h = item.get("html", "")
+                if u and h:
+                    result[u] = h
+            print(f"  Apify returned {len(result)} pages")
+            return result
+        except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError) as e:
+            print(f"  Apify connection error (attempt {attempt + 1}): {type(e).__name__}")
+            if attempt < 2:
+                time.sleep(10)
+            else:
+                print(f"  Failed after 3 attempts")
+                return {}
 
 
 def fetch_html_apify(url: str, retries: int = 2) -> str | None:
