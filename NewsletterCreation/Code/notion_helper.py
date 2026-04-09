@@ -226,6 +226,7 @@ def setup_notion_databases():
             "Headline":       {"rich_text": {}},
             "Blurb":          {"rich_text": {}},
             "Photo URL":      {"url": {}},
+            "GIF URL":        {"url": {}},
             "Listing URL":    {"url": {}},
             "Newsletter":     {"select": {"options": [
                 {"name": "East_Cobb_Connect"},

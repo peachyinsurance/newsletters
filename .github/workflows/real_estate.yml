@@ -31,6 +31,26 @@ jobs:
           path: "Real Estate Corner/Code/output/*.gif"
           if-no-files-found: ignore
 
+      - name: Publish GIFs to gh-pages for public URLs
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          if ls "Real Estate Corner/Code/output/"*.gif 1>/dev/null 2>&1; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git fetch origin gh-pages
+            git checkout gh-pages
+            mkdir -p gifs
+            cp "Real Estate Corner/Code/output/"*.gif gifs/
+            git add gifs/
+            git commit -m "update real estate GIFs" || true
+            git push origin gh-pages
+            git checkout main
+            echo "✓ GIFs published to gh-pages/gifs/"
+          else
+            echo "No GIFs to publish"
+          fi
+
       - name: Trigger newsletter page rebuild
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}

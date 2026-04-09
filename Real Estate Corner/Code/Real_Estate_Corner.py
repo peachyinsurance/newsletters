@@ -145,14 +145,27 @@ def parse_listing(raw: dict) -> dict:
     else:
         listing_url = href
 
-    # Get full-size photo (API returns small thumbnails ending in 's.jpg')
-    photo = raw.get("primary_photo", {}).get("href", "")
-    if photo and "l-m" in photo:
-        import re
-        photo = re.sub(r's\.jpg$', 'od.jpg', photo)
-        photo = photo.replace("http://", "https://")
-    elif photo:
-        photo = photo.replace("http://", "https://")
+    # Get full-size photos (API returns small thumbnails ending in 's.jpg')
+    import re as _re
+
+    def _upgrade_photo(url):
+        if not url:
+            return ""
+        url = url.replace("http://", "https://")
+        if "l-m" in url:
+            url = _re.sub(r's\.jpg$', 'od.jpg', url)
+        return url
+
+    primary_photo = _upgrade_photo(raw.get("primary_photo", {}).get("href", ""))
+
+    # Get up to 3 photos for GIF creation
+    all_photos = []
+    for p in raw.get("photos", [])[:3]:
+        url = _upgrade_photo(p.get("href", ""))
+        if url and "l-m" in url:
+            all_photos.append(url)
+    if not all_photos and primary_photo:
+        all_photos = [primary_photo]
 
     return {
         "price":       raw.get("list_price", 0),
@@ -165,7 +178,8 @@ def parse_listing(raw: dict) -> dict:
         "type":        (desc.get("type") or "").replace("_", " ").title(),
         "lot_sqft":    desc.get("lot_sqft") or 0,
         "year_built":  desc.get("year_built") or "",
-        "photo_url":   photo,
+        "photo_url":   primary_photo,
+        "photos":      all_photos,
         "listing_url": listing_url,
         "list_date":   raw.get("list_date", ""),
         "property_id": raw.get("property_id", ""),
@@ -334,6 +348,7 @@ def save_real_estate_to_notion(results: list[dict], newsletter_name: str) -> Non
             "Headline":       {"rich_text": [{"text": {"content": safe_str(listing.get("headline", ""))}}]},
             "Blurb":          {"rich_text": [{"text": {"content": safe_str(listing.get("blurb", ""))[:2000]}}]},
             "Photo URL":      {"url": listing.get("photo_url") or None},
+            "GIF URL":        {"url": listing.get("gif_url") or None},
             "Listing URL":    {"url": listing.get("listing_url") or None},
             "Newsletter":     {"select": {"name": newsletter_name}},
             "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
@@ -484,35 +499,54 @@ if __name__ == "__main__":
         print(f"\n  Generating blurbs for {len(tier_listings)} listings...")
         results = generate_blurbs(tier_listings, skill_prompt, newsletter["display"])
 
-        # Generate GIF from the tier photos (use tier_listings which has the actual photo URLs)
-        print(f"\n  Creating GIF from {len(tier_listings)} listing photos...")
-        gif_urls = []
-        gif_labels = []
+        # Generate one GIF per listing (cycling through that listing's photos)
+        print(f"\n  Creating GIFs for {len(tier_listings)} listings...")
+        sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
+        output_dir = Path(__file__).parent / "output"
+        output_dir.mkdir(exist_ok=True)
+
         for listing in tier_listings:
-            photo = listing.get("photo_url", "")
-            if photo:
-                gif_urls.append(photo)
+            photos = listing.get("photos", [])
+            tier = listing.get("tier", "")
+            if len(photos) < 2:
+                print(f"    {tier}: only {len(photos)} photo(s), skipping GIF")
+                continue
+            try:
+                from gif_maker import create_gif_from_urls
                 price = listing.get("price", 0)
-                tier = listing.get("tier", "")
                 beds = listing.get("beds", 0)
                 baths = listing.get("baths", 0)
+                addr = listing.get("address", "").split(",")[0] if listing.get("address") else ""
                 tier_emoji = {"Starter": "🏠", "Sweet Spot": "🏡", "Showcase": "🏰"}.get(tier, "🏠")
-                gif_labels.append(f"{tier_emoji} {tier}  •  ${price:,}  •  {beds}bd/{baths}ba")
+                label = f"{tier_emoji} {tier}  •  ${price:,}  •  {beds}bd/{baths}ba"
 
-        gif_path = None
-        if gif_urls:
-            try:
-                sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
-                from gif_maker import create_gif_from_urls
-                gif_bytes = create_gif_from_urls(gif_urls, labels=gif_labels)
+                gif_bytes = create_gif_from_urls(
+                    photos,
+                    labels=[label] * len(photos),  # Same label on every frame
+                )
                 if gif_bytes:
-                    output_dir = Path(__file__).parent / "output"
-                    output_dir.mkdir(exist_ok=True)
-                    gif_path = output_dir / f"re_{newsletter['name']}_{datetime.today().strftime('%Y%m%d')}.gif"
+                    tier_slug = tier.lower().replace(" ", "_")
+                    gif_filename = f"re_{newsletter['name']}_{tier_slug}_{datetime.today().strftime('%Y%m%d')}.gif"
+                    gif_path = output_dir / gif_filename
                     gif_path.write_bytes(gif_bytes)
-                    print(f"  ✓ GIF saved to {gif_path} ({len(gif_bytes):,} bytes)")
+                    listing["gif_path"] = str(gif_path)
+                    listing["gif_filename"] = gif_filename
+                    print(f"    ✓ {tier} GIF: {len(photos)} frames, {len(gif_bytes):,} bytes")
             except Exception as e:
-                print(f"  ✗ GIF creation failed: {e}")
+                print(f"    ✗ {tier} GIF failed: {e}")
+
+        # Build GIF URLs for Notion (hosted on gh-pages)
+        gif_url_map = {}
+        for listing in tier_listings:
+            if listing.get("gif_filename"):
+                gif_url = f"https://couch2coders.github.io/NewsletterAutomation/gifs/{listing['gif_filename']}"
+                gif_url_map[listing["tier"]] = gif_url
+
+        # Merge GIF URLs into Claude's results
+        for r in results:
+            tier = r.get("tier", "")
+            if tier in gif_url_map:
+                r["gif_url"] = gif_url_map[tier]
 
         # Save to Notion
         save_real_estate_to_notion(results, newsletter["name"])
