@@ -22,7 +22,7 @@ jobs:
         run: pip install -r NewsletterCreation/Code/requirements.txt
 
       - name: Install dependencies
-        run: pip install anthropic requests notion-client
+        run: pip install anthropic requests notion-client Pillow
  
       - name: Run newsletter script
         env:
@@ -33,6 +33,26 @@ jobs:
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
           RESCUE_GROUP_API_KEY:    ${{ secrets.RESCUE_GROUP_API_KEY }}
         run: python Pets/Code/Furry_Friends_Marietta.py
+
+      - name: Publish GIFs to gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          if ls Pets/Code/output/*.gif 1>/dev/null 2>&1; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git fetch origin gh-pages
+            git checkout gh-pages
+            mkdir -p gifs
+            cp Pets/Code/output/*.gif gifs/
+            git add gifs/
+            git commit -m "update pet GIFs" || true
+            git push origin gh-pages
+            git checkout main
+            echo "✓ Pet GIFs published"
+          else
+            echo "No GIFs to publish"
+          fi
 
       - name: Trigger deploy to refresh review app
         env:

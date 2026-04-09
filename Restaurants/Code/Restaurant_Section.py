@@ -199,21 +199,24 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
         # Get cuisine type
         cuisine = place.get("primaryTypeDisplayName", {}).get("text", "Restaurant")
 
-        # Get photo URL -- resolve to direct CDN URL
-        photos    = place.get("photos", [])
-        photo_url = ""
-        if photos:
-            photo_ref = photos[0].get("name", "")
+        # Get up to 3 photo URLs -- resolve to direct CDN URLs
+        photos_raw = place.get("photos", [])
+        photo_urls = []
+        for photo_entry in photos_raw[:3]:
+            photo_ref = photo_entry.get("name", "")
             if photo_ref:
                 try:
                     photo_api_url = f"https://places.googleapis.com/v1/{photo_ref}/media?maxHeightPx=800&skipHttpRedirect=true&key={GOOGLE_PLACES_API_KEY}"
                     photo_res = requests.get(photo_api_url, timeout=10)
                     if photo_res.status_code == 200:
-                        photo_url = photo_res.json().get("photoUri", "")
-                        if photo_url:
-                            print(f"    ✓ Photo resolved")
-                except Exception as e:
-                    print(f"    ✗ Photo fetch error: {e}")
+                        resolved = photo_res.json().get("photoUri", "")
+                        if resolved:
+                            photo_urls.append(resolved)
+                except Exception:
+                    pass
+        photo_url = photo_urls[0] if photo_urls else ""
+        if photo_urls:
+            print(f"    ✓ {len(photo_urls)} photos resolved")
                     
         # Get hours
         hours_data = place.get("regularOpeningHours", {})
@@ -238,6 +241,7 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
             "review_count":    reviews,
             "price_level":     place.get("priceLevel", ""),
             "photo_url":       photo_url,
+            "photo_urls":      photo_urls,
             "hours":           hours,
             "summary":         summary,
             "newsletter_name": newsletter_name
@@ -480,6 +484,38 @@ if __name__ == "__main__":
 
         # Flag default winner
         results = flag_default_winner(results)
+
+        # Generate GIFs for each restaurant (3 photos per restaurant)
+        print(f"\n  Creating GIFs for {len(results)} restaurants...")
+        try:
+            sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
+            from gif_maker import create_gif_from_urls
+            from pathlib import Path as _Path
+            output_dir = _Path(__file__).parent / "output"
+            output_dir.mkdir(exist_ok=True)
+
+            # Build photo_urls map from the original restaurant data
+            photo_map = {r["place_id"]: r.get("photo_urls", []) for r in restaurants}
+
+            for result in results:
+                pid = result.get("place_id", "")
+                photos = photo_map.get(pid, [])
+                rname = result.get("restaurant_name", "")
+                if len(photos) < 2:
+                    print(f"    {rname}: only {len(photos)} photo(s), skipping GIF")
+                    continue
+                label = f"🍽️ {rname}"
+                gif_bytes = create_gif_from_urls(photos, labels=[label] * len(photos))
+                if gif_bytes:
+                    slug = rname.lower().replace(" ", "_").replace("'", "")[:30]
+                    gif_filename = f"rest_{newsletter['name']}_{slug}_{datetime.today().strftime('%Y%m%d')}.gif"
+                    gif_path = output_dir / gif_filename
+                    gif_path.write_bytes(gif_bytes)
+                    result["gif_url"] = f"https://couch2coders.github.io/NewsletterAutomation/gifs/{gif_filename}"
+                    result["gif_filename"] = gif_filename
+                    print(f"    ✓ {rname} GIF: {len(photos)} frames, {len(gif_bytes):,} bytes")
+        except Exception as e:
+            print(f"  ✗ GIF creation failed: {e}")
 
         # Save
         save_restaurants_to_notion(results, newsletter["name"])

@@ -61,51 +61,31 @@ def load_skill_prompt() -> str:
 # ---------------------------------------------------------------------------
 # 3. SCRAPE GOOGLE NEWS VIA APIFY
 # ---------------------------------------------------------------------------
-def resolve_google_news_url(url: str) -> str:
-    """Resolve Google News redirect URLs to actual article URLs."""
+def resolve_google_news_url(url: str, title: str = "", source: str = "") -> str:
+    """Resolve Google News redirect URLs to actual article URLs.
+    Falls back to a Google search link for the article title + source."""
     if "news.google.com" not in url:
         return url
 
-    import base64
-    from urllib.parse import urlparse, parse_qs
-
-    # Try to extract the real URL from the encoded path
-    # Google News RSS URLs encode the destination in base64 in the path
+    # Try HTTP redirect first (works sometimes)
     try:
-        parsed = urlparse(url)
-        # Extract the base64 portion from the path (after /rss/articles/)
-        path = parsed.path
-        if "/articles/" in path:
-            encoded = path.split("/articles/")[-1].split("?")[0]
-            # Try base64 decoding — the real URL is often embedded
-            for padding in ["", "=", "==", "==="]:
-                try:
-                    decoded = base64.urlsafe_b64decode(encoded + padding).decode("utf-8", errors="ignore")
-                    # Look for http URL in the decoded string
-                    import re
-                    urls_found = re.findall(r'https?://[^\s<>"\'\\]+', decoded)
-                    # Filter out Google URLs
-                    for found_url in urls_found:
-                        if "google.com" not in found_url and len(found_url) > 20:
-                            return found_url.rstrip("/")
-                except Exception:
-                    continue
-    except Exception:
-        pass
-
-    # Fallback: try HTTP redirect
-    try:
-        r = requests.head(url, allow_redirects=True, timeout=10)
-        if "news.google.com" not in r.url and "google.com/rss" not in r.url:
-            return r.url
-        r = requests.get(url, allow_redirects=True, timeout=10, stream=True)
+        r = requests.get(url, allow_redirects=True, timeout=10, stream=True,
+                         headers={"User-Agent": "Mozilla/5.0"})
         r.close()
-        if "news.google.com" not in r.url:
-            return r.url
+        final = r.url
+        if "news.google.com" not in final and "google.com/rss" not in final:
+            return final
     except Exception:
         pass
 
-    return url  # Return original if all resolution fails
+    # Fallback: build a Google search URL for the article
+    # This gives readers a direct path to find the original article
+    if title:
+        from urllib.parse import quote
+        search_query = f"{title} {source}".strip()
+        return f"https://www.google.com/search?q={quote(search_query)}"
+
+    return url
 
 
 def fetch_news_apify(search_terms: list[str]) -> list[dict]:
@@ -144,6 +124,9 @@ def fetch_news_apify(search_terms: list[str]) -> list[dict]:
             print(f"  First article keys: {list(items[0].keys())}")
 
         for item in items:
+            title = item.get("title") or item.get("headline") or ""
+            source = item.get("source") or item.get("publisher") or item.get("sourceName") or ""
+
             # Try multiple field names for the real article URL
             url = (item.get("sourceUrl") or item.get("articleUrl") or
                    item.get("link") or item.get("url") or "")
@@ -151,15 +134,15 @@ def fetch_news_apify(search_terms: list[str]) -> list[dict]:
                 continue
 
             # Resolve Google News redirect URLs to actual article URLs
-            url = resolve_google_news_url(url)
+            url = resolve_google_news_url(url, title=title, source=source)
             if not url or url in seen_urls:
                 continue
             seen_urls.add(url)
 
             all_articles.append({
-                "title":   item.get("title") or item.get("headline") or "",
+                "title":   title,
                 "url":     url,
-                "source":  item.get("source") or item.get("publisher") or item.get("sourceName") or "",
+                "source":  source,
                 "date":    item.get("publishedAt") or item.get("date") or item.get("published") or item.get("publishDate") or "",
                 "summary": item.get("description") or item.get("snippet") or item.get("text") or "",
             })

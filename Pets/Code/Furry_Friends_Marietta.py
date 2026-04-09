@@ -759,8 +759,41 @@ if __name__ == "__main__":
         # Flag default winners
         cat_results, dog_results = flag_default_winners(cat_results, dog_results)
 
-        # Save to Google Sheets
+        # Generate GIFs for each pet (3 photos per pet)
         final_results = cat_results + dog_results
+        print(f"\n  Creating GIFs for {len(final_results)} pets...")
+        try:
+            from gif_maker import create_gif_from_urls
+            output_dir = Path(__file__).parent / "output"
+            output_dir.mkdir(exist_ok=True)
+
+            # Build photo map from raw pet data (source_url -> photos list)
+            all_raw_pets = all_cats + all_dogs
+            photo_map = {p["url"]: p.get("photos", []) for p in all_raw_pets}
+
+            for result in final_results:
+                src_url = result.get("source_url", "")
+                photos = photo_map.get(src_url, [])
+                pname = result.get("pet_name", "")
+                if len(photos) < 2:
+                    print(f"    {pname}: only {len(photos)} photo(s), skipping GIF")
+                    continue
+                animal_type = result.get("animal_type", "")
+                emoji = "🐱" if animal_type == "cat" else "🐶"
+                label = f"{emoji} {pname}"
+                gif_bytes = create_gif_from_urls(photos[:3], labels=[label] * min(len(photos), 3))
+                if gif_bytes:
+                    slug = pname.lower().replace(" ", "_").replace("'", "")[:30]
+                    gif_filename = f"pet_{newsletter['name']}_{slug}_{datetime.today().strftime('%Y%m%d')}.gif"
+                    gif_path = output_dir / gif_filename
+                    gif_path.write_bytes(gif_bytes)
+                    result["gif_url"] = f"https://couch2coders.github.io/NewsletterAutomation/gifs/{gif_filename}"
+                    result["gif_filename"] = gif_filename
+                    print(f"    ✓ {pname} GIF: {min(len(photos), 3)} frames, {len(gif_bytes):,} bytes")
+        except Exception as e:
+            print(f"  ✗ GIF creation failed: {e}")
+
+        # Save
         save_pets_to_notion(final_results, newsletter["name"])
         print(f"Done with {newsletter['name']}. Saved {len(final_results)} rows.")
 

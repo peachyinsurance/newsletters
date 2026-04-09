@@ -23,8 +23,8 @@ jobs:
           pip install anthropic google-auth google-auth-httplib2 google-api-python-client requests
       
       - name: Install dependencies
-        run: pip install anthropic requests notion-client
-      
+        run: pip install anthropic requests notion-client Pillow
+
       - name: Run restaurant pipeline
         env:
           CLAUDE_API_KEY:           ${{ secrets.CLAUDE_API_KEY }}
@@ -33,6 +33,26 @@ jobs:
           NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
         run: python Restaurants/Code/Restaurant_Section.py
+
+      - name: Publish GIFs to gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          if ls Restaurants/Code/output/*.gif 1>/dev/null 2>&1; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git fetch origin gh-pages
+            git checkout gh-pages
+            mkdir -p gifs
+            cp Restaurants/Code/output/*.gif gifs/
+            git add gifs/
+            git commit -m "update restaurant GIFs" || true
+            git push origin gh-pages
+            git checkout main
+            echo "✓ Restaurant GIFs published"
+          else
+            echo "No GIFs to publish"
+          fi
 
       - name: Trigger deploy to refresh review app
         env:
