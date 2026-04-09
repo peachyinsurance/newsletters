@@ -359,12 +359,23 @@ def get_restaurants(newsletter_name: str) -> list[dict]:
         status = (status_prop.get("select") or status_prop.get("status") or {}).get("name", "")
         if status == "pending" or not status:
             continue
+        def _rt(key):
+            rt = props.get(key, {}).get("rich_text", [])
+            return rt[0].get("text", {}).get("content", "") if rt else ""
         results.append({
-            "name":   props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", ""),
-            "blurb":  props.get("Blurb", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "") if props.get("Blurb", {}).get("rich_text") else "",
-            "tier":   status,
-            "score":  props.get("Total Score", {}).get("number", 0),
-            "photo":  props.get("Photo URL", {}).get("url", ""),
+            "name":     props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", ""),
+            "blurb":    _rt("Blurb"),
+            "address":  _rt("Address"),
+            "phone":    _rt("Phone"),
+            "hours":    _rt("Hours"),
+            "cuisine":  (props.get("Cuisine", {}).get("select") or {}).get("name", ""),
+            "tier":     status,
+            "score":    props.get("Total Score", {}).get("number", 0),
+            "rating":   props.get("Rating", {}).get("number", 0),
+            "photo":    props.get("Photo URL", {}).get("url", ""),
+            "gif":      props.get("GIF URL", {}).get("url", ""),
+            "website":  props.get("Website", {}).get("url", ""),
+            "maps_url": props.get("Google Maps URL", {}).get("url", ""),
         })
     # Sort: Tier 1 first, then by score
     results.sort(key=lambda x: (0 if x["tier"] == "Tier 1 Winner" else 1, -(x["score"] or 0)))
@@ -484,10 +495,32 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
         for r in restaurants:
             tier_label = "⭐ TIER 1 — FEATURED" if r["tier"] == "Tier 1 Winner" else "TIER 2"
             blocks.append(paragraph_block(f"[{tier_label}] {r['name']} (Score: {r['score']}/40)", bold=True))
+            if r.get("gif"):
+                blocks.append(image_block(r["gif"]))
+            elif r.get("photo"):
+                blocks.append(image_block(r["photo"]))
             if r.get("blurb"):
                 blocks.append(paragraph_block(r["blurb"]))
+            # Details line
+            details_parts = []
+            if r.get("cuisine"):
+                details_parts.append(r["cuisine"])
+            if r.get("rating"):
+                details_parts.append(f"{r['rating']}★")
+            if details_parts:
+                blocks.append(paragraph_block(" | ".join(details_parts)))
+            if r.get("address"):
+                blocks.append(paragraph_block(r["address"]))
+            if r.get("phone"):
+                blocks.append(paragraph_block(r["phone"]))
+            if r.get("hours"):
+                blocks.append(paragraph_block(r["hours"]))
+            if r.get("website"):
+                blocks.append(link_block("🔗 Website", r["website"]))
+            if r.get("maps_url"):
+                blocks.append(link_block("📍 Google Maps", r["maps_url"]))
             if r.get("photo"):
-                blocks.append(link_block("📷 Download Photo", r['photo']))
+                blocks.append(link_block("📷 Download Photo", r["photo"]))
             blocks.append(paragraph_block(""))
     else:
         blocks.append(callout_block("No restaurants selected yet. Run the pipeline and approve in the review app.", emoji="⏳"))
