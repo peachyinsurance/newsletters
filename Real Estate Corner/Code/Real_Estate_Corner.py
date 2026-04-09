@@ -144,8 +144,10 @@ def parse_listing(raw: dict) -> dict:
     }
 
 
-def pick_best_listing(listings: list[dict], min_beds: int = 0, min_baths: int = 0) -> dict | None:
-    """Pick the most newsletter-worthy listing from a set."""
+def pick_best_listing(listings: list[dict], target_price: int = 0,
+                      min_beds: int = 0, min_baths: int = 0) -> dict | None:
+    """Pick the listing closest to the target price (midpoint of range).
+    Prefers listings with photos and complete data as tiebreakers."""
     if not listings:
         return None
     parsed = [parse_listing(r) for r in listings]
@@ -154,7 +156,7 @@ def pick_best_listing(listings: list[dict], min_beds: int = 0, min_baths: int = 
         parsed = [p for p in parsed if (p["beds"] or 0) >= min_beds and (p["baths"] or 0) >= min_baths]
     if not parsed:
         return None
-    # Prefer listings with photos and complete data
+    # Score: closeness to target price + data completeness
     scored = []
     for p in parsed:
         score = 0
@@ -166,6 +168,11 @@ def pick_best_listing(listings: list[dict], min_beds: int = 0, min_baths: int = 
             score += 2
         if p["year_built"]:
             score += 1
+        # Distance from target price (lower = better), normalized to 0-5 range
+        if target_price and p["price"]:
+            distance = abs(p["price"] - target_price) / max(target_price, 1)
+            price_score = max(0, 5 - (distance * 10))  # 0 distance = 5 points, 50% off = 0
+            score += price_score
         scored.append((score, p))
     scored.sort(key=lambda x: -x[0])
     return scored[0][1]
@@ -284,28 +291,83 @@ if __name__ == "__main__":
         tier_listings = []
         used_ids = set()  # Prevent same listing appearing in multiple tiers
 
-        for tier in TIERS:
-            print(f"\n  {tier['label']} (${tier['min_price']:,} - {'$' + str(tier['max_price']//1000) + 'k' if tier['max_price'] else '1M+'})")
-            tier_filtered = filter_by_tier(
-                all_listings,
-                min_price=tier["min_price"],
-                max_price=tier["max_price"],
-                min_beds=tier.get("min_beds", 0),
-                min_baths=tier.get("min_baths", 0),
-            )
-            # Remove listings already picked for other tiers
-            tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
-            print(f"    {len(tier_filtered)} listings in range")
+        # Adaptive tier ranges: if starter can't find a hit, expand upward
+        # and shift sweet spot accordingly. If showcase can't find 1M+, shrink down.
+        starter_min = 0
+        starter_max = 400000
+        sweet_min = 400000
+        sweet_max = 700000
+        showcase_min = 1000000
+        STEP = 100000
+        RANGE_WIDTH = 300000  # sweet spot range stays 300k wide
 
-            best = pick_best_listing(tier_filtered)
-            if best:
-                best["tier"] = tier["name"]
-                best["tier_label"] = tier["label"]
-                tier_listings.append(best)
-                used_ids.add(best["property_id"])
-                print(f"    ✓ ${best['price']:,} | {best['address']} | {best['beds']}bd/{best['baths']}ba")
-            else:
-                print(f"    ✗ No listings in this range")
+        # --- STARTER: expand upward until we find a 3/2+ ---
+        starter_result = None
+        for attempt in range(6):  # Try up to 600k shift
+            cur_max = starter_max + (attempt * STEP)
+            tier_filtered = filter_by_tier(all_listings, starter_min, cur_max,
+                                          min_beds=3, min_baths=2)
+            tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
+            target = cur_max // 2  # Midpoint of range
+            starter_result = pick_best_listing(tier_filtered, target_price=target, min_beds=3, min_baths=2)
+            if starter_result:
+                actual_max = cur_max
+                if attempt > 0:
+                    print(f"\n  🏠 Starter Home (expanded to <${cur_max//1000}k to find 3/2+)")
+                else:
+                    print(f"\n  🏠 Starter Home (<${starter_max//1000}k, 3+bd/2+ba)")
+                print(f"    ✓ ${starter_result['price']:,} | {starter_result['address']} | {starter_result['beds']}bd/{starter_result['baths']}ba")
+                starter_result["tier"] = "Starter"
+                starter_result["tier_label"] = "🏠 Starter Home"
+                tier_listings.append(starter_result)
+                used_ids.add(starter_result["property_id"])
+                # Shift sweet spot up by the same delta
+                delta = attempt * STEP
+                sweet_min = sweet_min + delta
+                sweet_max = sweet_min + RANGE_WIDTH
+                break
+        if not starter_result:
+            print(f"\n  🏠 Starter Home — no 3/2+ found even at ${starter_max + 5*STEP:,}")
+
+        # --- SWEET SPOT: use adjusted range, pick closest to midpoint ---
+        sweet_target = (sweet_min + sweet_max) // 2
+        print(f"\n  🏡 Sweet Spot (${sweet_min//1000}k-${sweet_max//1000}k, target ~${sweet_target//1000}k)")
+        tier_filtered = filter_by_tier(all_listings, sweet_min, sweet_max)
+        tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
+        print(f"    {len(tier_filtered)} listings in range")
+        sweet_result = pick_best_listing(tier_filtered, target_price=sweet_target)
+        if sweet_result:
+            sweet_result["tier"] = "Sweet Spot"
+            sweet_result["tier_label"] = "🏡 Sweet Spot"
+            tier_listings.append(sweet_result)
+            used_ids.add(sweet_result["property_id"])
+            print(f"    ✓ ${sweet_result['price']:,} | {sweet_result['address']} | {sweet_result['beds']}bd/{sweet_result['baths']}ba")
+        else:
+            print(f"    ✗ No listings in Sweet Spot range")
+
+        # --- SHOWCASE: shrink down from 1M+ until we find a hit ---
+        showcase_result = None
+        for attempt in range(4):  # Try down to 700k+
+            cur_min = showcase_min - (attempt * STEP)
+            if cur_min < sweet_max:
+                break  # Don't overlap with sweet spot
+            tier_filtered = filter_by_tier(all_listings, cur_min, None)
+            tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
+            # Target is the lowest available price in range (showcase = the entry to luxury)
+            showcase_result = pick_best_listing(tier_filtered, target_price=cur_min)
+            if showcase_result:
+                if attempt > 0:
+                    print(f"\n  🏰 Showcase (adjusted to ${cur_min//1000}k+)")
+                else:
+                    print(f"\n  🏰 Showcase ($1M+)")
+                print(f"    ✓ ${showcase_result['price']:,} | {showcase_result['address']} | {showcase_result['beds']}bd/{showcase_result['baths']}ba")
+                showcase_result["tier"] = "Showcase"
+                showcase_result["tier_label"] = "🏰 Showcase"
+                tier_listings.append(showcase_result)
+                used_ids.add(showcase_result["property_id"])
+                break
+        if not showcase_result:
+            print(f"\n  🏰 Showcase — no listings found at ${showcase_min - 3*STEP:,}+")
 
         if not tier_listings:
             print(f"  No listings found for {newsletter['name']}. Skipping.")

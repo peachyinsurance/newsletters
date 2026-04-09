@@ -24,6 +24,7 @@ NOTION_API_KEY           = os.environ["NOTION_API_KEY"]
 NOTION_PETS_DB_ID        = os.environ["NOTION_PETS_DB_ID"]
 NOTION_RESTAURANTS_DB_ID = os.environ["NOTION_RESTAURANTS_DB_ID"]
 NOTION_LOWDOWN_DB_ID     = os.environ.get("NOTION_LOWDOWN_DB_ID", "")
+NOTION_RE_DB_ID          = os.environ.get("NOTION_RE_DB_ID", "")
 NOTION_PARENT_PAGE_ID    = os.environ["NOTION_PARENT_PAGE_ID"]
 
 HEADERS = {
@@ -365,9 +366,47 @@ def get_latest_lowdown(newsletter_name: str) -> str | None:
     return None
 
 
+def get_real_estate(newsletter_name: str) -> list[dict]:
+    """Get real estate listings from the database for a newsletter."""
+    if not NOTION_RE_DB_ID:
+        return []
+    try:
+        pages = query_database(NOTION_RE_DB_ID)
+        pages = [p for p in pages if
+                 (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
+    except Exception:
+        return []
+    results = []
+    for page in pages:
+        props = page["properties"]
+        def _rt(key):
+            rt = props.get(key, {}).get("rich_text", [])
+            return rt[0].get("text", {}).get("content", "") if rt else ""
+        results.append({
+            "tier":     (props.get("Tier", {}).get("select") or {}).get("name", ""),
+            "headline": _rt("Headline"),
+            "blurb":    _rt("Blurb"),
+            "price":    props.get("Price", {}).get("number", 0),
+            "address":  _rt("Address"),
+            "beds":     props.get("Beds", {}).get("number", 0),
+            "baths":    props.get("Baths", {}).get("number", 0),
+            "sqft":     props.get("Sqft", {}).get("number", 0),
+            "photo":    props.get("Photo URL", {}).get("url", ""),
+            "url":      props.get("Listing URL", {}).get("url", ""),
+        })
+    # Sort: Starter, Sweet Spot, Showcase
+    tier_order = {"Starter": 0, "Sweet Spot": 1, "Showcase": 2}
+    results.sort(key=lambda x: tier_order.get(x["tier"], 9))
+    return results
+
+
 # ---------------------------------------------------------------------------
 # PAGE ASSEMBLER
 # ---------------------------------------------------------------------------
+
+def _placeholder(text: str) -> dict:
+    return callout_block(text, emoji="✏️")
+
 
 def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
     """Build all Notion blocks for a newsletter landing page."""
@@ -382,31 +421,81 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
     ))
     blocks.append(divider_block())
 
-    # 1. Subject Line & Preview Text
-    blocks.append(heading_block("📧 Subject Line & Preview Text"))
-    blocks.append(callout_block("Not yet automated. Write or paste your subject line and preview text here.", emoji="✏️"))
+    # 1. Welcome Intro
+    blocks.append(heading_block("👋 Welcome Intro"))
+    blocks.append(_placeholder("Not yet automated."))
     blocks.append(divider_block())
 
-    # 2. Editor's Blurb
-    blocks.append(heading_block("📝 Editor's Blurb"))
-    blocks.append(callout_block("Not yet automated. Write or paste the opening editor's note here.", emoji="✏️"))
+    # 2. Summary
+    blocks.append(heading_block("📑 Summary"))
+    blocks.append(_placeholder("Not yet automated."))
     blocks.append(divider_block())
 
-    # 3. In Today's Connect
-    blocks.append(heading_block("📑 In Today's Connect"))
-    blocks.append(callout_block("Not yet automated. Write or paste the teaser list here.", emoji="✏️"))
+    # 3. Poll
+    blocks.append(heading_block("📊 Poll"))
+    blocks.append(_placeholder("Not yet automated."))
     blocks.append(divider_block())
 
-    # 4. Featured Event
-    blocks.append(heading_block("🎪 Featured Event"))
-    blocks.append(callout_block("Not yet automated. Write or paste the featured event here.", emoji="✏️"))
+    # 4. Sponsor Corner
+    blocks.append(heading_block("💼 Sponsor Corner"))
+    blocks.append(_placeholder("Not yet automated."))
     blocks.append(divider_block())
 
-    # 5. Local Lowdown (automated)
+    # 5. Event of the Week
+    blocks.append(heading_block("🎪 Event of the Week"))
+    blocks.append(_placeholder("Not yet automated."))
+    blocks.append(divider_block())
+
+    # 6. Restaurant Radar (automated)
+    blocks.append(heading_block("🍽️ Restaurant Radar"))
+    restaurants = get_restaurants(newsletter_name)
+    if restaurants:
+        for r in restaurants:
+            tier_label = "⭐ TIER 1 — FEATURED" if r["tier"] == "Tier 1 Winner" else "TIER 2"
+            blocks.append(paragraph_block(f"[{tier_label}] {r['name']} (Score: {r['score']}/40)", bold=True))
+            if r.get("blurb"):
+                blocks.append(paragraph_block(r["blurb"]))
+            if r.get("photo"):
+                blocks.append(paragraph_block(f"Photo: {r['photo']}"))
+            blocks.append(paragraph_block(""))
+    else:
+        blocks.append(callout_block("No restaurants selected yet. Run the pipeline and approve in the review app.", emoji="⏳"))
+    blocks.append(divider_block())
+
+    # 7. Business Brief
+    blocks.append(heading_block("🏢 Business Brief"))
+    blocks.append(_placeholder("Not yet automated."))
+    blocks.append(divider_block())
+
+    # 8. Real Estate Corner (automated)
+    blocks.append(heading_block("🏠 Real Estate Corner"))
+    re_listings = get_real_estate(newsletter_name)
+    if re_listings:
+        for listing in re_listings:
+            tier_emoji = {"Starter": "🏠", "Sweet Spot": "🏡", "Showcase": "🏰"}.get(listing["tier"], "🏠")
+            price_str = f"${listing['price']:,}" if listing.get("price") else ""
+            blocks.append(paragraph_block(f"{tier_emoji} {listing['tier']}: {listing.get('headline', '')}", bold=True))
+            if listing.get("blurb"):
+                blocks.append(paragraph_block(listing["blurb"]))
+            details = f"{price_str} | {listing.get('beds', 0)}bd/{listing.get('baths', 0)}ba"
+            if listing.get("sqft"):
+                details += f" | {listing['sqft']:,} sqft"
+            blocks.append(paragraph_block(details))
+            if listing.get("address"):
+                blocks.append(paragraph_block(listing["address"]))
+            if listing.get("url"):
+                blocks.append(paragraph_block(f"Link: {listing['url']}"))
+            if listing.get("photo"):
+                blocks.append(paragraph_block(f"Photo: {listing['photo']}"))
+            blocks.append(paragraph_block(""))
+    else:
+        blocks.append(callout_block("No real estate listings yet. Run the Real Estate Corner pipeline.", emoji="⏳"))
+    blocks.append(divider_block())
+
+    # 9. Local Lowdown (automated)
     blocks.append(heading_block("🗞️ Local Lowdown"))
     lowdown_text = get_latest_lowdown(newsletter_name)
     if lowdown_text:
-        # Split into paragraphs and add as blocks
         for para in lowdown_text.split("\n"):
             para = para.strip()
             if not para:
@@ -421,13 +510,12 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
         blocks.append(callout_block("No Local Lowdown generated yet. Run the Local Lowdown pipeline.", emoji="⏳"))
     blocks.append(divider_block())
 
-    # 6. Pet Adoption (automated)
-    blocks.append(heading_block("🐾 Pet Adoption"))
+    # 10. Furry Friends (automated)
+    blocks.append(heading_block("🐾 Furry Friends"))
     pet = get_approved_pet(newsletter_name)
     if pet and pet.get("blurb"):
         blocks.append(paragraph_block(pet["name"], bold=True))
         blocks.append(paragraph_block(pet["blurb"]))
-        # Shelter info block
         shelter_lines = []
         if pet.get("shelter"):
             shelter_lines.append(pet["shelter"])
@@ -448,25 +536,32 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
         blocks.append(callout_block("No approved pet yet. Run the pipeline and approve a pet in the review app.", emoji="⏳"))
     blocks.append(divider_block())
 
-    # 7. Restaurant (automated)
-    blocks.append(heading_block("🍽️ Restaurant"))
-    restaurants = get_restaurants(newsletter_name)
-    if restaurants:
-        for r in restaurants:
-            tier_label = "⭐ TIER 1 — FEATURED" if r["tier"] == "Tier 1 Winner" else "TIER 2"
-            blocks.append(paragraph_block(f"[{tier_label}] {r['name']} (Score: {r['score']}/40)", bold=True))
-            if r.get("blurb"):
-                blocks.append(paragraph_block(r["blurb"]))
-            if r.get("photo"):
-                blocks.append(paragraph_block(f"Photo: {r['photo']}"))
-            blocks.append(paragraph_block(""))  # spacer
-    else:
-        blocks.append(callout_block("No restaurants selected yet. Run the pipeline and approve in the review app.", emoji="⏳"))
+    # 11. Local Events
+    blocks.append(heading_block("📅 Local Events"))
+    blocks.append(paragraph_block("Family Fun", bold=True))
+    blocks.append(_placeholder("Not yet automated."))
+    blocks.append(paragraph_block("Adults Only", bold=True))
+    blocks.append(_placeholder("Not yet automated."))
     blocks.append(divider_block())
 
-    # 8. Reader Poll
-    blocks.append(heading_block("📊 Reader Poll"))
-    blocks.append(callout_block("Not yet automated. Write or paste the reader poll here.", emoji="✏️"))
+    # 12. Free Activity Ideas
+    blocks.append(heading_block("🆓 Free Activity Ideas"))
+    blocks.append(_placeholder("Not yet automated."))
+    blocks.append(divider_block())
+
+    # 13. Insurance Tip
+    blocks.append(heading_block("🛡️ Insurance Tip"))
+    blocks.append(_placeholder("Not yet automated."))
+    blocks.append(divider_block())
+
+    # 14. In Search Of
+    blocks.append(heading_block("🔍 In Search Of"))
+    blocks.append(_placeholder("Not yet automated."))
+    blocks.append(divider_block())
+
+    # 15. Meme Corner
+    blocks.append(heading_block("😂 Meme Corner"))
+    blocks.append(_placeholder("Not yet automated."))
 
     return blocks
 
