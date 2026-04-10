@@ -378,14 +378,29 @@ def parse_detail_html(html: str) -> dict:
             animal = pp.get("animal") or pp.get("pet") or {}
             if animal:
                 detail["description"] = clean_text(animal.get("description", ""))
-                contact = animal.get("contact", {})
-                org_addr = contact.get("address", {})
-                addr_parts = [org_addr.get("address1", ""), org_addr.get("city", ""),
-                              org_addr.get("state", ""), org_addr.get("postcode", "")]
-                detail["org_address"] = " ".join(p for p in addr_parts if p).strip()
-                detail["org_phone"] = contact.get("phone", "")
-                detail["org_email"] = contact.get("email", "")
-                detail["org_name"] = animal.get("organization_id", "")
+
+                # Shelter info: check pageProps.organization first, then animal.contact
+                org = pp.get("organization", {})
+                loc = org.get("primaryLocation", {}) or {}
+                loc_addr = loc.get("address", {}) or {}
+
+                if org.get("organizationName"):
+                    detail["org_name"] = org.get("organizationName", "")
+                    addr_parts = [loc_addr.get("street", ""), loc_addr.get("city", ""),
+                                  loc_addr.get("state", ""), loc_addr.get("postalCode", loc_addr.get("postcode", ""))]
+                    detail["org_address"] = " ".join(p for p in addr_parts if p).strip()
+                    detail["org_phone"] = loc.get("phone", "")
+                    detail["org_email"] = loc.get("email", "")
+                else:
+                    # Fallback to animal.contact
+                    contact = animal.get("contact", {})
+                    org_addr = contact.get("address", {})
+                    addr_parts = [org_addr.get("address1", ""), org_addr.get("city", ""),
+                                  org_addr.get("state", ""), org_addr.get("postcode", "")]
+                    detail["org_address"] = " ".join(p for p in addr_parts if p).strip()
+                    detail["org_phone"] = contact.get("phone", "")
+                    detail["org_email"] = contact.get("email", "")
+                    detail["org_name"] = animal.get("organization_id", "")
                 photos = []
                 for p in (animal.get("photos") or []):
                     url = p.get("large") or p.get("full") or p.get("medium") or ""
@@ -900,7 +915,8 @@ if __name__ == "__main__":
                     gif_filename = f"pet_{newsletter['name']}_{slug}_{datetime.today().strftime('%Y%m%d')}.gif"
                     gif_path = output_dir / gif_filename
                     gif_path.write_bytes(gif_bytes)
-                    result["gif_url"] = f"https://couch2coders.github.io/NewsletterAutomation/gifs/{gif_filename}"
+                    cache_bust = int(datetime.today().timestamp())
+                    result["gif_url"] = f"https://couch2coders.github.io/NewsletterAutomation/gifs/{gif_filename}?v={cache_bust}"
                     result["gif_filename"] = gif_filename
                     print(f"    ✓ {pname} GIF: {min(len(photos), 3)} frames, {len(gif_bytes):,} bytes")
         except Exception as e:

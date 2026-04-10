@@ -534,7 +534,8 @@ if __name__ == "__main__":
                     gif_filename = f"rest_{newsletter['name']}_{slug}_{datetime.today().strftime('%Y%m%d')}.gif"
                     gif_path = output_dir / gif_filename
                     gif_path.write_bytes(gif_bytes)
-                    result["gif_url"] = f"https://couch2coders.github.io/NewsletterAutomation/gifs/{gif_filename}"
+                    cache_bust = int(datetime.today().timestamp())
+                    result["gif_url"] = f"https://couch2coders.github.io/NewsletterAutomation/gifs/{gif_filename}?v={cache_bust}"
                     result["gif_filename"] = gif_filename
                     print(f"    ✓ {rname} GIF: {len(photos)} frames, {len(gif_bytes):,} bytes")
         except Exception as e:
