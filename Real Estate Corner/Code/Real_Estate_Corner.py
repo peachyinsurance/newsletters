@@ -527,6 +527,7 @@ if __name__ == "__main__":
         for r in results:
             tier = r.get("tier", "")
             original = tier_data_map.get(tier, {})
+            print(f"  Merge {tier}: Claude addr='{r.get('address', '')[:40]}' | Original addr='{original.get('address', '')[:40]}'")
             r["photo_url"] = original.get("photo_url", r.get("photo_url", ""))
             r["listing_url"] = original.get("listing_url", r.get("listing_url", ""))
             r["address"] = original.get("address", r.get("address", ""))
