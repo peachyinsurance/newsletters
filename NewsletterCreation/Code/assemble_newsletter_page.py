@@ -456,8 +456,9 @@ def get_real_estate(newsletter_name: str) -> list[dict]:
             latest_date = max(dates)
             results = [r for r in results if r.get("date", "") == latest_date]
 
-    # Sort: Tier 1 first, then by score
-    results.sort(key=lambda x: (0 if x["tier"] == "Tier 1 Winner" else 1, -(x["score"] or 0)))
+    # Sort: Starter, Sweet Spot, Showcase
+    tier_order = {"Starter": 0, "Sweet Spot": 1, "Showcase": 2}
+    results.sort(key=lambda x: tier_order.get(x["tier"], 9))
     return results
 
 
