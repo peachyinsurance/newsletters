@@ -82,12 +82,11 @@ async function pageFunction(context) {
     const { page, request, log } = context;
 
     // Wait for page to load
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(2000);
 
-    // Click carousel arrows to load all photos
+    // Click carousel arrows to load photos (2 clicks = 3 photos total)
     const photoUrls = new Set();
 
-    // Collect initial visible images
     const collectPhotos = async () => {
         const imgs = await page.$$eval('img[src*="cloudfront"], img[src*="dl5zpyw5k3jeb"]', els =>
             els.map(el => el.src || el.dataset.src).filter(s => s && !s.includes('logo'))
@@ -97,13 +96,12 @@ async function pageFunction(context) {
 
     await collectPhotos();
 
-    // Try clicking next arrow up to 5 times
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 2; i++) {
         const nextBtn = await page.$('button[aria-label="Next"], [class*="next"], [class*="Next"], [data-testid="next"]');
         if (!nextBtn) break;
         try {
             await nextBtn.click();
-            await page.waitForTimeout(1000);
+            await page.waitForTimeout(800);
             await collectPhotos();
         } catch(e) { break; }
     }

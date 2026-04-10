@@ -528,8 +528,7 @@ if __name__ == "__main__":
                 if len(photos) == 1:
                     print(f"    {rname}: 1 photo, using static image")
                     continue
-                label = f"🍽️ {rname}"
-                gif_bytes = create_gif_from_urls(photos, labels=[label] * len(photos))
+                gif_bytes = create_gif_from_urls(photos)
                 if gif_bytes:
                     slug = rname.lower().replace(" ", "_").replace("'", "")[:30]
                     gif_filename = f"rest_{newsletter['name']}_{slug}_{datetime.today().strftime('%Y%m%d')}.gif"
