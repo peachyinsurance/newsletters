@@ -276,7 +276,7 @@ def generate_re_images(listings: list[dict], newsletter_name: str, output_dir: s
         if img_bytes:
             slug = tier.lower().replace(" ", "_")
             ext = "gif" if len(photo_urls) > 1 else "png"
-            filename = f"re_{newsletter_name}_{slug}_{__import__('datetime').datetime.today().strftime('%Y%m%d')}.{ext}"
+            filename = f"re_{newsletter_name}_{slug}_template_{__import__('datetime').datetime.today().strftime('%Y%m%d')}.{ext}"
             filepath = out / filename
             filepath.write_bytes(img_bytes)
             results.append({
