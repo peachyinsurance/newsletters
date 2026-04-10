@@ -510,6 +510,19 @@ if __name__ == "__main__":
         print(f"\n  Generating blurbs for {len(tier_listings)} listings...")
         results = generate_blurbs(tier_listings, skill_prompt, newsletter["display"])
 
+        # Merge original listing data into Claude's results (source of truth for URLs/photos)
+        tier_data_map = {l["tier"]: l for l in tier_listings}
+        for r in results:
+            tier = r.get("tier", "")
+            original = tier_data_map.get(tier, {})
+            r["photo_url"] = original.get("photo_url", r.get("photo_url", ""))
+            r["listing_url"] = original.get("listing_url", r.get("listing_url", ""))
+            r["address"] = original.get("address", r.get("address", ""))
+            r["price"] = original.get("price", r.get("price", 0))
+            r["beds"] = original.get("beds", r.get("beds", 0))
+            r["baths"] = original.get("baths", r.get("baths", 0))
+            r["sqft"] = original.get("sqft", r.get("sqft", 0))
+
         # Generate template images (animated GIF with border overlay)
         sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
         output_dir = Path(__file__).parent / "output"
