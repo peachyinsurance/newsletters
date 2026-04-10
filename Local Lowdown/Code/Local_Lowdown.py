@@ -237,6 +237,19 @@ Articles:
     result = json.loads(clean)
 
     stories = result.get("stories", [])
+
+    # Post-filter: remove any paywalled URLs Claude included in source_urls
+    for story in stories:
+        source_urls = story.get("source_urls", [])
+        clean_urls = []
+        for src in source_urls:
+            url = src.get("url", "")
+            if url and not is_paywalled(url):
+                clean_urls.append(src)
+            else:
+                print(f"    ✗ Removed paywalled source from output: {src.get('label', '')} ({url[:50]})")
+        story["source_urls"] = clean_urls
+
     print(f"  Claude selected {len(stories)} stories")
     for s in stories:
         print(f"    {s.get('emoji', '')} {s.get('headline', '')}")
