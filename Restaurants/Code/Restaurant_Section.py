@@ -514,13 +514,14 @@ if __name__ == "__main__":
             output_dir = _Path(__file__).parent / "output"
             output_dir.mkdir(exist_ok=True)
 
-            # Build photo_urls map from the original restaurant data
-            photo_map = {r["place_id"]: r.get("photo_urls", []) for r in restaurants}
+            # Build photo_urls map from the original restaurant data (by place_id AND name)
+            photo_map_id = {r["place_id"]: r.get("photo_urls", []) for r in restaurants}
+            photo_map_name = {r["name"]: r.get("photo_urls", []) for r in restaurants}
 
             for result in results:
                 pid = result.get("place_id", "")
-                photos = photo_map.get(pid, [])
                 rname = result.get("restaurant_name", "")
+                photos = photo_map_id.get(pid, []) or photo_map_name.get(rname, [])
                 if not photos:
                     print(f"    {rname}: no photos, skipping GIF")
                     continue
@@ -539,6 +540,12 @@ if __name__ == "__main__":
                     print(f"    ✓ {rname} GIF: {len(photos)} frames, {len(gif_bytes):,} bytes")
         except Exception as e:
             print(f"  ✗ GIF creation failed: {e}")
+
+        # Log GIF URLs before save
+        for r in results:
+            rname = r.get("restaurant_name", "")
+            gif = r.get("gif_url", "")
+            print(f"    {rname}: gif_url = {gif[:60] if gif else 'EMPTY'}")
 
         # Save
         save_restaurants_to_notion(results, newsletter["name"])
