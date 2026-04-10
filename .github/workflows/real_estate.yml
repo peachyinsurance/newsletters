@@ -45,10 +45,13 @@ jobs:
             git fetch origin gh-pages
             git checkout gh-pages
             mkdir -p gifs
+            echo "Files in /tmp/re_images/:"
+            ls -la /tmp/re_images/ 2>/dev/null || echo "  /tmp/re_images/ not found"
             rm -f gifs/re_*.gif gifs/re_*.png 2>/dev/null || true
-            cp /tmp/re_images/*.gif gifs/ 2>/dev/null || true
-            cp /tmp/re_images/*.png gifs/ 2>/dev/null || true
-            echo "Files in gifs/: $(ls gifs/re_* 2>/dev/null | wc -l)"
+            cp /tmp/re_images/*.gif gifs/ 2>/dev/null || echo "  No GIFs to copy"
+            cp /tmp/re_images/*.png gifs/ 2>/dev/null || echo "  No PNGs to copy"
+            echo "Files in gifs/ after copy:"
+            ls -la gifs/re_* 2>/dev/null || echo "  No RE files in gifs/"
             git add gifs/
             git commit -m "update real estate images" || true
             git push origin gh-pages
