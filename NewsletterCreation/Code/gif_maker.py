@@ -100,9 +100,9 @@ def _crop_to_aspect(img: Image.Image, target_w: int, target_h: int, keep_top: bo
     elif img_ratio < target_ratio:
         new_height = int(img.width / target_ratio)
         if keep_top:
-            # Offset 10% from top — keeps head in frame without cutting it off
+            # Offset 20% from top — keeps head in frame without cutting it off
             max_top = img.height - new_height
-            top = int(max_top * 0.10)
+            top = int(max_top * 0.20)
             img = img.crop((0, top, img.width, top + new_height))
         else:
             top = (img.height - new_height) // 2
