@@ -53,8 +53,8 @@ BADGE_COLORS = {
 # ---------------------------------------------------------------------------
 # IMAGE GENERATION
 # ---------------------------------------------------------------------------
-def create_listing_image(
-    photo_url: str,
+def _build_frame(
+    photo: Image.Image,
     tier: str,
     price: int,
     beds: int,
@@ -64,24 +64,8 @@ def create_listing_image(
     listing_url: str = "",
     lot_info: str = "",
     photo_right: bool = False,
-) -> bytes | None:
-    """
-    Generate a listing image matching the Canva template.
-
-    Args:
-        photo_url: URL of the listing photo
-        tier: "Starter", "Sweet Spot", or "Showcase"
-        price: List price
-        beds, baths, sqft: Property details
-        address: Full address
-        listing_url: URL to the listing (for the "Click here" text)
-        lot_info: Lot size string (e.g. "1.1 acre lot")
-        photo_right: If True, photo goes on right side (for Sweet Spot)
-
-    Returns:
-        PNG image bytes or None
-    """
-    # Create canvas
+) -> Image.Image:
+    """Build a single template frame with the given photo."""
     img = Image.new("RGB", (WIDTH, HEIGHT), BG_COLOR)
     draw = ImageDraw.Draw(img)
 
@@ -103,23 +87,9 @@ def create_listing_image(
         photo_x = 63
         info_x = 63 + PHOTO_WIDTH + INFO_PADDING
 
-    # Download and place photo
-    try:
-        res = requests.get(photo_url, timeout=15)
-        if res.status_code == 200:
-            photo = Image.open(io.BytesIO(res.content))
-            if photo.mode != "RGB":
-                photo = photo.convert("RGB")
-            # Smart crop to fit
-            photo = _crop_to_fit(photo, PHOTO_WIDTH, PHOTO_HEIGHT)
-            img.paste(photo, (photo_x, PHOTO_Y))
-    except Exception as e:
-        # Draw placeholder
-        draw.rectangle(
-            [(photo_x, PHOTO_Y), (photo_x + PHOTO_WIDTH, PHOTO_Y + PHOTO_HEIGHT)],
-            fill=(230, 230, 230)
-        )
-        draw.text((photo_x + 200, PHOTO_Y + 190), "Photo unavailable", fill=(150, 150, 150), font=font_address)
+    # Place photo
+    cropped = _crop_to_fit(photo, PHOTO_WIDTH, PHOTO_HEIGHT)
+    img.paste(cropped, (photo_x, PHOTO_Y))
 
     # Draw tier badge
     badge_color = BADGE_COLORS.get(tier, (40, 40, 40))
@@ -139,7 +109,7 @@ def create_listing_image(
     )
     draw.text((badge_x + 15, badge_y + 6), tier, fill="white", font=font_tier)
 
-    # Draw details (beds, baths, sqft, lot)
+    # Draw details
     details_y = PHOTO_Y + 100
     bullet = "•  "
     details_lines = []
@@ -171,7 +141,6 @@ def create_listing_image(
         link_bbox = draw.textbbox((0, 0), link_text, font=font_link)
         link_w = link_bbox[2] - link_bbox[0]
         link_x = WIDTH - 63 - link_w - 10
-        # Draw "Click " + underlined "here" + " to view"
         draw.text((link_x, addr_y), "Click ", fill=(30, 30, 30), font=font_link)
         click_w = draw.textbbox((0, 0), "Click ", font=font_link)[2]
         here_x = link_x + click_w
@@ -181,9 +150,73 @@ def create_listing_image(
         to_view_x = here_x + here_w
         draw.text((to_view_x, addr_y), " to view", fill=(30, 30, 30), font=font_link)
 
-    # Export
+    return img
+
+
+def create_listing_image(
+    photo_urls: list[str],
+    tier: str,
+    price: int,
+    beds: int,
+    baths: int,
+    sqft: int,
+    address: str,
+    listing_url: str = "",
+    lot_info: str = "",
+    photo_right: bool = False,
+    duration_ms: int = 2000,
+) -> bytes | None:
+    """
+    Generate an animated GIF with the template overlay on each frame.
+    If only 1 photo, returns a static PNG.
+
+    Args:
+        photo_urls: List of photo URLs (1-3)
+        tier, price, beds, baths, sqft, address, listing_url, lot_info: Listing details
+        photo_right: If True, photo goes on right side (for Sweet Spot)
+        duration_ms: Time per frame in ms (for GIF)
+
+    Returns:
+        Image bytes (GIF if multiple photos, PNG if single) or None
+    """
+    # Download all photos
+    photos = []
+    for url in photo_urls[:3]:
+        try:
+            res = requests.get(url, timeout=15)
+            if res.status_code == 200:
+                photo = Image.open(io.BytesIO(res.content))
+                if photo.mode != "RGB":
+                    photo = photo.convert("RGB")
+                photos.append(photo)
+        except Exception:
+            pass
+
+    if not photos:
+        return None
+
+    # Build frames
+    frames = []
+    for photo in photos:
+        frame = _build_frame(
+            photo=photo, tier=tier, price=price, beds=beds, baths=baths,
+            sqft=sqft, address=address, listing_url=listing_url,
+            lot_info=lot_info, photo_right=photo_right,
+        )
+        frames.append(frame)
+
     output = io.BytesIO()
-    img.save(output, format="PNG", quality=95)
+    if len(frames) == 1:
+        # Static PNG
+        frames[0].save(output, format="PNG", quality=95)
+    else:
+        # Animated GIF
+        frames[0].save(
+            output, format="GIF", save_all=True,
+            append_images=frames[1:],
+            duration=duration_ms, loop=0, optimize=True,
+        )
+
     output.seek(0)
     return output.read()
 
@@ -220,10 +253,15 @@ def generate_re_images(listings: list[dict], newsletter_name: str, output_dir: s
     results = []
     for i, listing in enumerate(listings):
         tier = listing.get("tier", "")
-        photo_right = (tier == "Sweet Spot")  # Mirror layout for sweet spot
+        photo_right = (tier == "Sweet Spot")
+
+        # Use multiple photos for animated GIF, fall back to single photo
+        photo_urls = listing.get("photos", [])
+        if not photo_urls and listing.get("photo_url"):
+            photo_urls = [listing["photo_url"]]
 
         img_bytes = create_listing_image(
-            photo_url=listing.get("photo_url", ""),
+            photo_urls=photo_urls,
             tier=tier,
             price=listing.get("price", 0),
             beds=listing.get("beds", 0),
@@ -237,7 +275,8 @@ def generate_re_images(listings: list[dict], newsletter_name: str, output_dir: s
 
         if img_bytes:
             slug = tier.lower().replace(" ", "_")
-            filename = f"re_{newsletter_name}_{slug}_{__import__('datetime').datetime.today().strftime('%Y%m%d')}.png"
+            ext = "gif" if len(photo_urls) > 1 else "png"
+            filename = f"re_{newsletter_name}_{slug}_{__import__('datetime').datetime.today().strftime('%Y%m%d')}.{ext}"
             filepath = out / filename
             filepath.write_bytes(img_bytes)
             results.append({
@@ -258,7 +297,7 @@ def generate_re_images(listings: list[dict], newsletter_name: str, output_dir: s
 if __name__ == "__main__":
     # Quick test with sample data
     img = create_listing_image(
-        photo_url="https://ap.rdcpix.com/e181e8fa53208c933bdc9ee40cc82df0l-m74703620od.jpg",
+        photo_urls=["https://ap.rdcpix.com/e181e8fa53208c933bdc9ee40cc82df0l-m74703620od.jpg"],
         tier="Starter",
         price=365000,
         beds=3,
