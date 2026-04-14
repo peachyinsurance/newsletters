@@ -14,6 +14,7 @@ NOTION_PETS_DB_ID        = os.environ["NOTION_PETS_DB_ID"]
 NOTION_RESTAURANTS_DB_ID = os.environ["NOTION_RESTAURANTS_DB_ID"]
 NOTION_LOWDOWN_DB_ID     = os.environ.get("NOTION_LOWDOWN_DB_ID", "")
 NOTION_RE_DB_ID          = os.environ.get("NOTION_RE_DB_ID", "")
+NOTION_EVENTS_DB_ID      = os.environ.get("NOTION_EVENTS_DB_ID", "")
 
 HEADERS = {
     "Authorization":  f"Bearer {NOTION_API_KEY}",
@@ -251,6 +252,46 @@ def setup_notion_databases():
             print("✓ Real Estate Corner database schema created")
         else:
             print(f"✗ Real Estate schema error: {r.text[:300]}")
+
+    # Featured Event database properties
+    if NOTION_EVENTS_DB_ID:
+        events_properties = {
+            "Name":                   {"title": {}},
+            "Event Name":             {"rich_text": {}},
+            "Date":                   {"rich_text": {}},
+            "Time":                   {"rich_text": {}},
+            "Venue":                  {"rich_text": {}},
+            "Price":                  {"rich_text": {}},
+            "Blurb":                  {"rich_text": {}},
+            "Source URL":             {"url": {}},
+            "Ticket URL":            {"url": {}},
+            "Newsletter":             {"select": {"options": [
+                {"name": "East_Cobb_Connect", "color": "purple"},
+                {"name": "Perimeter_Post",    "color": "pink"}
+            ]}},
+            "Date Generated":         {"date": {}},
+            "Status":                 {"select": {"options": [
+                {"name": "pending",  "color": "yellow"},
+                {"name": "approved", "color": "green"},
+                {"name": "rejected", "color": "red"}
+            ]}},
+            "Total Score":            {"number": {"format": "number"}},
+            "Demographic Fit Score":  {"number": {"format": "number"}},
+            "Uniqueness Score":       {"number": {"format": "number"}},
+            "Audience Match Score":   {"number": {"format": "number"}},
+            "Scoring Notes":          {"rich_text": {}},
+            "Default Winner":         {"checkbox": {}},
+        }
+        r = requests.patch(
+            f"https://api.notion.com/v1/databases/{NOTION_EVENTS_DB_ID}",
+            headers=HEADERS,
+            json={"properties": events_properties},
+            timeout=30
+        )
+        if r.ok:
+            print("✓ Featured Event database schema created")
+        else:
+            print(f"✗ Featured Event schema error: {r.text[:300]}")
 
 # ---------------------------------------------------------------------------
 # PETS HELPERS
@@ -658,3 +699,68 @@ def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
 
     create_page(NOTION_LOWDOWN_DB_ID, properties)
     print(f"  ✓ Saved Local Lowdown to Notion ({len(stories)} stories)")
+
+
+# ---------------------------------------------------------------------------
+# FEATURED EVENT HELPERS
+# ---------------------------------------------------------------------------
+def get_existing_event_urls(newsletter_name: str) -> set:
+    """Get source URLs of existing events for this newsletter to avoid duplicates."""
+    if not NOTION_EVENTS_DB_ID:
+        return set()
+    try:
+        pages = query_database(NOTION_EVENTS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+        urls = set()
+        for page in pages:
+            url = page["properties"].get("Source URL", {}).get("url", "")
+            if url:
+                urls.add(url)
+        return urls
+    except Exception:
+        return set()
+
+
+def save_events_to_notion(results: list, newsletter_name: str) -> None:
+    """Save featured event candidates to Notion."""
+    if not NOTION_EVENTS_DB_ID:
+        print("  No NOTION_EVENTS_DB_ID set, skipping Notion save")
+        return
+
+    print(f"  Saving {len(results)} events to Notion...")
+    existing_urls = get_existing_event_urls(newsletter_name)
+    print(f"  Found {len(existing_urls)} existing entries to skip")
+
+    saved = 0
+    for data in results:
+        source_url = data.get("source_url", "")
+        if source_url and source_url in existing_urls:
+            print(f"  ✗ Skipping duplicate: {data.get('event_name')}")
+            continue
+
+        properties = {
+            "Name":                  {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - {data.get('event_name', '')}"}}]},
+            "Event Name":            {"rich_text": [{"text": {"content": safe_str(data.get("event_name"))}}]},
+            "Date":                  {"rich_text": [{"text": {"content": safe_str(data.get("date"))}}]},
+            "Time":                  {"rich_text": [{"text": {"content": safe_str(data.get("time"))}}]},
+            "Venue":                 {"rich_text": [{"text": {"content": safe_str(data.get("venue"))}}]},
+            "Price":                 {"rich_text": [{"text": {"content": safe_str(data.get("price"))}}]},
+            "Blurb":                 {"rich_text": [{"text": {"content": safe_str(data.get("blurb"))[:2000]}}]},
+            "Source URL":            {"url": data.get("source_url") or None},
+            "Ticket URL":           {"url": data.get("ticket_url") or None},
+            "Newsletter":            {"select": {"name": newsletter_name}},
+            "Date Generated":        {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
+            "Status":                {"select": {"name": "pending"}},
+            "Total Score":           {"number": int(data.get("total_score", 0) or 0)},
+            "Demographic Fit Score": {"number": int(data.get("demographic_fit_score", 0) or 0)},
+            "Uniqueness Score":      {"number": int(data.get("uniqueness_score", 0) or 0)},
+            "Audience Match Score":  {"number": int(data.get("audience_match_score", 0) or 0)},
+            "Scoring Notes":         {"rich_text": [{"text": {"content": safe_str(data.get("scoring_notes"))}}]},
+            "Default Winner":        {"checkbox": data.get("default_winner", "") == "yes"},
+        }
+        create_page(NOTION_EVENTS_DB_ID, properties)
+        print(f"  ✓ {data.get('event_name')}")
+        saved += 1
+    print(f"  Saved {saved} new events to Notion")
