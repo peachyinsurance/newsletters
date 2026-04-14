@@ -32,7 +32,8 @@ BRAVE_NEWS_API_KEY  = os.environ["BRAVE_NEWS_API_KEY"]
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-local-lowdown-skill_auto.md"
 
 MAX_ARTICLES = 15
-MIN_ARTICLES = 5   # minimum eligible articles before sending to Claude
+MIN_ARTICLES = 8   # minimum eligible articles before sending to Claude
+MIN_STORIES  = 3   # minimum stories Claude must select, otherwise retry
 MAX_RETRIES  = 2   # how many fetch rounds to attempt
 
 # Topics to exclude — keep the newsletter PG and community-focused
@@ -424,15 +425,43 @@ if __name__ == "__main__":
         for a in articles:
             a["coverage_area"] = newsletter["name"]
 
-        # Claude selects and writes
-        print(f"\n  Sending {len(articles)} articles to Claude...")
-        result = write_local_lowdown(
-            articles=articles,
-            newsletter_name=newsletter["name"],
-            display_area=newsletter["display_area"],
-            skill_prompt=skill_prompt,
-            pub_date=pub_date,
-        )
+        # Claude selects and writes — retry with more articles if too few stories selected
+        result = None
+        retry_terms = newsletter.get("retry_terms", [])[:]
+        for claude_attempt in range(MAX_RETRIES + 1):
+            print(f"\n  Sending {len(articles)} articles to Claude...")
+            result = write_local_lowdown(
+                articles=articles,
+                newsletter_name=newsletter["name"],
+                display_area=newsletter["display_area"],
+                skill_prompt=skill_prompt,
+                pub_date=pub_date,
+            )
+
+            stories_count = len(result.get("stories", []))
+            if stories_count >= MIN_STORIES:
+                break
+
+            if claude_attempt >= MAX_RETRIES or not retry_terms:
+                print(f"  Warning: only {stories_count} stories after all retries, saving anyway")
+                break
+
+            print(f"\n  Only {stories_count} stories selected (need {MIN_STORIES}), fetching more articles...")
+            extra_terms = retry_terms[:2]
+            retry_terms = retry_terms[2:]
+            print(f"  Broadening search with: {extra_terms}")
+            extra_articles = fetch_news_brave(extra_terms)
+            existing_urls = {a["url"] for a in articles}
+            existing_titles = {a["title"].lower().strip() for a in articles}
+            added = 0
+            for a in extra_articles:
+                if a["url"] not in existing_urls and a["title"].lower().strip() not in existing_titles:
+                    a["coverage_area"] = newsletter["name"]
+                    articles.append(a)
+                    existing_urls.add(a["url"])
+                    existing_titles.add(a["title"].lower().strip())
+                    added += 1
+            print(f"  Added {added} new articles, total now {len(articles)}")
 
         # Save
         save_results(result, newsletter["name"])
