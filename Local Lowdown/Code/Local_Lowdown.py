@@ -44,6 +44,12 @@ EXCLUDED_KEYWORDS = {
     "partisan", "impeach", "indictment", "arraign",
 }
 
+# Domains with metered/soft paywalls that slip past automated detection
+BLOCKED_DOMAINS = {
+    "mdjonline.com",
+    "ajc.com",
+}
+
 NEWSLETTERS = [
     {
         "name":         "East_Cobb_Connect",
@@ -158,9 +164,15 @@ def fetch_news_brave(search_terms: list[str]) -> list[dict]:
                     print(f"    ✗ Skipping excluded topic ({matched_keyword}): {title[:60]}")
                     continue
 
+                # Check blocked domains (metered paywalls that slip past detection)
+                hostname = item.get("meta_url", {}).get("hostname", "") if isinstance(item.get("meta_url"), dict) else ""
+                if any(domain in url.lower() or domain in hostname.lower() for domain in BLOCKED_DOMAINS):
+                    print(f"    ✗ Skipping blocked domain: {hostname or url[:50]}")
+                    continue
+
                 # Check for paywall
                 if is_paywalled(url):
-                    source = item.get("meta_url", {}).get("hostname", "") if isinstance(item.get("meta_url"), dict) else url[:50]
+                    source = hostname or url[:50]
                     print(f"    ✗ Skipping paywalled: {source}")
                     continue
 
