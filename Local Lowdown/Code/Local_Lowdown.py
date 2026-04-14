@@ -32,6 +32,8 @@ BRAVE_NEWS_API_KEY  = os.environ["BRAVE_NEWS_API_KEY"]
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-local-lowdown-skill_auto.md"
 
 MAX_ARTICLES = 15
+MIN_ARTICLES = 5   # minimum eligible articles before sending to Claude
+MAX_RETRIES  = 2   # how many fetch rounds to attempt
 
 # Topics to exclude — keep the newsletter PG and community-focused
 EXCLUDED_KEYWORDS = {
@@ -54,11 +56,13 @@ NEWSLETTERS = [
     {
         "name":         "East_Cobb_Connect",
         "search_terms": ["East Cobb GA news"],
+        "retry_terms":  ["Marietta GA news", "Cobb County GA news"],
         "display_area": "East Cobb",
     },
     {
         "name":         "Perimeter_Post",
         "search_terms": ["Dunwoody Sandy Springs news"],
+        "retry_terms":  ["Sandy Springs GA news", "Dunwoody GA news", "Perimeter Atlanta news"],
         "display_area": "Perimeter",
     },
 ]
@@ -388,8 +392,29 @@ if __name__ == "__main__":
         print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
         print(f"{'='*60}")
 
-        # Search for local news via Brave
+        # Search for local news via Brave — retry with broader terms if not enough
         articles = fetch_news_brave(newsletter["search_terms"])
+
+        if len(articles) < MIN_ARTICLES:
+            retry_terms = newsletter.get("retry_terms", [])
+            for attempt in range(1, MAX_RETRIES + 1):
+                if len(articles) >= MIN_ARTICLES or not retry_terms:
+                    break
+                print(f"\n  Retry {attempt}/{MAX_RETRIES} — only {len(articles)} eligible articles, need {MIN_ARTICLES}")
+                # Use next batch of retry terms
+                extra_terms = retry_terms[:2]
+                retry_terms = retry_terms[2:]
+                print(f"  Broadening search with: {extra_terms}")
+                extra_articles = fetch_news_brave(extra_terms)
+                # Deduplicate against what we already have
+                existing_urls = {a["url"] for a in articles}
+                existing_titles = {a["title"].lower().strip() for a in articles}
+                for a in extra_articles:
+                    if a["url"] not in existing_urls and a["title"].lower().strip() not in existing_titles:
+                        articles.append(a)
+                        existing_urls.add(a["url"])
+                        existing_titles.add(a["title"].lower().strip())
+                print(f"  Now have {len(articles)} eligible articles")
 
         if not articles:
             print(f"  No articles found for {newsletter['name']}. Skipping.")
