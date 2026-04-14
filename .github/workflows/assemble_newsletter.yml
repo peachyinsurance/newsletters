@@ -19,5 +19,6 @@ jobs:
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
           NOTION_LOWDOWN_DB_ID:     ${{ secrets.NOTION_LOWDOWN_DB_ID }}
           NOTION_RE_DB_ID:          ${{ secrets.NOTION_RE_DB_ID }}
+          NOTION_INTRO_DB_ID:       ${{ secrets.NOTION_INTRO_DB_ID }}
           NOTION_PARENT_PAGE_ID:    ${{ secrets.NOTION_PARENT_PAGE_ID }}
         run: python NewsletterCreation/Code/assemble_newsletter_page.py

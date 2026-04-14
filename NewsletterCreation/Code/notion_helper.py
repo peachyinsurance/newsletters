@@ -15,6 +15,7 @@ NOTION_RESTAURANTS_DB_ID = os.environ["NOTION_RESTAURANTS_DB_ID"]
 NOTION_LOWDOWN_DB_ID     = os.environ.get("NOTION_LOWDOWN_DB_ID", "")
 NOTION_RE_DB_ID          = os.environ.get("NOTION_RE_DB_ID", "")
 NOTION_EVENTS_DB_ID      = os.environ.get("NOTION_EVENTS_DB_ID", "")
+NOTION_INTRO_DB_ID       = os.environ.get("NOTION_INTRO_DB_ID", "")
 
 HEADERS = {
     "Authorization":  f"Bearer {NOTION_API_KEY}",
@@ -764,3 +765,86 @@ def save_events_to_notion(results: list, newsletter_name: str) -> None:
         print(f"  ✓ {data.get('event_name')}")
         saved += 1
     print(f"  Saved {saved} new events to Notion")
+
+
+# ---------------------------------------------------------------------------
+# WELCOME INTRO HELPERS
+# ---------------------------------------------------------------------------
+
+def _ensure_intro_schema():
+    """Create Welcome Intro database properties if they don't exist."""
+    if not NOTION_INTRO_DB_ID:
+        return
+    intro_properties = {
+        "Name":              {"title": {}},
+        "Newsletter":        {"select": {"options": [
+            {"name": "East_Cobb_Connect", "color": "purple"},
+            {"name": "Perimeter_Post",    "color": "pink"}
+        ]}},
+        "Date Generated":    {"date": {}},
+        "Status":            {"select": {"options": [
+            {"name": "approved", "color": "green"},
+        ]}},
+        "Greeting":          {"rich_text": {}},
+        "Blurb":             {"rich_text": {}},
+        "Word Count":        {"number": {"format": "number"}},
+        "Review Score":      {"number": {"format": "number"}},
+        "Review Violations": {"rich_text": {}},
+    }
+    r = requests.patch(
+        f"https://api.notion.com/v1/databases/{NOTION_INTRO_DB_ID}",
+        headers=HEADERS,
+        json={"properties": intro_properties},
+        timeout=30,
+    )
+    if not r.ok:
+        print(f"  Warning: intro schema update failed: {r.text[:200]}")
+
+
+def save_intro_to_notion(result: dict, newsletter_name: str) -> None:
+    """Save the Welcome Intro blurb to Notion. Replaces any existing entry for this newsletter."""
+    if not NOTION_INTRO_DB_ID:
+        print("  No NOTION_INTRO_DB_ID set, skipping Notion save")
+        return
+
+    _ensure_intro_schema()
+
+    # Archive existing entries for this newsletter (prevents duplicates)
+    try:
+        existing = query_database(NOTION_INTRO_DB_ID, filters={
+            "property": "Newsletter",
+            "select": {"equals": newsletter_name}
+        })
+        for page in existing:
+            archive_page(page["id"])
+        if existing:
+            print(f"  Archived {len(existing)} old Welcome Intro entries for {newsletter_name}")
+    except Exception:
+        pass
+
+    blurb_text = result.get("blurb", "")
+
+    # Notion rich_text has a 2000 char limit per text block — split into chunks
+    CHUNK_SIZE = 1900
+    chunks = []
+    for i in range(0, len(blurb_text), CHUNK_SIZE):
+        chunks.append({"text": {"content": blurb_text[i:i + CHUNK_SIZE]}})
+    if not chunks:
+        chunks = [{"text": {"content": ""}}]
+
+    violations_text = result.get("review_violations", "")
+
+    properties = {
+        "Name":              {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - Welcome Intro - {datetime.today().strftime('%Y-%m-%d')}"}}]},
+        "Newsletter":        {"select": {"name": newsletter_name}},
+        "Date Generated":    {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
+        "Status":            {"select": {"name": "approved"}},
+        "Greeting":          {"rich_text": [{"text": {"content": safe_str(result.get("greeting", ""))}}]},
+        "Blurb":             {"rich_text": chunks},
+        "Word Count":        {"number": int(result.get("word_count", 0))},
+        "Review Score":      {"number": int(result.get("review_score", 0))},
+        "Review Violations": {"rich_text": [{"text": {"content": safe_str(violations_text)[:2000]}}]},
+    }
+
+    create_page(NOTION_INTRO_DB_ID, properties)
+    print(f"  ✓ Saved Welcome Intro to Notion ({result.get('word_count', '?')} words, score {result.get('review_score', '?')}/10)")

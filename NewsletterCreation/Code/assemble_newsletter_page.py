@@ -26,6 +26,7 @@ NOTION_RESTAURANTS_DB_ID = os.environ["NOTION_RESTAURANTS_DB_ID"]
 NOTION_LOWDOWN_DB_ID     = os.environ.get("NOTION_LOWDOWN_DB_ID", "")
 NOTION_RE_DB_ID          = os.environ.get("NOTION_RE_DB_ID", "")
 NOTION_EVENTS_DB_ID      = os.environ.get("NOTION_EVENTS_DB_ID", "")
+NOTION_INTRO_DB_ID       = os.environ.get("NOTION_INTRO_DB_ID", "")
 NOTION_PARENT_PAGE_ID    = os.environ["NOTION_PARENT_PAGE_ID"]
 
 HEADERS = {
@@ -415,6 +416,34 @@ def get_latest_lowdown(newsletter_name: str) -> str | None:
     return None
 
 
+def get_latest_intro(newsletter_name: str) -> dict | None:
+    """Get the most recent Welcome Intro blurb from the database."""
+    if not NOTION_INTRO_DB_ID:
+        return None
+    try:
+        pages = query_database(NOTION_INTRO_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+    except Exception:
+        return None
+    if not pages:
+        return None
+    # Sort by date descending to get the latest
+    pages.sort(
+        key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+        reverse=True
+    )
+    props = pages[0]["properties"]
+    greeting_rt = props.get("Greeting", {}).get("rich_text", [])
+    blurb_rt = props.get("Blurb", {}).get("rich_text", [])
+    greeting = "".join(chunk.get("text", {}).get("content", "") for chunk in greeting_rt) if greeting_rt else ""
+    blurb = "".join(chunk.get("text", {}).get("content", "") for chunk in blurb_rt) if blurb_rt else ""
+    if blurb:
+        return {"greeting": greeting, "blurb": blurb}
+    return None
+
+
 def get_real_estate(newsletter_name: str) -> list[dict]:
     """Get real estate listings from the database for a newsletter."""
     if not NOTION_RE_DB_ID:
@@ -530,7 +559,13 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
 
     # 1. Welcome Intro
     blocks.append(heading_block("👋 Welcome Intro"))
-    blocks.append(_placeholder("Not yet automated."))
+    intro = get_latest_intro(newsletter_name)
+    if intro:
+        if intro.get("greeting"):
+            blocks.append(paragraph_block(intro["greeting"], bold=True))
+        blocks.append(paragraph_block(intro["blurb"]))
+    else:
+        blocks.append(_placeholder("Not yet automated."))
     blocks.append(divider_block())
 
     # 2. Summary
