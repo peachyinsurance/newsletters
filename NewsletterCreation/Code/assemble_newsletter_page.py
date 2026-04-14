@@ -25,6 +25,7 @@ NOTION_PETS_DB_ID        = os.environ["NOTION_PETS_DB_ID"]
 NOTION_RESTAURANTS_DB_ID = os.environ["NOTION_RESTAURANTS_DB_ID"]
 NOTION_LOWDOWN_DB_ID     = os.environ.get("NOTION_LOWDOWN_DB_ID", "")
 NOTION_RE_DB_ID          = os.environ.get("NOTION_RE_DB_ID", "")
+NOTION_EVENTS_DB_ID      = os.environ.get("NOTION_EVENTS_DB_ID", "")
 NOTION_PARENT_PAGE_ID    = os.environ["NOTION_PARENT_PAGE_ID"]
 
 HEADERS = {
@@ -462,6 +463,50 @@ def get_real_estate(newsletter_name: str) -> list[dict]:
     return results
 
 
+def get_featured_event(newsletter_name: str) -> dict | None:
+    """Get the approved featured event for a newsletter."""
+    if not NOTION_EVENTS_DB_ID:
+        return None
+    try:
+        pages = query_database(NOTION_EVENTS_DB_ID)
+        # Filter to approved events for this newsletter
+        filtered = []
+        for p in pages:
+            props = p["properties"]
+            status_prop = props.get("Status", {})
+            status_name = (status_prop.get("select") or status_prop.get("status") or {}).get("name", "")
+            nl_prop = props.get("Newsletter", {})
+            nl_name = (nl_prop.get("select") or {}).get("name", "")
+            if status_name == "approved" and nl_name == newsletter_name:
+                filtered.append(p)
+        if not filtered:
+            print(f"  No approved featured event for {newsletter_name}")
+            return None
+        # Sort by date generated descending, pick latest
+        filtered.sort(
+            key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+            reverse=True
+        )
+        props = filtered[0]["properties"]
+        def _rt(key):
+            rt = props.get(key, {}).get("rich_text", [])
+            return rt[0].get("text", {}).get("content", "") if rt else ""
+        return {
+            "event_name":  _rt("Event Name"),
+            "date":        _rt("Date"),
+            "time":        _rt("Time"),
+            "venue":       _rt("Venue"),
+            "price":       _rt("Price"),
+            "blurb":       _rt("Blurb"),
+            "source_url":  props.get("Source URL", {}).get("url", ""),
+            "ticket_url":  props.get("Ticket URL", {}).get("url", ""),
+            "score":       props.get("Total Score", {}).get("number", 0),
+        }
+    except Exception as e:
+        print(f"  Featured event query failed: {e}")
+        return None
+
+
 # ---------------------------------------------------------------------------
 # PAGE ASSEMBLER
 # ---------------------------------------------------------------------------
@@ -503,9 +548,38 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
     blocks.append(_placeholder("Not yet automated."))
     blocks.append(divider_block())
 
-    # 5. Event of the Week
+    # 5. Event of the Week (automated)
     blocks.append(heading_block("🎪 Event of the Week"))
-    blocks.append(_placeholder("Not yet automated."))
+    event = get_featured_event(newsletter_name)
+    if event and event.get("blurb"):
+        # Header line: event name
+        header = f"⭐ Featured Event: {event['event_name']}"
+        blocks.append(paragraph_block(header, bold=True))
+        # Details line: date | time | venue
+        detail_parts = []
+        if event.get("date"):
+            detail_parts.append(event["date"])
+        if event.get("time"):
+            detail_parts.append(event["time"])
+        if event.get("venue"):
+            detail_parts.append(event["venue"])
+        if detail_parts:
+            blocks.append(paragraph_block("📅 " + " | ".join(detail_parts)))
+        # Price + ticket link
+        price_line = ""
+        if event.get("price"):
+            price_line = f"🎟️ {event['price']}"
+        if price_line:
+            blocks.append(paragraph_block(price_line))
+        # Blurb body
+        blocks.append(paragraph_block(event["blurb"]))
+        # Links
+        if event.get("ticket_url"):
+            blocks.append(link_block("Get Tickets", event["ticket_url"]))
+        elif event.get("source_url"):
+            blocks.append(link_block("Learn More", event["source_url"]))
+    else:
+        blocks.append(callout_block("No featured event selected yet. Run the Featured Event pipeline and approve an event.", emoji="⏳"))
     blocks.append(divider_block())
 
     # 6. Restaurant Radar (automated)
