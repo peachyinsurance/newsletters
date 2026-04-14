@@ -152,6 +152,8 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
                 places = response.json().get("places", [])
                 all_places.extend(places)
                 print(f"  {len(places)} results by {rank_pref}")
+            else:
+                print(f"  Places API {rank_pref} returned {response.status_code}: {response.text[:500]}")
             time.sleep(1)
         except Exception as e:
             print(f"  Places API error ({rank_pref}): {e}")

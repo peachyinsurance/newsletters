@@ -55,6 +55,7 @@ jobs:
             ls -la gifs/re_* 2>/dev/null || echo "  No RE files in gifs/"
             git add gifs/
             git commit -m "update real estate images" || true
+            git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/peachyinsurance/newsletters.git
             git push origin gh-pages
             git checkout main
             git stash pop || true

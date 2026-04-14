@@ -51,6 +51,7 @@ jobs:
             cp /tmp/restaurant_gifs/*.webp gifs/ 2>/dev/null || true
             git add gifs/
             git commit -m "update restaurant GIFs" || true
+            git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/peachyinsurance/newsletters.git
             git push origin gh-pages
             git checkout main
             git stash pop || true
