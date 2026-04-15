@@ -133,18 +133,36 @@ def filter_by_tier(listings: list[dict], min_price: int, max_price: int | None,
     return filtered
 
 
+def build_listing_url(raw: dict) -> str:
+    """Build a Realtor.com listing URL from address data.
+    The API's href field is often truncated, so we construct it ourselves."""
+    loc = raw.get("location", {}).get("address", {})
+    line = (loc.get("line", "") or "").replace(" ", "-")
+    city = (loc.get("city", "") or "").replace(" ", "-")
+    state = loc.get("state_code", "") or ""
+    zipcode = loc.get("postal_code", "") or ""
+    prop_id = raw.get("property_id", "")
+
+    if line and city and state and zipcode:
+        slug = f"{line}_{city}_{state}_{zipcode}"
+        if prop_id:
+            slug += f"_{prop_id}"
+        return f"https://www.realtor.com/realestateandhomes-detail/{slug}"
+
+    # Fallback to API href if we can't construct
+    href = raw.get("href", "")
+    if href.startswith("https://www.realtor.com"):
+        return href
+    elif href.startswith("/"):
+        return f"https://www.realtor.com{href}"
+    return href
+
+
 def parse_listing(raw: dict) -> dict:
     """Parse a raw API listing into a clean dict."""
     loc = raw.get("location", {}).get("address", {})
     desc = raw.get("description", {})
-    href = raw.get("href", "")
-    # Fix double-prefixed URLs
-    if href.startswith("https://www.realtor.com"):
-        listing_url = href
-    elif href.startswith("/"):
-        listing_url = f"https://www.realtor.com{href}"
-    else:
-        listing_url = href
+    listing_url = build_listing_url(raw)
 
     # Get full-size photos (API returns small thumbnails ending in 's.jpg')
     import re as _re
@@ -419,14 +437,13 @@ if __name__ == "__main__":
         print(f"\n  Validating {len(all_listings)} listing URLs...")
         valid_listings = []
         for r in all_listings:
-            href = r.get("href", "")
-            url = f"https://www.realtor.com{href}" if href.startswith("/") else href
+            url = build_listing_url(r)
             if not url or validate_url(url):
                 valid_listings.append(r)
             else:
                 loc = r.get("location", {}).get("address", {})
                 addr = f"{loc.get('line', '')} {loc.get('city', '')}".strip()
-                print(f"    ✗ Dead listing URL: {addr} ({url[:60]})")
+                print(f"    ✗ Dead listing URL: {addr} ({url[:80]})")
         if len(valid_listings) < len(all_listings):
             print(f"  Dropped {len(all_listings) - len(valid_listings)} listings with dead URLs")
         all_listings = valid_listings
