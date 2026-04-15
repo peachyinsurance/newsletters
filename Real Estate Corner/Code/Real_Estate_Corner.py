@@ -90,15 +90,6 @@ def fetch_listings(location: str, limit: int = 20) -> list[dict]:
         data = res.json().get("data", {})
         results = data.get("results", [])
         print(f"  Got {len(results)} total listings from API")
-        # Debug: log first listing's href and permalink to diagnose URL truncation
-        if results:
-            r0 = results[0]
-            print(f"  DEBUG first listing keys: {sorted(r0.keys())}")
-            print(f"  DEBUG href: {r0.get('href', 'MISSING')}")
-            print(f"  DEBUG permalink: {r0.get('permalink', 'MISSING')}")
-            print(f"  DEBUG property_id: {r0.get('property_id', 'MISSING')}")
-            loc0 = r0.get("location", {}).get("address", {})
-            print(f"  DEBUG address: {loc0}")
         return results
 
     except Exception as e:
