@@ -1,0 +1,31 @@
+name: Archive Approved Items
+
+on:
+  schedule:
+    - cron: '0 22 * * 5'  # Every Friday at 5pm EST (10pm UTC)
+  workflow_dispatch:
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install requests
+
+      - name: Archive approved items to old
+        env:
+          NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
+          NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+          NOTION_EVENTS_DB_ID:      ${{ secrets.NOTION_EVENTS_DB_ID }}
+          NOTION_LOWDOWN_DB_ID:     ${{ secrets.NOTION_LOWDOWN_DB_ID }}
+          NOTION_RE_DB_ID:          ${{ secrets.NOTION_RE_DB_ID }}
+          NOTION_INTRO_DB_ID:       ${{ secrets.NOTION_INTRO_DB_ID }}
+        run: python NewsletterCreation/Code/archive_approved.py

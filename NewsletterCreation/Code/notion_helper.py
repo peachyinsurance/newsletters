@@ -104,7 +104,8 @@ def setup_notion_databases():
         "Status":             {"select": {"options": [
             {"name": "pending",  "color": "yellow"},
             {"name": "approved", "color": "green"},
-            {"name": "rejected", "color": "red"}
+            {"name": "rejected", "color": "red"},
+            {"name": "approved - old", "color": "gray"}
         ]}},
         "Section":            {"select": {"options": [{"name": "pet_blurb", "color": "blue"}]}},
         "Newsletter":         {"select": {"options": [
@@ -145,7 +146,8 @@ def setup_notion_databases():
         "Status":                 {"select": {"options": [
             {"name": "pending"},
             {"name": "Tier 1 Winner"},
-            {"name": "Tier 2 Winner"}
+            {"name": "Tier 2 Winner"},
+            {"name": "approved - old"}
         ]}},
         "Section":                {"select": {"options": [{"name": "restaurant_blurb", "color": "blue"}]}},
         "Newsletter":             {"select": {"options": [
@@ -274,7 +276,8 @@ def setup_notion_databases():
             "Status":                 {"select": {"options": [
                 {"name": "pending",  "color": "yellow"},
                 {"name": "approved", "color": "green"},
-                {"name": "rejected", "color": "red"}
+                {"name": "rejected", "color": "red"},
+                {"name": "approved - old", "color": "gray"}
             ]}},
             "Total Score":            {"number": {"format": "number"}},
             "Demographic Fit Score":  {"number": {"format": "number"}},
@@ -298,20 +301,20 @@ def setup_notion_databases():
 # PETS HELPERS
 # ---------------------------------------------------------------------------
 def get_approved_pet_urls() -> set:
-    """Get source URLs of approved pets (for exclusion from candidates)."""
-    try:
-        pages = query_database(NOTION_PETS_DB_ID, filters={
-            "property": "Status",
-            "status":   {"equals": "approved"}
-        })
-    except Exception:
-        # If no approved pages exist yet, return empty set
-        return set()
+    """Get source URLs of approved and previously approved pets (for exclusion from candidates)."""
     urls = set()
-    for page in pages:
-        url = page["properties"].get("Source URL", {}).get("url", "")
-        if url:
-            urls.add(url)
+    for status in ("approved", "approved - old"):
+        try:
+            pages = query_database(NOTION_PETS_DB_ID, filters={
+                "property": "Status",
+                "status":   {"equals": status}
+            })
+            for page in pages:
+                url = page["properties"].get("Source URL", {}).get("url", "")
+                if url:
+                    urls.add(url)
+        except Exception:
+            pass
     print(f"Loaded {len(urls)} previously approved pet URLs to exclude")
     return urls
     
