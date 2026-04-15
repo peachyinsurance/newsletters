@@ -573,7 +573,7 @@ def generate_blurb(pets: list[dict], skill_prompt: str, animal_type: str) -> lis
     for attempt in range(3):
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-4-6-20250620",
                 max_tokens=4000,
                 system=skill_prompt,
                 messages=[{
@@ -651,7 +651,7 @@ Source URL: {result['source_url']}
     for attempt in range(3):
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-4-6-20250620",
                 max_tokens=2000,
                 messages=[{
                     "role": "user",

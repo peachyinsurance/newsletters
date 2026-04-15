@@ -221,7 +221,7 @@ def write_local_lowdown(articles: list[dict], newsletter_name: str, display_area
     for attempt in range(3):
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-4-6-20250620",
                 max_tokens=4000,
                 system=skill_prompt,
                 messages=[{
