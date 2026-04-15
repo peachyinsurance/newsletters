@@ -4,19 +4,43 @@ Shared URL validator for newsletter pipelines.
 Checks if URLs are live before saving to Notion.
 Dead critical URLs → item rejected. Dead optional URLs → field blanked out.
 """
+from __future__ import annotations
+
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-USER_AGENT = "Mozilla/5.0 (compatible; newsletter-bot/1.0)"
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 DEFAULT_TIMEOUT = 8
+
+# Domains that block bot requests (403/429) but are known-good sources.
+# URLs from these domains are trusted if they match expected patterns.
+TRUSTED_DOMAINS = {
+    "www.petfinder.com":  ["/cat/", "/dog/"],
+    "www.realtor.com":    ["/realestateandhomes-detail/"],
+    "maps.google.com":    ["/maps/"],
+    "www.google.com":     ["/maps/"],
+}
+
+
+def _is_trusted_url(url: str) -> bool:
+    """Check if URL is from a trusted domain with an expected path pattern."""
+    for domain, patterns in TRUSTED_DOMAINS.items():
+        if domain in url:
+            return any(p in url for p in patterns)
+    return False
 
 
 def validate_url(url: str, timeout: int = DEFAULT_TIMEOUT) -> bool:
     """Check if a URL is live. HEAD first, fallback to GET.
-    Returns True if status 200-399. Skips empty/None URLs (treated as valid)."""
+    Returns True if status 200-399. Skips empty/None URLs (treated as valid).
+    Trusted domains that block bots are auto-approved if URL pattern matches."""
     if not url or not url.strip():
         return True  # empty field is fine, not a dead link
+
+    # Trust known bot-blocking domains if URL pattern is valid
+    if _is_trusted_url(url):
+        return True
 
     headers = {"User-Agent": USER_AGENT}
 
@@ -96,7 +120,7 @@ def filter_valid_items(
         if critical_dead:
             print(f"    ✗ Dead critical URL for {name}: {', '.join(critical_dead)}")
             for f in critical_dead:
-                print(f"      {f}: {item.get(f, '')[:80]}")
+                print(f"      {f}: {item.get(f, '')}")
             rejected.append(item)
             continue
 
