@@ -143,28 +143,13 @@ def filter_by_tier(listings: list[dict], min_price: int, max_price: int | None,
 
 
 def build_listing_url(raw: dict) -> str:
-    """Build a Realtor.com listing URL from address data.
-    The API's href field is often truncated, so we construct it ourselves."""
-    loc = raw.get("location", {}).get("address", {})
-    line = (loc.get("line", "") or "").replace(" ", "-")
-    city = (loc.get("city", "") or "").replace(" ", "-")
-    state = loc.get("state_code", "") or ""
-    zipcode = loc.get("postal_code", "") or ""
-    prop_id = raw.get("property_id", "")
-
-    if line and city and state and zipcode:
-        slug = f"{line}_{city}_{state}_{zipcode}"
-        if prop_id:
-            slug += f"_{prop_id}"
-        return f"https://www.realtor.com/realestateandhomes-detail/{slug}"
-
-    # Fallback to API href if we can't construct
+    """Get listing URL from API href. Returns empty string if missing."""
     href = raw.get("href", "")
     if href.startswith("https://www.realtor.com"):
         return href
-    elif href.startswith("/"):
+    if href.startswith("/"):
         return f"https://www.realtor.com{href}"
-    return href
+    return ""
 
 
 def parse_listing(raw: dict) -> dict:
