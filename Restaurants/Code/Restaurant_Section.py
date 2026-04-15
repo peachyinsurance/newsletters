@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from notion_helper import get_featured_place_ids, save_restaurants_to_notion
+from url_validator import filter_valid_items
 
 import requests
 import anthropic
@@ -491,6 +492,20 @@ if __name__ == "__main__":
             print(f"No restaurants found for {newsletter['name']}. Skipping.")
             continue
 
+        # Validate URLs before spending on Claude
+        print("\n  Validating URLs on fetched restaurants...")
+        restaurants, rejected = filter_valid_items(
+            restaurants,
+            critical_fields=["maps_url"],
+            optional_fields=["website", "photo_url"],
+            label_field="name",
+        )
+        if rejected:
+            print(f"  Dropped {len(rejected)} restaurants with dead URLs before blurb generation")
+        if not restaurants:
+            print(f"No restaurants with valid URLs for {newsletter['name']}. Skipping.")
+            continue
+
         # Enforce cuisine diversity and limit to top 5
         restaurants = enforce_cuisine_diversity(restaurants)
         print(f"\nTop {len(restaurants)} restaurants after cuisine filter")
@@ -542,12 +557,6 @@ if __name__ == "__main__":
                     print(f"    ✓ {rname} GIF: {len(photos)} frames, {len(gif_bytes):,} bytes")
         except Exception as e:
             print(f"  ✗ GIF creation failed: {e}")
-
-        # Log GIF URLs before save
-        for r in results:
-            rname = r.get("restaurant_name", "")
-            gif = r.get("gif_url", "")
-            print(f"    {rname}: gif_url = {gif[:60] if gif else 'EMPTY'}")
 
         # Save
         save_restaurants_to_notion(results, newsletter["name"])

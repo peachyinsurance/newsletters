@@ -17,6 +17,7 @@ import anthropic
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import save_events_to_notion
+from url_validator import filter_valid_items
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -312,6 +313,20 @@ if __name__ == "__main__":
 
         if not candidates:
             print(f"  No event candidates found for {newsletter['name']}. Skipping.")
+            continue
+
+        # Validate candidate URLs before spending on Claude
+        print(f"\n  Validating {len(candidates)} candidate URLs...")
+        candidates, rejected = filter_valid_items(
+            candidates,
+            critical_fields=["url"],
+            optional_fields=[],
+            label_field="title",
+        )
+        if rejected:
+            print(f"  Dropped {len(rejected)} candidates with dead URLs before evaluation")
+        if not candidates:
+            print(f"  No candidates with valid URLs for {newsletter['name']}. Skipping.")
             continue
 
         # Claude evaluates and writes blurbs

@@ -20,6 +20,7 @@ import anthropic
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import HEADERS as NOTION_HEADERS, save_lowdown_to_notion
+from url_validator import validate_url
 
 NOTION_API_KEY = os.environ["NOTION_API_KEY"]
 
@@ -255,16 +256,21 @@ Articles:
 
     stories = result.get("stories", [])
 
-    # Post-filter: remove any paywalled URLs Claude included in source_urls
+    # Post-filter: remove any paywalled or dead URLs Claude included in source_urls
     for story in stories:
         source_urls = story.get("source_urls", [])
         clean_urls = []
         for src in source_urls:
             url = src.get("url", "")
-            if url and not is_paywalled(url):
-                clean_urls.append(src)
-            else:
-                print(f"    ✗ Removed paywalled source from output: {src.get('label', '')} ({url[:50]})")
+            if not url:
+                continue
+            if is_paywalled(url):
+                print(f"    ✗ Removed paywalled source: {src.get('label', '')} ({url[:50]})")
+                continue
+            if not validate_url(url):
+                print(f"    ✗ Removed dead source URL: {src.get('label', '')} ({url[:50]})")
+                continue
+            clean_urls.append(src)
         story["source_urls"] = clean_urls
 
     print(f"  Claude selected {len(stories)} stories")

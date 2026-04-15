@@ -21,6 +21,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterC
 import requests
 import anthropic
 from notion_helper import get_approved_pet_urls, save_pets_to_notion
+from url_validator import filter_valid_items
 
 NEWSLETTERS = [
     {
@@ -862,6 +863,25 @@ if __name__ == "__main__":
             print(f"No pets found for {newsletter['name']}. Skipping.")
             continue
 
+        # Validate listing URLs before spending on Claude
+        print("\n  Validating pet listing URLs...")
+        if all_cats:
+            all_cats, rejected_cats = filter_valid_items(
+                all_cats, critical_fields=["url"], optional_fields=[], label_field="name",
+            )
+            if rejected_cats:
+                print(f"  Dropped {len(rejected_cats)} cats with dead listing URLs")
+        if all_dogs:
+            all_dogs, rejected_dogs = filter_valid_items(
+                all_dogs, critical_fields=["url"], optional_fields=[], label_field="name",
+            )
+            if rejected_dogs:
+                print(f"  Dropped {len(rejected_dogs)} dogs with dead listing URLs")
+
+        if not all_cats and not all_dogs:
+            print(f"No pets with valid URLs for {newsletter['name']}. Skipping.")
+            continue
+
         # Generate blurbs in parallel
         cat_results, dog_results = [], []
         with ThreadPoolExecutor(max_workers=2) as executor:
@@ -886,9 +906,9 @@ if __name__ == "__main__":
 
         # Flag default winners
         cat_results, dog_results = flag_default_winners(cat_results, dog_results)
+        final_results = cat_results + dog_results
 
         # Generate GIFs for each pet (3 photos per pet)
-        final_results = cat_results + dog_results
         print(f"\n  Creating GIFs for {len(final_results)} pets...")
         try:
             from gif_maker import create_gif_from_urls

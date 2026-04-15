@@ -16,6 +16,7 @@ import anthropic
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import create_page, query_database, safe_str, HEADERS as NOTION_HEADERS
+from url_validator import validate_url, filter_valid_items
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -413,6 +414,25 @@ if __name__ == "__main__":
                         f"https://www.realtor.com{r.get('href', '')}" not in excluded_urls]
         if len(all_listings) < before_count:
             print(f"  Excluded {before_count - len(all_listings)} previously featured listings")
+
+        # Validate listing URLs before tier selection (saves Claude costs on dead listings)
+        print(f"\n  Validating {len(all_listings)} listing URLs...")
+        valid_listings = []
+        for r in all_listings:
+            href = r.get("href", "")
+            url = f"https://www.realtor.com{href}" if href.startswith("/") else href
+            if not url or validate_url(url):
+                valid_listings.append(r)
+            else:
+                loc = r.get("location", {}).get("address", {})
+                addr = f"{loc.get('line', '')} {loc.get('city', '')}".strip()
+                print(f"    ✗ Dead listing URL: {addr} ({url[:60]})")
+        if len(valid_listings) < len(all_listings):
+            print(f"  Dropped {len(all_listings) - len(valid_listings)} listings with dead URLs")
+        all_listings = valid_listings
+        if not all_listings:
+            print(f"  No listings with valid URLs for {newsletter['name']}. Skipping.")
+            continue
 
         tiers = newsletter["tiers"]
         tier_listings = []
