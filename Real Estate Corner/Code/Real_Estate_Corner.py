@@ -248,7 +248,7 @@ Photo: {listing['photo_url']}
     for attempt in range(3):
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-6-20250620",
+                model="claude-sonnet-4-6",
                 max_tokens=3000,
                 system=skill_prompt,
                 messages=[{

@@ -200,7 +200,7 @@ def generate_blurb(context: dict, skill_prompt: str) -> dict:
     for attempt in range(3):
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-6-20250620",
+                model="claude-sonnet-4-6",
                 max_tokens=2000,
                 system=skill_prompt,
                 messages=[{
@@ -242,7 +242,7 @@ def review_blurb(blurb_result: dict, review_prompt: str) -> dict:
     for attempt in range(3):
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-6-20250620",
+                model="claude-sonnet-4-6",
                 max_tokens=3000,
                 system=review_prompt,
                 messages=[{

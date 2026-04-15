@@ -302,7 +302,7 @@ Summary/Review: {r['summary'][:500] if r['summary'] else 'Not available'}
     for attempt in range(3):
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-6-20250620",
+                model="claude-sonnet-4-6",
                 max_tokens=4000,
                 system=skill_prompt,
                 messages=[{
@@ -392,7 +392,7 @@ def score_restaurants(results: list[dict]) -> list[dict]:
     for attempt in range(3):
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-6-20250620",
+                model="claude-sonnet-4-6",
                 max_tokens=2000,
                 messages=[{
                     "role": "user",
