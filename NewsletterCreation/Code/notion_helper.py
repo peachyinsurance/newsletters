@@ -205,6 +205,7 @@ def setup_notion_databases():
             "Section Header":  {"rich_text": {}},
             "Stories Count":   {"number": {"format": "number"}},
             "Full Section":    {"rich_text": {}},
+            "Manually Edited": {"checkbox": {}},
         }
         r = requests.patch(
             f"https://api.notion.com/v1/databases/{NOTION_LOWDOWN_DB_ID}",
@@ -246,6 +247,7 @@ def setup_notion_databases():
                 {"name": "approved"},
                 {"name": "pending"}
             ]}},
+            "Manually Edited": {"checkbox": {}},
         }
         r = requests.patch(
             f"https://api.notion.com/v1/databases/{NOTION_RE_DB_ID}",
@@ -299,6 +301,36 @@ def setup_notion_databases():
             print("✓ Featured Event database schema created")
         else:
             print(f"✗ Featured Event schema error: {r.text[:300]}")
+
+    # Welcome Intro database properties
+    if NOTION_INTRO_DB_ID:
+        intro_properties = {
+            "Name":              {"title": {}},
+            "Newsletter":        {"select": {"options": [
+                {"name": "East_Cobb_Connect", "color": "purple"},
+                {"name": "Perimeter_Post",    "color": "pink"}
+            ]}},
+            "Date Generated":    {"date": {}},
+            "Status":            {"select": {"options": [
+                {"name": "approved", "color": "green"},
+            ]}},
+            "Greeting":          {"rich_text": {}},
+            "Blurb":             {"rich_text": {}},
+            "Word Count":        {"number": {"format": "number"}},
+            "Review Score":      {"number": {"format": "number"}},
+            "Review Violations": {"rich_text": {}},
+            "Manually Edited":   {"checkbox": {}},
+        }
+        r = requests.patch(
+            f"https://api.notion.com/v1/databases/{NOTION_INTRO_DB_ID}",
+            headers=HEADERS,
+            json={"properties": intro_properties},
+            timeout=30
+        )
+        if r.ok:
+            print("✓ Welcome Intro database schema created")
+        else:
+            print(f"✗ Welcome Intro schema error: {r.text[:300]}")
 
 # ---------------------------------------------------------------------------
 # PETS HELPERS
