@@ -364,17 +364,28 @@ def save_pets_to_notion(results: list, newsletter_name: str) -> None:
 
 def approve_pet_in_notion(source_url: str) -> None:
     """Set approved pet to approved, all others in same newsletter to rejected."""
+    source_url = (source_url or "").strip()
+    if not source_url:
+        print("✗ No source_url provided — aborting approval to avoid updating all rows")
+        return
+
     pages = query_database(NOTION_PETS_DB_ID)
 
     # First find the approved pet to get its newsletter
     approved_newsletter = None
+    approved_page_id = None
     for page in pages:
         props    = page["properties"]
         page_url = props.get("Source URL", {}).get("url", "")
-        if page_url == source_url:
+        if page_url and page_url == source_url:
             newsletter = props.get("Newsletter", {}).get("select", {})
             approved_newsletter = newsletter.get("name", "") if newsletter else ""
+            approved_page_id = page["id"]
             break
+
+    if not approved_newsletter:
+        print(f"✗ No pet found with source_url '{source_url}' — aborting")
+        return
 
     print(f"Approving for newsletter: {approved_newsletter}")
 
@@ -393,8 +404,8 @@ def approve_pet_in_notion(source_url: str) -> None:
         if newsletter_name != approved_newsletter:
             continue
 
-        page_url   = props.get("Source URL", {}).get("url", "")
-        new_status = "approved" if page_url == source_url else "rejected"
+        # Match by unique Notion page id to prevent edge cases where URLs might duplicate
+        new_status = "approved" if page_id == approved_page_id else "rejected"
         update_page(page_id, {"Status": {"select": {"name": new_status}}})
         name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
         print(f"{new_status}: {name}")
@@ -536,18 +547,29 @@ def save_restaurants_to_notion(results: list, newsletter_name: str) -> None:
     
 def approve_restaurant_in_notion(place_id: str) -> None:
     """Set selected restaurant to Tier 1 Winner, others in same newsletter to Tier 2 Winner."""
+    place_id = (place_id or "").strip()
+    if not place_id:
+        print("✗ No place_id provided — aborting approval to avoid updating all rows")
+        return
+
     pages = query_database(NOTION_RESTAURANTS_DB_ID)
 
     # First find the selected restaurant to get its newsletter
     approved_newsletter = None
+    approved_page_id = None
     for page in pages:
         props     = page["properties"]
         pid_prop  = props.get("Place ID", {}).get("rich_text", [])
         page_place_id = pid_prop[0].get("text", {}).get("content", "") if pid_prop else ""
-        if page_place_id == place_id:
+        if page_place_id and page_place_id == place_id:
             newsletter = props.get("Newsletter", {}).get("select", {})
             approved_newsletter = newsletter.get("name", "") if newsletter else ""
+            approved_page_id = page["id"]
             break
+
+    if not approved_newsletter:
+        print(f"✗ No restaurant found with place_id '{place_id}' — aborting")
+        return
 
     print(f"Selecting Tier 1 for newsletter: {approved_newsletter}")
 
@@ -565,9 +587,8 @@ def approve_restaurant_in_notion(place_id: str) -> None:
         if newsletter_name != approved_newsletter:
             continue
 
-        pid_prop      = props.get("Place ID", {}).get("rich_text", [])
-        page_place_id = pid_prop[0].get("text", {}).get("content", "") if pid_prop else ""
-        new_status    = "Tier 1 Winner" if page_place_id == place_id else "Tier 2 Winner"
+        # Match by unique Notion page id (place_ids can duplicate if Claude hallucinates)
+        new_status = "Tier 1 Winner" if page_id == approved_page_id else "Tier 2 Winner"
         update_page(page_id, {"Status": {"select": {"name": new_status}}})
         name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
         print(f"{new_status}: {name}")
