@@ -124,6 +124,7 @@ def setup_notion_databases():
             {"name": "cat", "color": "orange"},
             {"name": "dog", "color": "brown"}
         ]}},
+        "Manually Edited":    {"checkbox": {}},
     }
 
     # Restaurants database properties
@@ -161,6 +162,7 @@ def setup_notion_databases():
         "Festive Score":          {"number": {"format": "number"}},
         "Scoring Notes":          {"rich_text": {}},
         "Default Winner":         {"checkbox": {}},
+        "Manually Edited":        {"checkbox": {}},
     }
 
     # Update Pets database schema
@@ -285,6 +287,7 @@ def setup_notion_databases():
             "Audience Match Score":   {"number": {"format": "number"}},
             "Scoring Notes":          {"rich_text": {}},
             "Default Winner":         {"checkbox": {}},
+            "Manually Edited":        {"checkbox": {}},
         }
         r = requests.patch(
             f"https://api.notion.com/v1/databases/{NOTION_EVENTS_DB_ID}",
@@ -633,6 +636,7 @@ def _ensure_lowdown_schema():
         "Section Header":  {"rich_text": {}},
         "Stories Count":   {"number": {"format": "number"}},
         "Full Section":    {"rich_text": {}},
+        "Manually Edited": {"checkbox": {}},
     }
     r = requests.patch(
         f"https://api.notion.com/v1/databases/{NOTION_LOWDOWN_DB_ID}",
@@ -655,12 +659,20 @@ def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
 
     _ensure_lowdown_schema()
 
-    # Delete existing entries for this newsletter (prevents duplicates)
+    # Check for manually edited rows — preserve them and skip saving new content
     try:
         existing = query_database(NOTION_LOWDOWN_DB_ID, filters={
             "property": "Newsletter",
             "select": {"equals": newsletter_name}
         })
+        has_manual_edit = any(
+            p["properties"].get("Manually Edited", {}).get("checkbox", False)
+            for p in existing
+        )
+        if has_manual_edit:
+            print(f"  🔒 Manually edited Local Lowdown exists for {newsletter_name} — preserving, skipping save")
+            return
+
         for page in existing:
             archive_page(page["id"])
         if existing:
@@ -699,6 +711,7 @@ def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
         "Section Header": {"rich_text": [{"text": {"content": safe_str(section_header)}}]},
         "Stories Count":  {"number": len(stories)},
         "Full Section":   {"rich_text": chunks},
+        "Manually Edited": {"checkbox": False},
     }
 
     create_page(NOTION_LOWDOWN_DB_ID, properties)
@@ -793,6 +806,7 @@ def _ensure_intro_schema():
         "Word Count":        {"number": {"format": "number"}},
         "Review Score":      {"number": {"format": "number"}},
         "Review Violations": {"rich_text": {}},
+        "Manually Edited":   {"checkbox": {}},
     }
     r = requests.patch(
         f"https://api.notion.com/v1/databases/{NOTION_INTRO_DB_ID}",
@@ -812,12 +826,20 @@ def save_intro_to_notion(result: dict, newsletter_name: str) -> None:
 
     _ensure_intro_schema()
 
-    # Archive existing entries for this newsletter (prevents duplicates)
+    # Check for manually edited rows — preserve them and skip saving new content
     try:
         existing = query_database(NOTION_INTRO_DB_ID, filters={
             "property": "Newsletter",
             "select": {"equals": newsletter_name}
         })
+        has_manual_edit = any(
+            p["properties"].get("Manually Edited", {}).get("checkbox", False)
+            for p in existing
+        )
+        if has_manual_edit:
+            print(f"  🔒 Manually edited Welcome Intro exists for {newsletter_name} — preserving, skipping save")
+            return
+
         for page in existing:
             archive_page(page["id"])
         if existing:
@@ -847,6 +869,7 @@ def save_intro_to_notion(result: dict, newsletter_name: str) -> None:
         "Word Count":        {"number": int(result.get("word_count", 0))},
         "Review Score":      {"number": int(result.get("review_score", 0))},
         "Review Violations": {"rich_text": [{"text": {"content": safe_str(violations_text)[:2000]}}]},
+        "Manually Edited":   {"checkbox": False},
     }
 
     create_page(NOTION_INTRO_DB_ID, properties)

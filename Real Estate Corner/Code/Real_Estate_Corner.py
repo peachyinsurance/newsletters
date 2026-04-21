@@ -345,27 +345,42 @@ def cleanup_old_re_listings() -> None:
 
 
 def save_real_estate_to_notion(results: list[dict], newsletter_name: str) -> None:
-    """Save real estate listings to Notion database. Replaces existing entries for this newsletter."""
+    """Save real estate listings to Notion database. Replaces existing entries for this newsletter.
+    Manually edited rows (Manually Edited = True) are preserved and skipped."""
     if not NOTION_RE_DB_ID:
         print("  No NOTION_RE_DB_ID set, skipping Notion save")
         return
 
-    # Delete existing entries for this newsletter (prevents duplicates)
+    # Find existing entries, separate manually edited ones from auto-generated
+    protected_tiers = set()
     try:
         existing = query_database(NOTION_RE_DB_ID)
         existing = [p for p in existing if
                     (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
+        archived = 0
         for page in existing:
-            archive_page(page["id"])
-        if existing:
-            print(f"  Archived {len(existing)} old RE entries for {newsletter_name}")
+            props = page["properties"]
+            is_edited = props.get("Manually Edited", {}).get("checkbox", False)
+            tier = (props.get("Tier", {}).get("select") or {}).get("name", "")
+            if is_edited:
+                protected_tiers.add(tier)
+                print(f"  🔒 Preserving manually edited {tier} listing")
+            else:
+                archive_page(page["id"])
+                archived += 1
+        if archived:
+            print(f"  Archived {archived} auto-generated RE entries for {newsletter_name}")
     except Exception:
         pass
 
     for listing in results:
+        tier = listing.get("tier", "")
+        if tier in protected_tiers:
+            print(f"  ⏭ Skipping {tier} (manually edited row kept)")
+            continue
         properties = {
-            "Name":           {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - {listing.get('tier', '')} - {listing.get('address', '')}"}}]},
-            "Tier":           {"select": {"name": listing.get("tier", "")}},
+            "Name":           {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - {tier} - {listing.get('address', '')}"}}]},
+            "Tier":           {"select": {"name": tier}},
             "Price":          {"number": listing.get("price", 0)},
             "Address":        {"rich_text": [{"text": {"content": safe_str(listing.get("address", ""))}}]},
             "Beds":           {"number": listing.get("beds", 0)},
@@ -380,9 +395,10 @@ def save_real_estate_to_notion(results: list[dict], newsletter_name: str) -> Non
             "Newsletter":     {"select": {"name": newsletter_name}},
             "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
             "Status":         {"select": {"name": "approved"}},
+            "Manually Edited": {"checkbox": False},
         }
         create_page(NOTION_RE_DB_ID, properties)
-        print(f"  ✓ Saved: {listing.get('tier')} - {listing.get('address')}")
+        print(f"  ✓ Saved: {tier} - {listing.get('address')}")
 
 
 # ---------------------------------------------------------------------------

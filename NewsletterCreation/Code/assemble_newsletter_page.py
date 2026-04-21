@@ -197,6 +197,162 @@ def notion_append_blocks(page_id: str, blocks: list[dict]) -> None:
         r.raise_for_status()
 
 
+def get_bot_user_id() -> str:
+    """Get the integration's bot user ID. Cached on the function after first call."""
+    if hasattr(get_bot_user_id, "_cached"):
+        return get_bot_user_id._cached
+    try:
+        r = requests.get("https://api.notion.com/v1/users/me", headers=HEADERS, timeout=30)
+        r.raise_for_status()
+        uid = r.json().get("id", "")
+    except Exception as e:
+        print(f"  Warning: could not fetch bot user ID: {e}")
+        uid = ""
+    get_bot_user_id._cached = uid
+    return uid
+
+
+def extract_section_text(blocks: list[dict], heading_text: str) -> tuple[str, bool]:
+    """Extract plain text content for a section between heading and next heading/divider.
+    Returns (text, was_manually_edited). was_manually_edited is True if any block in the
+    section has last_edited_by != bot user."""
+    bot_id = get_bot_user_id()
+    found = False
+    lines = []
+    human_edited = False
+
+    for block in blocks:
+        btype = block.get("type", "")
+        if not found:
+            if btype.startswith("heading_"):
+                rt = block.get(btype, {}).get("rich_text", [])
+                text = "".join(t.get("text", {}).get("content", "") for t in rt)
+                if heading_text.lower() in text.lower():
+                    found = True
+            continue
+        # In the section — stop at next heading or divider
+        if btype.startswith("heading_") or btype == "divider":
+            break
+        # Check last_edited_by
+        editor = block.get("last_edited_by", {}).get("id", "")
+        if bot_id and editor and editor != bot_id:
+            human_edited = True
+        # Pull text from known block types
+        if btype == "paragraph":
+            rt = block.get("paragraph", {}).get("rich_text", [])
+            line = "".join(t.get("text", {}).get("content", "") for t in rt)
+            if line:
+                lines.append(line)
+        elif btype == "callout":
+            rt = block.get("callout", {}).get("rich_text", [])
+            line = "".join(t.get("text", {}).get("content", "") for t in rt)
+            if line:
+                lines.append(line)
+
+    return "\n\n".join(lines), human_edited
+
+
+def sync_edits_back(page_id: str, newsletter_name: str) -> None:
+    """Before clearing the landing page, detect manual edits in Welcome Intro and
+    Local Lowdown sections and sync them back to the corresponding database rows.
+    Sets Manually Edited = True on any row whose content was synced."""
+    bot_id = get_bot_user_id()
+    if not bot_id:
+        print("  Skipping sync-back (no bot user ID)")
+        return
+
+    blocks = notion_get_blocks(page_id)
+
+    # --- Welcome Intro ---
+    intro_text, intro_edited = extract_section_text(blocks, "Welcome Intro")
+    if intro_edited and intro_text and NOTION_INTRO_DB_ID:
+        # Greeting is the first paragraph if bold-only, otherwise treat entire text as blurb
+        parts = intro_text.split("\n\n", 1)
+        if len(parts) == 2 and len(parts[0]) < 100:
+            greeting = parts[0]
+            blurb = parts[1]
+        else:
+            greeting = ""
+            blurb = intro_text
+
+        try:
+            pages = query_database(NOTION_INTRO_DB_ID, filters={
+                "property": "Newsletter",
+                "select": {"equals": newsletter_name}
+            })
+        except Exception:
+            pages = []
+
+        if pages:
+            pages.sort(
+                key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+                reverse=True,
+            )
+            target_id = pages[0]["id"]
+
+            CHUNK_SIZE = 1900
+            chunks = [{"text": {"content": blurb[i:i + CHUNK_SIZE]}}
+                      for i in range(0, len(blurb), CHUNK_SIZE)]
+            if not chunks:
+                chunks = [{"text": {"content": ""}}]
+
+            props_update = {
+                "Blurb":            {"rich_text": chunks},
+                "Manually Edited":  {"checkbox": True},
+            }
+            if greeting:
+                props_update["Greeting"] = {"rich_text": [{"text": {"content": greeting}}]}
+
+            r = requests.patch(
+                f"https://api.notion.com/v1/pages/{target_id}",
+                headers=HEADERS,
+                json={"properties": props_update},
+                timeout=30,
+            )
+            if r.ok:
+                print(f"  🔄 Synced Welcome Intro edits back to database (marked as manually edited)")
+            else:
+                print(f"  Warning: intro sync-back failed: {r.text[:200]}")
+
+    # --- Local Lowdown ---
+    lowdown_text, lowdown_edited = extract_section_text(blocks, "Local Lowdown")
+    if lowdown_edited and lowdown_text and NOTION_LOWDOWN_DB_ID:
+        try:
+            pages = query_database(NOTION_LOWDOWN_DB_ID, filters={
+                "property": "Newsletter",
+                "select": {"equals": newsletter_name}
+            })
+        except Exception:
+            pages = []
+
+        if pages:
+            pages.sort(
+                key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+                reverse=True,
+            )
+            target_id = pages[0]["id"]
+
+            CHUNK_SIZE = 1900
+            chunks = [{"text": {"content": lowdown_text[i:i + CHUNK_SIZE]}}
+                      for i in range(0, len(lowdown_text), CHUNK_SIZE)]
+            if not chunks:
+                chunks = [{"text": {"content": ""}}]
+
+            r = requests.patch(
+                f"https://api.notion.com/v1/pages/{target_id}",
+                headers=HEADERS,
+                json={"properties": {
+                    "Full Section":    {"rich_text": chunks},
+                    "Manually Edited": {"checkbox": True},
+                }},
+                timeout=30,
+            )
+            if r.ok:
+                print(f"  🔄 Synced Local Lowdown edits back to database (marked as manually edited)")
+            else:
+                print(f"  Warning: lowdown sync-back failed: {r.text[:200]}")
+
+
 # ---------------------------------------------------------------------------
 # BLOCK BUILDERS
 # ---------------------------------------------------------------------------
@@ -788,6 +944,9 @@ if __name__ == "__main__":
         page_id = notion_search_page(page_title)
         if page_id:
             print(f"  Found existing page: {page_id}")
+            # Sync any manual edits on the landing page back to the database before clearing
+            print(f"  Checking for manual edits to sync back...")
+            sync_edits_back(page_id, newsletter_name)
             print(f"  Clearing old content...")
             notion_clear_page(page_id)
         else:
