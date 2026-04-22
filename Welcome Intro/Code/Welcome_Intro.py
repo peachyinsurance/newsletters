@@ -381,7 +381,12 @@ if __name__ == "__main__":
         sections = context.get("sections_summary", {})
         if sections:
             for key, val in sections.items():
-                print(f"    {key}: {val[:80]}")
+                # val is now a dict (structured object) — print its 'name' field for preview
+                if isinstance(val, dict):
+                    preview = val.get("name", "") or str(val)[:80]
+                else:
+                    preview = str(val)[:80]
+                print(f"    {key}: {preview}")
         else:
             print("    No section context available (other pipelines may not have run yet)")
 
