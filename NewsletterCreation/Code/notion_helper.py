@@ -17,6 +17,7 @@ NOTION_RE_DB_ID          = os.environ.get("NOTION_RE_DB_ID", "")
 NOTION_EVENTS_DB_ID      = os.environ.get("NOTION_EVENTS_DB_ID", "")
 NOTION_INTRO_DB_ID       = os.environ.get("NOTION_INTRO_DB_ID", "")
 NOTION_TIPS_DB_ID        = os.environ.get("NOTION_TIPS_DB_ID", "")
+NOTION_FREE_EVENTS_DB_ID = os.environ.get("NOTION_FREE_EVENTS_DB_ID", "")
 
 HEADERS = {
     "Authorization":  f"Bearer {NOTION_API_KEY}",
@@ -333,6 +334,34 @@ def setup_notion_databases():
             print("✓ Welcome Intro database schema created")
         else:
             print(f"✗ Welcome Intro schema error: {r.text[:300]}")
+
+    # Free Events database properties
+    if NOTION_FREE_EVENTS_DB_ID:
+        free_events_properties = {
+            "Name":             {"title": {}},
+            "Newsletter":       {"select": {"options": [
+                {"name": "East_Cobb_Connect", "color": "purple"},
+                {"name": "Perimeter_Post",    "color": "pink"}
+            ]}},
+            "Date Generated":   {"date": {}},
+            "Status":           {"select": {"options": [
+                {"name": "approved", "color": "green"}
+            ]}},
+            "Section Header":   {"rich_text": {}},
+            "Events Count":     {"number": {"format": "number"}},
+            "Full Section":     {"rich_text": {}},
+            "Manually Edited":  {"checkbox": {}},
+        }
+        r = requests.patch(
+            f"https://api.notion.com/v1/databases/{NOTION_FREE_EVENTS_DB_ID}",
+            headers=HEADERS,
+            json={"properties": free_events_properties},
+            timeout=30
+        )
+        if r.ok:
+            print("✓ Free Events database schema created")
+        else:
+            print(f"✗ Free Events schema error: {r.text[:300]}")
 
 # ---------------------------------------------------------------------------
 # PETS HELPERS
