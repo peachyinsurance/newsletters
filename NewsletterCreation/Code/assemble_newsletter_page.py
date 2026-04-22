@@ -671,6 +671,9 @@ def get_real_estate(newsletter_name: str) -> list[dict]:
         pages = query_database(NOTION_RE_DB_ID)
         pages = [p for p in pages if
                  (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
+        # Only show current/approved listings — 'approved - old' is exclusion-only
+        pages = [p for p in pages if
+                 (p["properties"].get("Status", {}).get("select") or {}).get("name") != "approved - old"]
     except Exception:
         return []
     results = []
@@ -704,6 +707,18 @@ def get_real_estate(newsletter_name: str) -> list[dict]:
         if dates:
             latest_date = max(dates)
             results = [r for r in results if r.get("date", "") == latest_date]
+
+    # Dedupe by tier — if multiple rows share the same tier + latest date
+    # (manually edited row + auto-generated row saved same day), keep the first.
+    seen_tiers = set()
+    deduped = []
+    for r in results:
+        tier = r.get("tier", "")
+        if tier in seen_tiers:
+            continue
+        seen_tiers.add(tier)
+        deduped.append(r)
+    results = deduped
 
     # Sort: Starter, Sweet Spot, Showcase
     tier_order = {"Starter": 0, "Sweet Spot": 1, "Showcase": 2}
