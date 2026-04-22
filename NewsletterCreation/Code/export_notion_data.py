@@ -42,6 +42,9 @@ def export_pets():
     for page in pages:
         props = page["properties"]
         status_val = extract_text(props.get("Status", {})) or "pending"
+        # Skip archived statuses so they don't show up as candidates in the review UI
+        if status_val in ("approved - old", "rejected"):
+            continue
         pets.append({
            "source_url":  extract_text(props.get("Source URL", {})),
             "listing_url": extract_text(props.get("Listing URL", {})),
@@ -78,6 +81,9 @@ def export_restaurants():
     for page in pages:
         props = page["properties"]
         status_val = extract_text(props.get("Status", {})) or "pending"
+        # Skip archived statuses so they don't show up as candidates in the review UI
+        if status_val == "approved - old":
+            continue
         restaurants.append({
             "place_id":               extract_text(props.get("Place ID", {})),
             "restaurant_name": extract_text(props.get("Name", {})).split(" - ", 1)[-1],
