@@ -56,6 +56,7 @@ AGGREGATOR_DOMAINS = {
     "mommypoppins.com",
     "northfulton.com",
     "accessatlanta.com",
+    "cobbcountyevents.com",
     "morningstar.com",
     "prnewswire.com",
     "businesswire.com",
