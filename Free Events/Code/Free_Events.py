@@ -198,11 +198,12 @@ def fetch_candidates(search_areas: list[str], excluded_urls: set | None = None) 
 
     queries = []
     for area in search_areas:
-        queries.append(f'"free" events {area} this week')
-        queries.append(f'"free" things to do {area}')
-        queries.append(f'free family events {area}')
-    # Broader fallback
-    queries.append("free events metro Atlanta this week")
+        # Strip " GA" / " Atlanta" suffixes so we can quote the city/area name directly
+        city = area.replace(" GA", "").replace(" Atlanta", "").strip()
+        # Quote the area to force it as a required phrase in results
+        queries.append(f'"free" events "{city}" Georgia')
+        queries.append(f'"free" things to do "{city}"')
+        queries.append(f'"free" family "{city}" Georgia')
 
     seen = set()
     candidates = []
