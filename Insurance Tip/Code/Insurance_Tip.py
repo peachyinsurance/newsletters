@@ -313,12 +313,19 @@ if __name__ == "__main__":
     results = score_and_sort(results)
     results = flag_default_winner(results)
 
-    # Save the same picks once per newsletter (two identical-content rows)
-    for nl in NEWSLETTERS:
+    # Save the same picks once per newsletter (two identical-content rows).
+    # Only the first newsletter's rows carry default_winner=yes — the tip is
+    # shared, so flagging both would show up as "two winners" in the global
+    # Notion view. Subsequent newsletters get the same tips with the flag cleared.
+    for i, nl in enumerate(NEWSLETTERS):
         print(f"\n{'='*60}")
         print(f"Saving for: {nl['name']}")
         print(f"{'='*60}")
-        save_tips_to_notion(results, nl["name"])
+        if i == 0:
+            save_tips_to_notion(results, nl["name"])
+        else:
+            unflagged = [{**r, "default_winner": ""} for r in results]
+            save_tips_to_notion(unflagged, nl["name"])
 
     # Local JSON backup (one file — content is identical across newsletters)
     output_dir = Path(__file__).parent / "output"
