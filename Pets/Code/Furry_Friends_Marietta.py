@@ -627,9 +627,22 @@ Exact format:
             else:
                 raise
 
-    raw = next(block.text for block in response.content if block.type == "text")
+    raw = next((block.text for block in response.content if block.type == "text"), "")
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
-    results = json.loads(clean)
+    # If Claude returned prose before/after the JSON, try to extract the array/object
+    if not (clean.startswith("[") or clean.startswith("{")):
+        start = clean.find("[")
+        if start < 0:
+            start = clean.find("{")
+        end_bracket = clean.rfind("]") if start >= 0 and clean[start] == "[" else clean.rfind("}")
+        if start >= 0 and end_bracket > start:
+            clean = clean[start:end_bracket + 1]
+    try:
+        results = json.loads(clean)
+    except json.JSONDecodeError as e:
+        print(f"  ✗ Failed to parse Claude JSON for {animal_type}: {e}")
+        print(f"  Raw response (first 500 chars): {raw[:500]}")
+        return []
 
     # Build source lookups
     source_by_url  = {p["url"]: p for p in pets}
@@ -726,9 +739,21 @@ Candidates to score:
             else:
                 raise
 
-    raw = next(block.text for block in response.content if block.type == "text")
+    raw = next((block.text for block in response.content if block.type == "text"), "")
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
-    scores = json.loads(clean)
+    if not (clean.startswith("[") or clean.startswith("{")):
+        start = clean.find("[")
+        if start < 0:
+            start = clean.find("{")
+        end_bracket = clean.rfind("]") if start >= 0 and clean[start] == "[" else clean.rfind("}")
+        if start >= 0 and end_bracket > start:
+            clean = clean[start:end_bracket + 1]
+    try:
+        scores = json.loads(clean)
+    except json.JSONDecodeError as e:
+        print(f"  ✗ Failed to parse Claude JSON for pet scoring: {e}")
+        print(f"  Raw response (first 500 chars): {raw[:500]}")
+        return results  # return unscored results so pipeline continues
 
     # Validate scores come from real source_urls; fallback to pet_name match
     real_urls = {r["source_url"] for r in results}
