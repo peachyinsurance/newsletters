@@ -121,9 +121,11 @@ Return ONLY a valid JSON object with no preamble, explanation, or markdown fence
 
 - The publication date is provided in the user prompt. Treat that as "today".
 - Drop any event where the earliest upcoming instance is BEFORE the publication date. Past events are worthless.
-- Prefer events happening within 7 days of the publication date.
-- If an article mentions an event but no specific date, or only says "last weekend / last week / was held on…" — DROP IT. Do not guess.
-- If an article is about a recurring weekly event (e.g., "every Saturday"), compute the next occurrence that is ≥ publication date.
+- Prefer events happening within 7 days of the publication date. Events up to 14 days out are acceptable if the next-7-days pool is thin.
+- If an article clearly refers to a past event ("last weekend", "was held on…", "took place"), DROP IT.
+- If an article mentions an event without a specific date but uses forward-looking language ("upcoming", "this Saturday", "next Friday", "this month"), infer the most likely next date that matches — don't drop it just because the exact date isn't spelled out.
+- If an article is about a recurring event (e.g., "every Saturday"), compute the next occurrence that is ≥ publication date.
+- When in doubt between dropping or including, INCLUDE the event and return your best-guess date. Our downstream filter will reject anything that resolves to a past date.
 
 ## Quality Gates
 

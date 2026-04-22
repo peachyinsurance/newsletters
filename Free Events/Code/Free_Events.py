@@ -290,6 +290,11 @@ Candidates:
         return {"newsletter_name": newsletter_name, "events": []}
 
     events = result.get("events", [])
+    dropped = result.get("dropped_candidates", [])
+    print(f"  Claude returned {len(events)} events, dropped {len(dropped)} candidates")
+    # Log why Claude dropped things — useful for diagnosing when Claude is too strict
+    for d in dropped[:10]:
+        print(f"    • dropped idx {d.get('candidate_index', '?')}: {d.get('reason', '')[:120]}")
 
     # Parse publication date once for filtering
     from datetime import date, timedelta
@@ -297,7 +302,7 @@ Candidates:
         pub = datetime.strptime(pub_date, "%Y-%m-%d").date()
     except Exception:
         pub = date.today()
-    window_end = pub + timedelta(days=7)
+    window_end = pub + timedelta(days=14)  # allow 2-week lookahead to reduce false drops
 
     # Attach real URLs from candidates using index. Reject events with invalid data.
     candidates_by_index = {i: c for i, c in enumerate(candidates, 1)}
