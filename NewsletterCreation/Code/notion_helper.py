@@ -16,6 +16,7 @@ NOTION_LOWDOWN_DB_ID     = os.environ.get("NOTION_LOWDOWN_DB_ID", "")
 NOTION_RE_DB_ID          = os.environ.get("NOTION_RE_DB_ID", "")
 NOTION_EVENTS_DB_ID      = os.environ.get("NOTION_EVENTS_DB_ID", "")
 NOTION_INTRO_DB_ID       = os.environ.get("NOTION_INTRO_DB_ID", "")
+NOTION_TIPS_DB_ID        = os.environ.get("NOTION_TIPS_DB_ID", "")
 
 HEADERS = {
     "Authorization":  f"Bearer {NOTION_API_KEY}",
@@ -935,3 +936,132 @@ def save_intro_to_notion(result: dict, newsletter_name: str) -> None:
 
     create_page(NOTION_INTRO_DB_ID, properties)
     print(f"  ✓ Saved Welcome Intro to Notion ({result.get('word_count', '?')} words, score {result.get('review_score', '?')}/10)")
+
+
+# ---------------------------------------------------------------------------
+# INSURANCE TIP HELPERS
+# ---------------------------------------------------------------------------
+
+_tips_schema_setup = False
+
+def _ensure_tips_schema():
+    """Create properties on the Insurance Tip database if needed (runs once per process)."""
+    global _tips_schema_setup
+    if _tips_schema_setup:
+        return
+    if not NOTION_TIPS_DB_ID:
+        return
+    props = {
+        "Name":                 {"title": {}},
+        "Tip Title":            {"rich_text": {}},
+        "Topic":                {"rich_text": {}},
+        "Category":             {"select": {"options": [
+            {"name": "auto"},
+            {"name": "home"},
+            {"name": "flood"},
+            {"name": "umbrella"},
+            {"name": "life"},
+            {"name": "seasonal"},
+            {"name": "life_event"},
+        ]}},
+        "Blurb":                {"rich_text": {}},
+        "Source URL":           {"url": {}},
+        "Source Name":          {"rich_text": {}},
+        "Newsletter":           {"select": {"options": [
+            {"name": "East_Cobb_Connect", "color": "purple"},
+            {"name": "Perimeter_Post",    "color": "pink"},
+        ]}},
+        "Date Generated":       {"date": {}},
+        "Status":               {"select": {"options": [
+            {"name": "pending",        "color": "yellow"},
+            {"name": "approved",       "color": "green"},
+            {"name": "rejected",       "color": "red"},
+            {"name": "approved - old", "color": "gray"},
+        ]}},
+        "Total Score":          {"number": {"format": "number"}},
+        "Relevance Score":      {"number": {"format": "number"}},
+        "Actionability Score":  {"number": {"format": "number"}},
+        "Timeliness Score":     {"number": {"format": "number"}},
+        "Scoring Notes":        {"rich_text": {}},
+        "Default Winner":       {"checkbox": {}},
+        "Manually Edited":      {"checkbox": {}},
+    }
+    r = requests.patch(
+        f"https://api.notion.com/v1/databases/{NOTION_TIPS_DB_ID}",
+        headers=HEADERS,
+        json={"properties": props},
+        timeout=30,
+    )
+    if r.ok:
+        print("  ✓ Insurance Tip database schema ready")
+    else:
+        print(f"  ✗ Insurance Tip schema setup error: {r.text[:300]}")
+    _tips_schema_setup = True
+
+
+def get_existing_tip_urls(newsletter_name: str) -> set:
+    """Get source URLs of existing tips for this newsletter to avoid duplicates."""
+    if not NOTION_TIPS_DB_ID:
+        return set()
+    try:
+        pages = query_database(NOTION_TIPS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+        urls = set()
+        for page in pages:
+            url = page["properties"].get("Source URL", {}).get("url", "")
+            if url:
+                urls.add(url)
+        return urls
+    except Exception:
+        return set()
+
+
+def save_tips_to_notion(results: list, newsletter_name: str) -> None:
+    """Save insurance tip candidates to Notion for this newsletter.
+    Called once per newsletter with the same `results` — the tips are shared
+    across both newsletters, but each newsletter gets its own Notion row."""
+    if not NOTION_TIPS_DB_ID:
+        print("  No NOTION_TIPS_DB_ID set, skipping Notion save")
+        return
+
+    _ensure_tips_schema()
+
+    print(f"  Saving {len(results)} tips to Notion for {newsletter_name}...")
+    existing_urls = get_existing_tip_urls(newsletter_name)
+    print(f"  Found {len(existing_urls)} existing entries to skip")
+
+    saved = 0
+    for data in results:
+        source_url = data.get("source_url", "")
+        if source_url and source_url in existing_urls:
+            print(f"  ✗ Skipping duplicate: {data.get('tip_title')}")
+            continue
+
+        category = safe_str(data.get("category"))
+        properties = {
+            "Name":                 {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - {data.get('tip_title', '')}"}}]},
+            "Tip Title":            {"rich_text": [{"text": {"content": safe_str(data.get("tip_title"))}}]},
+            "Topic":                {"rich_text": [{"text": {"content": safe_str(data.get("topic"))}}]},
+            "Blurb":                {"rich_text": [{"text": {"content": safe_str(data.get("blurb"))[:2000]}}]},
+            "Source URL":           {"url": data.get("source_url") or None},
+            "Source Name":          {"rich_text": [{"text": {"content": safe_str(data.get("source_name"))}}]},
+            "Newsletter":           {"select": {"name": newsletter_name}},
+            "Date Generated":       {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
+            "Status":               {"select": {"name": "pending"}},
+            "Total Score":          {"number": int(data.get("total_score", 0) or 0)},
+            "Relevance Score":      {"number": int(data.get("relevance_score", 0) or 0)},
+            "Actionability Score":  {"number": int(data.get("actionability_score", 0) or 0)},
+            "Timeliness Score":     {"number": int(data.get("timeliness_score", 0) or 0)},
+            "Scoring Notes":        {"rich_text": [{"text": {"content": safe_str(data.get("scoring_notes"))}}]},
+            "Default Winner":       {"checkbox": data.get("default_winner", "") == "yes"},
+            "Manually Edited":      {"checkbox": False},
+        }
+        if category:
+            properties["Category"] = {"select": {"name": category}}
+
+        create_page(NOTION_TIPS_DB_ID, properties)
+        print(f"  ✓ {data.get('tip_title')}")
+        saved += 1
+    print(f"  Saved {saved} new tips to Notion for {newsletter_name}")

@@ -1,0 +1,35 @@
+name: Generate Insurance Tip
+
+on:
+  schedule:
+    - cron: '0 13 * * 1'  # Every Monday at 8am EST (1pm UTC)
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests anthropic
+      - name: Generate Insurance Tip
+        env:
+          CLAUDE_API_KEY:           ${{ secrets.CLAUDE_API_KEY }}
+          BRAVE_NEWS_API_KEY:       ${{ secrets.BRAVE_NEWS_API_KEY }}
+          NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
+          NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+          NOTION_TIPS_DB_ID:        ${{ secrets.NOTION_TIPS_DB_ID }}
+        run: python "Insurance Tip/Code/Insurance_Tip.py"
+      - name: Trigger newsletter page rebuild
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
+            -d '{"ref":"main"}'
+          echo "✓ Newsletter page rebuild triggered"
