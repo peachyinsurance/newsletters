@@ -351,27 +351,36 @@ def save_real_estate_to_notion(results: list[dict], newsletter_name: str) -> Non
         print("  No NOTION_RE_DB_ID set, skipping Notion save")
         return
 
-    # Find existing entries, separate manually edited ones from auto-generated
+    # Find existing entries. Flip previous auto-generated "approved" rows to "approved - old"
+    # so they stay in the database for exclusion (no repeat listings) but clear the slot for new picks.
+    # Manually edited rows are preserved with their current status.
     protected_tiers = set()
     try:
         existing = query_database(NOTION_RE_DB_ID)
         existing = [p for p in existing if
                     (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
-        archived = 0
+        flipped = 0
         for page in existing:
             props = page["properties"]
             is_edited = props.get("Manually Edited", {}).get("checkbox", False)
             tier = (props.get("Tier", {}).get("select") or {}).get("name", "")
+            status = (props.get("Status", {}).get("select") or {}).get("name", "")
             if is_edited:
                 protected_tiers.add(tier)
                 print(f"  🔒 Preserving manually edited {tier} listing")
-            else:
-                archive_page(page["id"])
-                archived += 1
-        if archived:
-            print(f"  Archived {archived} auto-generated RE entries for {newsletter_name}")
-    except Exception:
-        pass
+            elif status == "approved":
+                # Flip to "approved - old" so it stays for exclusion but is no longer current
+                requests.patch(
+                    f"https://api.notion.com/v1/pages/{page['id']}",
+                    headers=NOTION_HEADERS,
+                    json={"properties": {"Status": {"select": {"name": "approved - old"}}}},
+                    timeout=30,
+                )
+                flipped += 1
+        if flipped:
+            print(f"  Flipped {flipped} previous RE entries to 'approved - old' for {newsletter_name}")
+    except Exception as e:
+        print(f"  Warning: could not process existing RE entries: {e}")
 
     for listing in results:
         tier = listing.get("tier", "")

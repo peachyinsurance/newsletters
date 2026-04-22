@@ -245,7 +245,8 @@ def setup_notion_databases():
             "Date Generated": {"date": {}},
             "Status":         {"select": {"options": [
                 {"name": "approved"},
-                {"name": "pending"}
+                {"name": "pending"},
+                {"name": "approved - old"}
             ]}},
             "Manually Edited": {"checkbox": {}},
         }
