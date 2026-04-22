@@ -138,25 +138,28 @@ def search_brave(query: str) -> list[dict]:
         if res.status_code != 200:
             print(f"    Brave error {res.status_code}: {res.text[:200]}")
             return []
-        results = res.json().get("results", [])
+        raw_results = res.json().get("results", [])
     except Exception as e:
         print(f"    Brave error: {e}")
         return []
 
     normalized = []
-    for item in results:
+    dropped_paywall = 0
+    dropped_excluded = 0
+    for item in raw_results:
         url = item.get("url", "")
         hostname = item.get("meta_url", {}).get("hostname", "") if isinstance(item.get("meta_url"), dict) else ""
         if not url:
             continue
-        # Defense-in-depth: drop paywalls (aggregators are kept — we scrape them below)
         url_l, host_l = url.lower(), hostname.lower()
         if any(d in url_l or d in host_l for d in BLOCKED_DOMAINS):
+            dropped_paywall += 1
             continue
         title = item.get("title", "") or ""
         desc  = item.get("description", "") or ""
         txt   = f"{title} {desc}".lower()
         if any(k in txt for k in EXCLUDED_KEYWORDS):
+            dropped_excluded += 1
             continue
         normalized.append({
             "title":   title,
@@ -165,6 +168,9 @@ def search_brave(query: str) -> list[dict]:
             "date":    item.get("age", "") or item.get("page_age", ""),
             "summary": desc,
         })
+    print(f"    → {len(raw_results)} raw, {len(normalized)} kept"
+          + (f", {dropped_paywall} paywall" if dropped_paywall else "")
+          + (f", {dropped_excluded} excluded kw" if dropped_excluded else ""))
     return normalized
 
 
