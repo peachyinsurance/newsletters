@@ -216,7 +216,9 @@ def write_local_lowdown(articles: list[dict], newsletter_name: str, display_area
     """Use Claude to select best stories and write the Local Lowdown section."""
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
 
-    articles_json = json.dumps(articles, indent=2)
+    # Tag each article with a 1-based index so Claude can reference them safely
+    indexed_articles = [{**a, "article_index": i} for i, a in enumerate(articles, 1)]
+    articles_json = json.dumps(indexed_articles, indent=2)
 
     response = None
     for attempt in range(3):
@@ -235,6 +237,13 @@ Publication date: {pub_date}
 Coverage area: {display_area}
 
 Select the best 3-5 stories and write the Local Lowdown section.
+
+CRITICAL rule about source URLs:
+- Do NOT return raw URLs. For each story, return a field "source_article_indexes": [1, 3]
+  listing the article_index values of the articles that informed that story.
+- We will build the source_urls from the original article list using those indexes.
+- Do not invent URLs or sources.
+
 Return ONLY valid JSON, no preamble or markdown fences.
 
 Articles:
@@ -256,22 +265,49 @@ Articles:
 
     stories = result.get("stories", [])
 
-    # Post-filter: remove any paywalled or dead URLs Claude included in source_urls
+    # Rebuild source_urls ONLY from the original articles using Claude's indexes.
+    # Discard whatever URLs Claude may have tried to provide (anti-hallucination).
+    articles_by_index = {i: a for i, a in enumerate(articles, 1)}
     for story in stories:
-        source_urls = story.get("source_urls", [])
-        clean_urls = []
-        for src in source_urls:
-            url = src.get("url", "")
+        indexes = story.get("source_article_indexes") or []
+        # Backwards compat: if Claude used source_urls with urls matching our list, honor those
+        if not indexes and story.get("source_urls"):
+            for src in story.get("source_urls", []):
+                url = src.get("url", "")
+                match_idx = next((i for i, a in articles_by_index.items() if a["url"] == url), None)
+                if match_idx:
+                    indexes.append(match_idx)
+
+        rebuilt = []
+        seen = set()
+        for idx in indexes:
+            try:
+                idx = int(idx)
+            except Exception:
+                continue
+            if idx in seen:
+                continue
+            seen.add(idx)
+            article = articles_by_index.get(idx)
+            if not article:
+                print(f"    ✗ Claude referenced unknown article_index {idx} — skipping")
+                continue
+            url = article.get("url", "")
             if not url:
                 continue
             if is_paywalled(url):
-                print(f"    ✗ Removed paywalled source: {src.get('label', '')} ({url[:50]})")
+                print(f"    ✗ Removed paywalled source: {article.get('source', '')} ({url[:50]})")
                 continue
             if not validate_url(url):
-                print(f"    ✗ Removed dead source URL: {src.get('label', '')} ({url[:50]})")
+                print(f"    ✗ Removed dead source URL: {article.get('source', '')} ({url[:50]})")
                 continue
-            clean_urls.append(src)
-        story["source_urls"] = clean_urls
+            rebuilt.append({
+                "url":   url,
+                "label": article.get("source", "") or article.get("title", "")[:40],
+            })
+        story["source_urls"] = rebuilt
+        # Drop the transient field from output
+        story.pop("source_article_indexes", None)
 
     print(f"  Claude selected {len(stories)} stories")
     for s in stories:

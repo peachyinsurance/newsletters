@@ -182,7 +182,9 @@ def evaluate_and_write_events(
     """Send candidates + demographics to Claude. Returns top events with blurbs."""
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
 
-    candidates_json = json.dumps(candidates, indent=2)
+    # Tag each candidate with a 1-based index for safe URL matching post-Claude
+    indexed_candidates = [{**c, "candidate_index": i} for i, c in enumerate(candidates, 1)]
+    candidates_json = json.dumps(indexed_candidates, indent=2)
     demo_summary = (
         f"Median household income: {demographics['median_income']}\n"
         f"Median age: {demographics['median_age']}\n"
@@ -223,17 +225,21 @@ Your job:
 3. Pick the top {TARGET_EVENTS} events. For each, write a blurb following your instructions exactly.
 4. Score each event 1-10 on: demographic_fit, uniqueness, audience_match.
 
+CRITICAL rule about URLs:
+- Do NOT return raw URLs (source_url, ticket_url).
+- Instead return "candidate_index": N for each selected event, referencing the candidate it came from.
+- We will attach the real source_url from the candidate list using that index. Do not invent URLs.
+
 Return ONLY a JSON array with no preamble, explanation, or markdown fences. Exact format:
 [
   {{
+    "candidate_index": 3,
     "event_name": "Event Name",
     "date": "Saturday, May 10",
     "time": "7:00 PM",
     "venue": "Venue Name, City",
     "price": "$25" or "Free",
     "blurb": "Full blurb text following the skill instructions...",
-    "source_url": "https://...",
-    "ticket_url": "https://... or null",
     "demographic_fit_score": 8,
     "uniqueness_score": 9,
     "audience_match_score": 7,
@@ -260,14 +266,33 @@ Candidates:
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
     results = json.loads(clean)
 
-    # Calculate total scores
+    # Attach real URLs from candidates using the index Claude returned.
+    # Discard any URLs Claude may have provided directly.
+    candidates_by_index = {i: c for i, c in enumerate(candidates, 1)}
+    validated = []
     for r in results:
+        idx = r.get("candidate_index")
+        try:
+            idx = int(idx) if idx is not None else None
+        except Exception:
+            idx = None
+        source = candidates_by_index.get(idx) if idx is not None else None
+        if not source:
+            print(f"  ✗ Rejecting event with invalid candidate_index {idx}: {r.get('event_name', '?')}")
+            continue
+        r["source_url"] = source.get("url", "")
+        r["ticket_url"] = source.get("ticket_url", "") or ""
+        r.pop("candidate_index", None)
+
+        # Calculate total score
         r["total_score"] = (
             r.get("demographic_fit_score", 0) +
             r.get("uniqueness_score", 0) +
             r.get("audience_match_score", 0)
         )
         r["newsletter_name"] = newsletter_name
+        validated.append(r)
+    results = validated
 
     # Sort by total score descending
     results.sort(key=lambda x: x["total_score"], reverse=True)
