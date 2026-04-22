@@ -345,11 +345,13 @@ def setup_notion_databases():
             ]}},
             "Date Generated":   {"date": {}},
             "Status":           {"select": {"options": [
-                {"name": "approved", "color": "green"}
+                {"name": "approved",       "color": "green"},
+                {"name": "approved - old", "color": "gray"}
             ]}},
             "Section Header":   {"rich_text": {}},
             "Events Count":     {"number": {"format": "number"}},
             "Full Section":     {"rich_text": {}},
+            "Event URLs":       {"rich_text": {}},
             "Manually Edited":  {"checkbox": {}},
         }
         r = requests.patch(
@@ -1094,3 +1096,168 @@ def save_tips_to_notion(results: list, newsletter_name: str) -> None:
         print(f"  ✓ {data.get('tip_title')}")
         saved += 1
     print(f"  Saved {saved} new tips to Notion for {newsletter_name}")
+
+
+# ---------------------------------------------------------------------------
+# FREE EVENTS HELPERS
+# ---------------------------------------------------------------------------
+
+def _ensure_free_events_schema():
+    """Create Free Events database properties if they don't exist (idempotent)."""
+    if not NOTION_FREE_EVENTS_DB_ID:
+        return
+    props = {
+        "Name":             {"title": {}},
+        "Newsletter":       {"select": {"options": [
+            {"name": "East_Cobb_Connect", "color": "purple"},
+            {"name": "Perimeter_Post",    "color": "pink"}
+        ]}},
+        "Date Generated":   {"date": {}},
+        "Status":           {"select": {"options": [
+            {"name": "approved",       "color": "green"},
+            {"name": "approved - old", "color": "gray"}
+        ]}},
+        "Section Header":   {"rich_text": {}},
+        "Events Count":     {"number": {"format": "number"}},
+        "Full Section":     {"rich_text": {}},
+        "Event URLs":       {"rich_text": {}},
+        "Manually Edited":  {"checkbox": {}},
+    }
+    r = requests.patch(
+        f"https://api.notion.com/v1/databases/{NOTION_FREE_EVENTS_DB_ID}",
+        headers=HEADERS,
+        json={"properties": props},
+        timeout=30,
+    )
+    if not r.ok:
+        print(f"  Warning: free events schema update failed: {r.text[:200]}")
+
+
+def save_free_events_to_notion(result: dict, newsletter_name: str) -> None:
+    """Save the Free Events section to Notion.
+    Previous 'approved' rows are flipped to 'approved - old' (kept for exclusion, not archived).
+    Manually edited rows are preserved as-is."""
+    if not NOTION_FREE_EVENTS_DB_ID:
+        print("  No NOTION_FREE_EVENTS_DB_ID set, skipping Notion save")
+        return
+
+    _ensure_free_events_schema()
+
+    # Flip previous auto-generated "approved" rows to "approved - old" so they stay for exclusion
+    try:
+        existing = query_database(NOTION_FREE_EVENTS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+        has_manual_edit = any(
+            p["properties"].get("Manually Edited", {}).get("checkbox", False)
+            for p in existing
+        )
+        if has_manual_edit:
+            print(f"  🔒 Manually edited Free Events exists for {newsletter_name} — preserving, skipping save")
+            return
+
+        flipped = 0
+        for page in existing:
+            status = (page["properties"].get("Status", {}).get("select") or {}).get("name", "")
+            if status == "approved":
+                requests.patch(
+                    f"https://api.notion.com/v1/pages/{page['id']}",
+                    headers=HEADERS,
+                    json={"properties": {"Status": {"select": {"name": "approved - old"}}}},
+                    timeout=30,
+                )
+                flipped += 1
+        if flipped:
+            print(f"  Flipped {flipped} previous Free Events entries to 'approved - old' for {newsletter_name}")
+    except Exception as e:
+        print(f"  Warning: could not process existing Free Events: {e}")
+
+    events = result.get("events", [])
+    section_header = result.get("section_header", "")
+
+    # Build full section markdown
+    section_text = ""
+    for ev in events:
+        emoji    = ev.get("emoji", "")
+        name     = ev.get("name", "")
+        when     = ev.get("when", "")
+        venue    = ev.get("venue", "")
+        audience = ev.get("audience", "")
+        blurb    = ev.get("blurb", "")
+        url      = ev.get("source_url", "")
+        source   = ev.get("source", "")
+
+        audience_label = {
+            "family-friendly": "👪 Family-friendly",
+            "adults only":     "🍷 Adults only",
+            "all ages":        "🎉 All ages",
+        }.get(audience, audience)
+
+        section_text += f"### {emoji} {name}\n\n"
+        details = []
+        if when:  details.append(f"**{when}**")
+        if venue: details.append(venue)
+        if audience_label: details.append(audience_label)
+        if details:
+            section_text += " • ".join(details) + "\n\n"
+        section_text += f"{blurb}\n\n"
+        if url:
+            label = source or "Details"
+            section_text += f"More: [{label}]({url})\n\n"
+
+    # Chunk to respect Notion's 2000-char rich_text limit
+    CHUNK_SIZE = 1900
+    chunks = []
+    for i in range(0, len(section_text), CHUNK_SIZE):
+        chunks.append({"text": {"content": section_text[i:i + CHUNK_SIZE]}})
+    if not chunks:
+        chunks = [{"text": {"content": ""}}]
+
+    # Collect all event URLs for easy exclusion on next run
+    event_urls = [ev.get("source_url", "") for ev in events if ev.get("source_url")]
+    urls_text = " | ".join(event_urls)[:2000]  # respect Notion rich_text limit
+
+    properties = {
+        "Name":           {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - Free Events - {datetime.today().strftime('%Y-%m-%d')}"}}]},
+        "Newsletter":     {"select": {"name": newsletter_name}},
+        "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
+        "Status":         {"select": {"name": "approved"}},
+        "Section Header": {"rich_text": [{"text": {"content": safe_str(section_header)}}]},
+        "Events Count":   {"number": len(events)},
+        "Full Section":   {"rich_text": chunks},
+        "Event URLs":     {"rich_text": [{"text": {"content": urls_text}}]},
+        "Manually Edited": {"checkbox": False},
+    }
+
+    create_page(NOTION_FREE_EVENTS_DB_ID, properties)
+    print(f"  ✓ Saved Free Events to Notion ({len(events)} events)")
+
+
+def get_used_free_event_urls(newsletter_name: str) -> set:
+    """Collect URLs of previously featured free events (approved + approved - old)
+    for this newsletter. Used to exclude repeats on the next run."""
+    urls = set()
+    if not NOTION_FREE_EVENTS_DB_ID:
+        return urls
+    try:
+        pages = query_database(NOTION_FREE_EVENTS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+    except Exception:
+        return urls
+
+    keep_statuses = {"approved", "approved - old"}
+    for page in pages:
+        status = (page["properties"].get("Status", {}).get("select") or {}).get("name", "")
+        if status not in keep_statuses:
+            continue
+        urls_rt = page["properties"].get("Event URLs", {}).get("rich_text", [])
+        blob = "".join(chunk.get("text", {}).get("content", "") for chunk in urls_rt)
+        for u in blob.split("|"):
+            u = u.strip().rstrip("/")
+            if u:
+                urls.add(u)
+    print(f"  Loaded {len(urls)} previously featured free event URLs to exclude")
+    return urls

@@ -16,7 +16,7 @@ import requests
 import anthropic
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
-from notion_helper import save_free_events_to_notion
+from notion_helper import save_free_events_to_notion, get_used_free_event_urls
 from url_validator import validate_url
 
 # ---------------------------------------------------------------------------
@@ -114,8 +114,12 @@ def search_brave(query: str) -> list[dict]:
     return normalized
 
 
-def fetch_candidates(search_areas: list[str]) -> list[dict]:
-    """Build a pool of free-event candidates from multiple targeted queries."""
+def fetch_candidates(search_areas: list[str], excluded_urls: set | None = None) -> list[dict]:
+    """Build a pool of free-event candidates from multiple targeted queries.
+    Excludes any URL that was previously featured."""
+    if excluded_urls is None:
+        excluded_urls = set()
+
     queries = []
     for area in search_areas:
         queries.append(f'"free" events {area} this week')
@@ -126,17 +130,23 @@ def fetch_candidates(search_areas: list[str]) -> list[dict]:
 
     seen = set()
     candidates = []
+    excluded_count = 0
     for q in queries:
         print(f"  Searching Brave: {q}")
         results = search_brave(q)
         for item in results:
             u = item["url"].rstrip("/")
+            if u in excluded_urls:
+                excluded_count += 1
+                continue
             t = item["title"].lower().strip()
             if u in seen or t in seen:
                 continue
             seen.add(u)
             seen.add(t)
             candidates.append(item)
+    if excluded_count:
+        print(f"  Excluded {excluded_count} previously featured URLs")
     print(f"  {len(candidates)} unique candidates after dedup")
     return candidates
 
@@ -248,7 +258,8 @@ if __name__ == "__main__":
         print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
         print(f"{'='*60}")
 
-        candidates = fetch_candidates(newsletter["search_areas"])
+        excluded = get_used_free_event_urls(newsletter["name"])
+        candidates = fetch_candidates(newsletter["search_areas"], excluded_urls=excluded)
         if not candidates:
             print(f"  No candidates found for {newsletter['name']}. Skipping.")
             continue

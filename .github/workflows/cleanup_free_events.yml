@@ -1,0 +1,23 @@
+name: Cleanup Free Events
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 13 * * 6'  # Every Saturday at 8am EST (1pm UTC)
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+      - name: Delete free events entries older than 8 weeks
+        env:
+          NOTION_API_KEY:            ${{ secrets.NOTION_API_KEY }}
+          NOTION_PETS_DB_ID:         ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID:  ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+          NOTION_FREE_EVENTS_DB_ID:  ${{ secrets.NOTION_FREE_EVENTS_DB_ID }}
+        run: python "Free Events/Code/cleanup_free_events.py"

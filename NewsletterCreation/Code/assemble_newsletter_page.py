@@ -27,6 +27,7 @@ NOTION_LOWDOWN_DB_ID     = os.environ.get("NOTION_LOWDOWN_DB_ID", "")
 NOTION_RE_DB_ID          = os.environ.get("NOTION_RE_DB_ID", "")
 NOTION_EVENTS_DB_ID      = os.environ.get("NOTION_EVENTS_DB_ID", "")
 NOTION_INTRO_DB_ID       = os.environ.get("NOTION_INTRO_DB_ID", "")
+NOTION_FREE_EVENTS_DB_ID = os.environ.get("NOTION_FREE_EVENTS_DB_ID", "")
 NOTION_PARENT_PAGE_ID    = os.environ["NOTION_PARENT_PAGE_ID"]
 
 HEADERS = {
@@ -352,6 +353,44 @@ def sync_edits_back(page_id: str, newsletter_name: str) -> None:
             else:
                 print(f"  Warning: lowdown sync-back failed: {r.text[:200]}")
 
+    # --- Free Events ---
+    free_events_text, free_events_edited = extract_section_text(blocks, "Free Events This Week")
+    if free_events_edited and free_events_text and NOTION_FREE_EVENTS_DB_ID:
+        try:
+            pages = query_database(NOTION_FREE_EVENTS_DB_ID, filters={
+                "property": "Newsletter",
+                "select": {"equals": newsletter_name}
+            })
+        except Exception:
+            pages = []
+
+        if pages:
+            pages.sort(
+                key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+                reverse=True,
+            )
+            target_id = pages[0]["id"]
+
+            CHUNK_SIZE = 1900
+            chunks = [{"text": {"content": free_events_text[i:i + CHUNK_SIZE]}}
+                      for i in range(0, len(free_events_text), CHUNK_SIZE)]
+            if not chunks:
+                chunks = [{"text": {"content": ""}}]
+
+            r = requests.patch(
+                f"https://api.notion.com/v1/pages/{target_id}",
+                headers=HEADERS,
+                json={"properties": {
+                    "Full Section":    {"rich_text": chunks},
+                    "Manually Edited": {"checkbox": True},
+                }},
+                timeout=30,
+            )
+            if r.ok:
+                print(f"  🔄 Synced Free Events edits back to database (marked as manually edited)")
+            else:
+                print(f"  Warning: free events sync-back failed: {r.text[:200]}")
+
 
 # ---------------------------------------------------------------------------
 # BLOCK BUILDERS
@@ -561,6 +600,30 @@ def get_latest_lowdown(newsletter_name: str) -> str | None:
     if not pages:
         return None
     # Sort by date descending to get the latest
+    pages.sort(
+        key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+        reverse=True
+    )
+    props = pages[0]["properties"]
+    section_text = props.get("Full Section", {}).get("rich_text", [])
+    if section_text:
+        return "".join(chunk.get("text", {}).get("content", "") for chunk in section_text)
+    return None
+
+
+def get_latest_free_events(newsletter_name: str) -> str | None:
+    """Get the most recent Free Events section markdown from the database."""
+    if not NOTION_FREE_EVENTS_DB_ID:
+        return None
+    try:
+        pages = query_database(NOTION_FREE_EVENTS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+    except Exception:
+        return None
+    if not pages:
+        return None
     pages.sort(
         key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
         reverse=True
@@ -903,9 +966,21 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
     blocks.append(_placeholder("Not yet automated."))
     blocks.append(divider_block())
 
-    # 12. Free Activity Ideas
-    blocks.append(heading_block("🆓 Free Activity Ideas"))
-    blocks.append(_placeholder("Not yet automated."))
+    # 12. Free Events (automated)
+    blocks.append(heading_block("🆓 Free Events This Week"))
+    free_events_text = get_latest_free_events(newsletter_name)
+    if free_events_text:
+        paragraphs = free_events_text.split("\n\n")
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            if para.startswith("### "):
+                blocks.append(paragraph_block(para.replace("### ", ""), bold=True))
+            else:
+                blocks.append(paragraph_block(para))
+    else:
+        blocks.append(callout_block("No Free Events generated yet. Run the Free Events pipeline.", emoji="⏳"))
     blocks.append(divider_block())
 
     # 13. Insurance Tip
