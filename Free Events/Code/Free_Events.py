@@ -43,8 +43,9 @@ BLOCKED_DOMAINS = {
     "ajc.com",
 }
 
-# Aggregator / round-up / syndication sites. Results from these domains are scraped
-# to extract the primary-source links they reference; the aggregator URL itself is dropped.
+# Aggregator / round-up / syndication sites. Excluded from Brave results via -site:
+# operators so Claude sees primary sources (Eventbrite, venue sites, etc.) instead of
+# blog posts summarizing other sources.
 AGGREGATOR_DOMAINS = {
     "eastcobbnews.com",
     "patch.com",
@@ -64,17 +65,6 @@ AGGREGATOR_DOMAINS = {
     "news.yahoo.com",
     "streetinsider.com",
 }
-
-# Social / link-shorteners we never want as candidates (even if an aggregator points to them)
-SOCIAL_DOMAINS = {
-    "facebook.com", "instagram.com", "twitter.com", "x.com",
-    "t.co", "bit.ly", "tinyurl.com", "lnkd.in",
-}
-
-BROWSER_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-)
 
 NEWSLETTERS = [
     {
@@ -102,18 +92,26 @@ def load_skill_prompt() -> str:
 # ---------------------------------------------------------------------------
 # 3. FETCH CANDIDATES VIA BRAVE SEARCH
 # ---------------------------------------------------------------------------
+def _build_exclusions() -> str:
+    """Build -site: operators for paywall + aggregator domains."""
+    all_exclusions = BLOCKED_DOMAINS | AGGREGATOR_DOMAINS
+    return " " + " ".join(f"-site:{d}" for d in sorted(all_exclusions))
+
+
 def search_brave(query: str) -> list[dict]:
-    """One Brave news search — returns normalized candidates."""
+    """One Brave news search — returns normalized candidates.
+    Appends -site: operators to exclude paywall and aggregator domains at the source."""
     headers = {
         "Accept": "application/json",
         "Accept-Encoding": "gzip",
         "X-Subscription-Token": BRAVE_NEWS_API_KEY,
     }
+    full_query = query + _build_exclusions()
     try:
         res = requests.get(
             "https://api.search.brave.com/res/v1/news/search",
             headers=headers,
-            params={"q": query, "count": MAX_RESULTS_PER_QUERY, "freshness": "pw"},
+            params={"q": full_query, "count": MAX_RESULTS_PER_QUERY, "freshness": "pw"},
             timeout=30,
         )
         if res.status_code != 200:
@@ -130,7 +128,11 @@ def search_brave(query: str) -> list[dict]:
         hostname = item.get("meta_url", {}).get("hostname", "") if isinstance(item.get("meta_url"), dict) else ""
         if not url:
             continue
-        if any(d in url.lower() or d in hostname.lower() for d in BLOCKED_DOMAINS):
+        # Defense-in-depth: hostname filter in case any slip past -site: operators
+        url_l, host_l = url.lower(), hostname.lower()
+        if any(d in url_l or d in host_l for d in BLOCKED_DOMAINS):
+            continue
+        if any(d in url_l or d in host_l for d in AGGREGATOR_DOMAINS):
             continue
         title = item.get("title", "") or ""
         desc  = item.get("description", "") or ""
@@ -147,105 +149,10 @@ def search_brave(query: str) -> list[dict]:
     return normalized
 
 
-def _hostname(url: str) -> str:
-    """Extract hostname from a URL, lowercased, no www."""
-    try:
-        from urllib.parse import urlparse
-        host = urlparse(url).hostname or ""
-        return host.lower().removeprefix("www.")
-    except Exception:
-        return ""
-
-
-def _is_aggregator(url: str, hostname: str = "") -> bool:
-    host = (hostname or _hostname(url)).lower()
-    return any(d == host or host.endswith("." + d) for d in AGGREGATOR_DOMAINS)
-
-
-def _is_blocked(url: str, hostname: str = "") -> bool:
-    host = (hostname or _hostname(url)).lower()
-    return any(d == host or host.endswith("." + d) for d in BLOCKED_DOMAINS)
-
-
-def _is_social(url: str, hostname: str = "") -> bool:
-    host = (hostname or _hostname(url)).lower()
-    return any(d == host or host.endswith("." + d) for d in SOCIAL_DOMAINS)
-
-
-def expand_aggregator(aggregator_url: str) -> list[dict]:
-    """Fetch an aggregator page and extract primary-source links from its article body.
-    Returns candidate dicts (title, url, source, summary). On any failure returns []."""
-    try:
-        from bs4 import BeautifulSoup
-    except Exception as e:
-        print(f"    ⚠ bs4 not available ({e}) — skipping aggregator expansion")
-        return []
-
-    try:
-        r = requests.get(aggregator_url, headers={"User-Agent": BROWSER_UA}, timeout=8, allow_redirects=True)
-        if r.status_code >= 400 or not r.text:
-            print(f"    ✗ Aggregator fetch failed ({r.status_code}): {aggregator_url[:60]}")
-            return []
-    except Exception as e:
-        print(f"    ✗ Aggregator fetch error: {e}")
-        return []
-
-    soup = BeautifulSoup(r.text, "html.parser")
-    # Focus on the main article body; fall back to full page if neither exists
-    body = soup.find("article") or soup.find("main") or soup
-
-    aggregator_host = _hostname(aggregator_url)
-    candidates = []
-    seen = set()
-
-    for a in body.find_all("a", href=True):
-        href = a["href"].strip()
-        # Resolve relative URLs against the aggregator URL
-        if href.startswith("/"):
-            from urllib.parse import urljoin
-            href = urljoin(aggregator_url, href)
-        if not href.startswith("http"):
-            continue
-
-        host = _hostname(href)
-        if not host or host == aggregator_host:
-            continue
-        if _is_aggregator(href, host):  # don't chain aggregators
-            continue
-        if _is_blocked(href, host):
-            continue
-        if _is_social(href, host):
-            continue
-
-        url_clean = href.rstrip("/")
-        if url_clean in seen:
-            continue
-        seen.add(url_clean)
-
-        # Title = anchor text. Summary = parent paragraph's text if available.
-        anchor_text = (a.get_text(strip=True) or "")[:200]
-        if len(anchor_text) < 3:
-            continue  # skip blank / tiny link labels
-        parent = a.find_parent(["p", "li", "div"])
-        summary = (parent.get_text(" ", strip=True) if parent else anchor_text)[:500]
-
-        candidates.append({
-            "title":   anchor_text,
-            "url":     href,
-            "source":  host,
-            "date":    "",
-            "summary": summary,
-        })
-
-    print(f"    ↳ Extracted {len(candidates)} primary sources from {aggregator_host}")
-    return candidates
-
-
 def fetch_candidates(search_areas: list[str], excluded_urls: set | None = None) -> list[dict]:
     """Build a pool of free-event candidates from multiple targeted queries.
-    When Brave returns a known aggregator URL, we scrape its primary-source links
-    instead of passing the aggregator page to Claude.
-    Excludes any URL that was previously featured."""
+    Brave queries have -site: operators appended to exclude paywall + aggregator domains.
+    Previously featured URLs are also excluded."""
     if excluded_urls is None:
         excluded_urls = set()
 
@@ -260,22 +167,6 @@ def fetch_candidates(search_areas: list[str], excluded_urls: set | None = None) 
     seen = set()
     candidates = []
     excluded_count = 0
-    expanded_from_aggregators = 0
-
-    def _add_item(item: dict) -> bool:
-        """Add a single candidate, with dedup + exclusion check. Returns True if added."""
-        u = item["url"].rstrip("/")
-        if u in excluded_urls:
-            return False
-        t = item["title"].lower().strip()
-        if u in seen or (t and t in seen):
-            return False
-        seen.add(u)
-        if t:
-            seen.add(t)
-        candidates.append(item)
-        return True
-
     for q in queries:
         print(f"  Searching Brave: {q}")
         results = search_brave(q)
@@ -284,22 +175,16 @@ def fetch_candidates(search_areas: list[str], excluded_urls: set | None = None) 
             if u in excluded_urls:
                 excluded_count += 1
                 continue
-
-            # If this is an aggregator, scrape it for primary sources and replace
-            if _is_aggregator(item["url"], item.get("source", "")):
-                print(f"  🔗 Aggregator detected: {item.get('source', '')} — scraping for primary sources")
-                primaries = expand_aggregator(item["url"])
-                for p in primaries:
-                    if _add_item(p):
-                        expanded_from_aggregators += 1
-                continue  # never add the aggregator URL itself
-
-            _add_item(item)
+            t = item["title"].lower().strip()
+            if u in seen or (t and t in seen):
+                continue
+            seen.add(u)
+            if t:
+                seen.add(t)
+            candidates.append(item)
 
     if excluded_count:
         print(f"  Excluded {excluded_count} previously featured URLs")
-    if expanded_from_aggregators:
-        print(f"  Extracted {expanded_from_aggregators} primary sources from aggregator pages")
     print(f"  {len(candidates)} unique candidates after dedup")
     return candidates
 
