@@ -61,47 +61,54 @@ No rigid formula, but the best blurbs follow this flow:
 
 ## What to Prioritize
 
-Cover 3-4 things from the newsletter content. Prioritize:
-- The biggest or most exciting event (headliner show, major local happening, something timely)
-- A family-friendly option
-- A date night or adult outing
-- A personal touch (what the writer is actually planning to do)
+The blurb MUST cover, in this order, whatever is present in the context:
 
-The personal angle is what makes this feel real. Use it.
+1. **Featured event** (`sections_summary.featured_event`) — lead with this
+2. **Tier 1 restaurant** (`sections_summary.tier1_restaurant`) — always mention
+3. **Adoptable pet** (`sections_summary.adoptable_pet`) — always mention
+4. **Top free event** (`sections_summary.top_free_event`) — mention ONLY if word count still allows. Drop it rather than overstuff.
+
+If one of the top three is missing from the context, skip it gracefully — do not invent anything.
+
+Also include a personal touch (what you're personally planning to do) — this is what makes it feel real.
 
 ## Input Format
 
-You will receive a JSON object containing newsletter context:
+You receive a JSON object like this:
 
 ```json
 {
   "newsletter_name": "East_Cobb_Connect",
-  "publication_date": "2026-04-18",
-  "events": [
-    {
-      "name": "Event name",
-      "date": "2026-04-18",
-      "time": "7:00 PM",
-      "venue": "Venue Name",
-      "description": "Brief description",
-      "ticketed": true,
-      "family_friendly": true
-    }
-  ],
+  "publication_date": "2026-04-22",
   "sections_summary": {
-    "restaurant": "Restaurant name and cuisine",
-    "pet": "Pet name and type",
-    "real_estate": "Brief summary of listings",
-    "lowdown": "Brief summary of top news story"
-  },
-  "weather": {
-    "saturday": "72 and sunny",
-    "sunday": "68, chance of rain in the evening"
+    "featured_event": {
+      "name": "Ina Garten: Memoir Stories",
+      "date": "Friday, April 25",
+      "time": "7:30 PM",
+      "venue": "Cobb Energy Centre",
+      "price": "$65-$125",
+      "blurb": "Memoir stories and audience Q&A..."
+    },
+    "tier1_restaurant": {
+      "name": "NaNa Thai",
+      "cuisine": "Thai",
+      "blurb": "Short neighbor-style blurb about the restaurant..."
+    },
+    "adoptable_pet": {
+      "name": "Rudy",
+      "animal_type": "dog",
+      "shelter": "Cobb County Animal Services",
+      "blurb": "Short blurb about the pet..."
+    },
+    "top_free_event": {
+      "name": "Family Art Day at Marietta Square",
+      "details": "Saturday 10am-2pm, free for all ages..."
+    }
   }
 }
 ```
 
-> **Note:** Input format is preliminary and will be updated when the events automation is built.
+Any of the `sections_summary.*` keys may be missing if that content isn't ready for this week.
 
 ## Output Format
 
