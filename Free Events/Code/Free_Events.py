@@ -120,8 +120,8 @@ def _build_exclusions() -> str:
 
 
 def search_brave(query: str) -> list[dict]:
-    """One Brave news search — returns normalized candidates.
-    Appends -site: operators to exclude paywall and aggregator domains at the source."""
+    """Brave WEB search (broader index than news). Returns normalized candidates.
+    Appends -site: operators to exclude paywall domains."""
     headers = {
         "Accept": "application/json",
         "Accept-Encoding": "gzip",
@@ -130,15 +130,17 @@ def search_brave(query: str) -> list[dict]:
     full_query = query + _build_exclusions()
     try:
         res = requests.get(
-            "https://api.search.brave.com/res/v1/news/search",
+            "https://api.search.brave.com/res/v1/web/search",
             headers=headers,
-            params={"q": full_query, "count": MAX_RESULTS_PER_QUERY, "freshness": "pw"},
+            params={"q": full_query, "count": MAX_RESULTS_PER_QUERY, "freshness": "pm"},
             timeout=30,
         )
         if res.status_code != 200:
             print(f"    Brave error {res.status_code}: {res.text[:200]}")
             return []
-        raw_results = res.json().get("results", [])
+        # Web search returns results under data.web.results
+        web = res.json().get("web", {}) or {}
+        raw_results = web.get("results", []) or []
     except Exception as e:
         print(f"    Brave error: {e}")
         return []
@@ -148,7 +150,11 @@ def search_brave(query: str) -> list[dict]:
     dropped_excluded = 0
     for item in raw_results:
         url = item.get("url", "")
-        hostname = item.get("meta_url", {}).get("hostname", "") if isinstance(item.get("meta_url"), dict) else ""
+        # web search exposes hostname under meta_url.hostname too
+        meta = item.get("meta_url") or {}
+        hostname = meta.get("hostname", "") if isinstance(meta, dict) else ""
+        if not hostname:
+            hostname = _hostname(url)
         if not url:
             continue
         url_l, host_l = url.lower(), hostname.lower()
@@ -156,7 +162,7 @@ def search_brave(query: str) -> list[dict]:
             dropped_paywall += 1
             continue
         title = item.get("title", "") or ""
-        desc  = item.get("description", "") or ""
+        desc  = item.get("description", "") or item.get("snippet", "") or ""
         txt   = f"{title} {desc}".lower()
         if any(k in txt for k in EXCLUDED_KEYWORDS):
             dropped_excluded += 1
