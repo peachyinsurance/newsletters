@@ -339,18 +339,25 @@ def setup_notion_databases():
 def get_approved_pet_urls() -> set:
     """Get source URLs of approved and previously approved pets (for exclusion from candidates)."""
     urls = set()
-    for status in ("approved", "approved - old"):
-        try:
-            pages = query_database(NOTION_PETS_DB_ID, filters={
-                "property": "Status",
-                "status":   {"equals": status}
-            })
-            for page in pages:
-                url = page["properties"].get("Source URL", {}).get("url", "")
-                if url:
-                    urls.add(url)
-        except Exception:
-            pass
+    # Pull all pets then filter in Python — avoids status-vs-select filter mismatches
+    try:
+        pages = query_database(NOTION_PETS_DB_ID)
+    except Exception as e:
+        print(f"  Warning: could not load approved pet URLs: {e}")
+        return urls
+
+    keep_statuses = {"approved", "approved - old"}
+    for page in pages:
+        status = (page["properties"].get("Status", {}).get("select") or {}).get("name", "")
+        if status not in keep_statuses:
+            continue
+        url = page["properties"].get("Source URL", {}).get("url", "")
+        if url:
+            # Normalize: strip trailing slash and /details suffix for matching
+            u = url.strip().rstrip("/")
+            if u.endswith("/details"):
+                u = u[:-len("/details")]
+            urls.add(u)
     print(f"Loaded {len(urls)} previously approved pet URLs to exclude")
     return urls
     

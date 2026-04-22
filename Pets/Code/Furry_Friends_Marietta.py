@@ -23,6 +23,18 @@ import anthropic
 from notion_helper import get_approved_pet_urls, save_pets_to_notion
 from url_validator import filter_valid_items
 
+
+def normalize_pet_url(url: str) -> str:
+    """Normalize Petfinder URLs for reliable comparison.
+    Strips trailing slashes and the /details suffix so search-result URLs
+    and detail-page URLs for the same pet match."""
+    if not url:
+        return ""
+    u = url.strip().rstrip("/")
+    if u.endswith("/details"):
+        u = u[:-len("/details")]
+    return u
+
 NEWSLETTERS = [
     {
         "name":   "East_Cobb_Connect",
@@ -475,7 +487,7 @@ def fetch_petfinder_apify(species: str, excluded_urls: set, state: str, zip_code
 
     candidates = []
     for item in raw_items:
-        pet_url = item.get("url", "").rstrip("/")
+        pet_url = normalize_pet_url(item.get("url", ""))
         if not pet_url:
             continue
         if pet_url in excluded_urls:
@@ -493,7 +505,7 @@ def fetch_petfinder_apify(species: str, excluded_urls: set, state: str, zip_code
         if len(pets) >= target:
             break
 
-        source_url = item["url"].rstrip("/")
+        source_url = normalize_pet_url(item["url"])
         name = item.get("name", "Unknown")
 
         detail_html = cache.get(source_url, "")
