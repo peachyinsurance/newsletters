@@ -93,10 +93,49 @@ def load_skill_prompt() -> str:
 # ---------------------------------------------------------------------------
 # 3. FETCH CANDIDATES VIA BRAVE SEARCH
 # ---------------------------------------------------------------------------
-def _build_exclusions() -> str:
-    """Build -site: operators for paywall + aggregator domains."""
-    all_exclusions = BLOCKED_DOMAINS | AGGREGATOR_DOMAINS
-    return " " + " ".join(f"-site:{d}" for d in sorted(all_exclusions))
+BRAVE_QUERY_MAX_LEN = 380  # Brave limits q to ~400 chars; stay under with headroom
+
+
+def _build_exclusions(base_query: str) -> str:
+    """Build -site: operators while staying under Brave's query length limit.
+    Paywalled domains come first (always included), then aggregators prioritized by
+    how often they show up in local-event searches. Post-fetch hostname filter
+    catches any that don't fit in the query."""
+    # Priority order: paywalls first, then most-common local aggregators
+    priority = [
+        # Paywalls (always include)
+        "mdjonline.com",
+        "ajc.com",
+        # High-visibility local/regional aggregators
+        "eastcobbnews.com",
+        "patch.com",
+        "cobbcountyevents.com",
+        "atlantaonthecheap.com",
+        "accessatlanta.com",
+        "atlantaparent.com",
+        "mommypoppins.com",
+        "macaronikid.com",
+        "northfulton.com",
+        "eastcobber.com",
+        # Syndication / PR wires (lower priority — tail-end fallback)
+        "morningstar.com",
+        "prnewswire.com",
+        "businesswire.com",
+        "globenewswire.com",
+        "accesswire.com",
+        "finance.yahoo.com",
+        "news.yahoo.com",
+        "streetinsider.com",
+    ]
+    ops = []
+    length = len(base_query)
+    for d in priority:
+        piece = f" -site:{d}"
+        if length + len(piece) > BRAVE_QUERY_MAX_LEN:
+            break
+        ops.append(piece)
+        length += len(piece)
+    return "".join(ops)
 
 
 def search_brave(query: str) -> list[dict]:
@@ -107,7 +146,7 @@ def search_brave(query: str) -> list[dict]:
         "Accept-Encoding": "gzip",
         "X-Subscription-Token": BRAVE_NEWS_API_KEY,
     }
-    full_query = query + _build_exclusions()
+    full_query = query + _build_exclusions(query)
     try:
         res = requests.get(
             "https://api.search.brave.com/res/v1/news/search",
