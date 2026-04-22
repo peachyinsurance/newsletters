@@ -90,6 +90,7 @@ Return ONLY a valid JSON object with no preamble, explanation, or markdown fence
       "candidate_index": 3,
       "emoji": "🎨",
       "name": "Family Art Day at Marietta Square",
+      "event_date": "2026-04-25",
       "when": "Saturday, 10am-2pm",
       "venue": "Marietta Square",
       "audience": "family-friendly",
@@ -109,17 +110,27 @@ Return ONLY a valid JSON object with no preamble, explanation, or markdown fence
 - `candidate_index` — MUST be the exact index from the input candidate list. Do not invent or reuse. Used to attach the real URL downstream.
 - `emoji` — one emoji matching the event theme (🎨 art, 🎵 music, 🏃 fitness, 🍽️ food, 🎭 performance, 📚 kids/library, 🌳 outdoors)
 - `name` — clean event title (not the article headline — the actual event name)
-- `when` — natural-language date/time (e.g., "Saturday, 10am-2pm" or "Thursday evening, 6pm")
+- `event_date` — **MUST be a specific future date in YYYY-MM-DD format**. If the event spans multiple days, use the EARLIEST upcoming day that is on or after the publication date. If you can't determine a specific date on or after the publication date, drop the event instead of guessing.
+- `when` — natural-language date/time for display (e.g., "Saturday, 10am-2pm" or "Thursday evening, 6pm")
 - `venue` — name of the place, no full address needed
 - `audience` — one of "family-friendly", "adults only", "all ages"
 - `blurb` — 25-60 words, neighbor voice, bold scannable details with `**bold**`
 - `dropped_candidates` — brief reasons why candidates were skipped (useful for editorial review)
+
+## Date Rules (CRITICAL)
+
+- The publication date is provided in the user prompt. Treat that as "today".
+- Drop any event where the earliest upcoming instance is BEFORE the publication date. Past events are worthless.
+- Prefer events happening within 7 days of the publication date.
+- If an article mentions an event but no specific date, or only says "last weekend / last week / was held on…" — DROP IT. Do not guess.
+- If an article is about a recurring weekly event (e.g., "every Saturday"), compute the next occurrence that is ≥ publication date.
 
 ## Quality Gates
 
 Before returning:
 - 3-5 events (or fewer if not enough qualify)
 - Every event has a valid `candidate_index` from the input
+- Every event has an `event_date` in YYYY-MM-DD format, on or after the publication date
 - Every event has an audience label
 - No em dashes
 - No invented events or venues

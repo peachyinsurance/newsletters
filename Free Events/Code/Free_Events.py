@@ -350,15 +350,35 @@ Candidates:
             else:
                 raise
 
-    raw = next(block.text for block in response.content if block.type == "text")
+    raw = next((block.text for block in response.content if block.type == "text"), "")
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
-    result = json.loads(clean)
+    if not (clean.startswith("[") or clean.startswith("{")):
+        start = clean.find("{")
+        end = clean.rfind("}")
+        if start >= 0 and end > start:
+            clean = clean[start:end + 1]
+    try:
+        result = json.loads(clean)
+    except json.JSONDecodeError as e:
+        print(f"  ✗ Failed to parse Claude JSON: {e}")
+        print(f"  Raw response (first 500 chars): {raw[:500]}")
+        return {"newsletter_name": newsletter_name, "events": []}
 
     events = result.get("events", [])
-    # Attach real URLs from candidates using index. Reject events with invalid index.
+
+    # Parse publication date once for filtering
+    from datetime import date, timedelta
+    try:
+        pub = datetime.strptime(pub_date, "%Y-%m-%d").date()
+    except Exception:
+        pub = date.today()
+    window_end = pub + timedelta(days=7)
+
+    # Attach real URLs from candidates using index. Reject events with invalid data.
     candidates_by_index = {i: c for i, c in enumerate(candidates, 1)}
     validated = []
     for ev in events:
+        # 1. Index → real URL
         idx = ev.get("candidate_index")
         try:
             idx = int(idx) if idx is not None else None
@@ -368,19 +388,39 @@ Candidates:
         if not source:
             print(f"    ✗ Rejecting event with invalid candidate_index {idx}: {ev.get('name', '?')}")
             continue
+
+        # 2. Event date is on or after pub_date, and within a reasonable window
+        date_str = (ev.get("event_date") or "").strip()
+        if not date_str:
+            print(f"    ✗ Dropping event with no event_date: {ev.get('name', '?')}")
+            continue
+        try:
+            ev_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except Exception:
+            print(f"    ✗ Dropping event with unparseable event_date '{date_str}': {ev.get('name', '?')}")
+            continue
+        if ev_date < pub:
+            print(f"    ✗ Dropping past event ({ev_date}): {ev.get('name', '?')}")
+            continue
+        if ev_date > window_end:
+            print(f"    ✗ Dropping event outside 7-day window ({ev_date}): {ev.get('name', '?')}")
+            continue
+
+        # 3. URL is live
         url = source.get("url", "")
         if not url or not validate_url(url):
             print(f"    ✗ Dropping event with dead/missing URL: {ev.get('name', '?')}")
             continue
+
         ev["source_url"] = url
         ev["source"]     = source.get("source", "")
         ev.pop("candidate_index", None)
         validated.append(ev)
 
     result["events"] = validated
-    print(f"  Claude selected {len(validated)} free events")
+    print(f"  Claude selected {len(validated)} free events (after date + URL validation)")
     for ev in validated:
-        print(f"    {ev.get('emoji', '')} {ev.get('name', '')} ({ev.get('audience', '?')})")
+        print(f"    {ev.get('emoji', '')} {ev.get('name', '')} — {ev.get('event_date', '?')} ({ev.get('audience', '?')})")
 
     return result
 
