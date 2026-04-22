@@ -43,9 +43,28 @@ BLOCKED_DOMAINS = {
     "ajc.com",
 }
 
-# Aggregator / round-up / syndication sites. Excluded from Brave results via -site:
-# operators so Claude sees primary sources (Eventbrite, venue sites, etc.) instead of
-# blog posts summarizing other sources.
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+# Social / link-shorteners we don't want as primary candidates
+SOCIAL_DOMAINS = {
+    "facebook.com", "instagram.com", "twitter.com", "x.com",
+    "t.co", "bit.ly", "tinyurl.com", "lnkd.in",
+}
+
+# Generic anchor text that tells us nothing — skip these when extracting aggregator links
+# to avoid pairing wrong URLs with wrong events.
+GENERIC_ANCHOR_TEXT = {
+    "click here", "here", "click", "more", "more info", "more information",
+    "read more", "learn more", "register", "register here", "sign up",
+    "tickets", "get tickets", "buy tickets", "details", "visit", "visit site",
+    "website", "link", "see more", "view", "more details", "info", "rsvp",
+}
+
+# Aggregator / round-up / syndication sites. Kept as candidates themselves AND
+# scraped for primary-source links, so both appear in the pool.
 AGGREGATOR_DOMAINS = {
     "eastcobbnews.com",
     "patch.com",
@@ -93,49 +112,11 @@ def load_skill_prompt() -> str:
 # ---------------------------------------------------------------------------
 # 3. FETCH CANDIDATES VIA BRAVE SEARCH
 # ---------------------------------------------------------------------------
-BRAVE_QUERY_MAX_LEN = 380  # Brave limits q to ~400 chars; stay under with headroom
-
-
-def _build_exclusions(base_query: str) -> str:
-    """Build -site: operators while staying under Brave's query length limit.
-    Paywalled domains come first (always included), then aggregators prioritized by
-    how often they show up in local-event searches. Post-fetch hostname filter
-    catches any that don't fit in the query."""
-    # Priority order: paywalls first, then most-common local aggregators
-    priority = [
-        # Paywalls (always include)
-        "mdjonline.com",
-        "ajc.com",
-        # High-visibility local/regional aggregators
-        "eastcobbnews.com",
-        "patch.com",
-        "cobbcountyevents.com",
-        "atlantaonthecheap.com",
-        "accessatlanta.com",
-        "atlantaparent.com",
-        "mommypoppins.com",
-        "macaronikid.com",
-        "northfulton.com",
-        "eastcobber.com",
-        # Syndication / PR wires (lower priority — tail-end fallback)
-        "morningstar.com",
-        "prnewswire.com",
-        "businesswire.com",
-        "globenewswire.com",
-        "accesswire.com",
-        "finance.yahoo.com",
-        "news.yahoo.com",
-        "streetinsider.com",
-    ]
-    ops = []
-    length = len(base_query)
-    for d in priority:
-        piece = f" -site:{d}"
-        if length + len(piece) > BRAVE_QUERY_MAX_LEN:
-            break
-        ops.append(piece)
-        length += len(piece)
-    return "".join(ops)
+def _build_exclusions() -> str:
+    """Build -site: operators for paywalled domains only.
+    Aggregators are ALLOWED through — we scrape them for primary-source links
+    AND keep the aggregator URL itself as a valid candidate."""
+    return " " + " ".join(f"-site:{d}" for d in sorted(BLOCKED_DOMAINS))
 
 
 def search_brave(query: str) -> list[dict]:
@@ -146,7 +127,7 @@ def search_brave(query: str) -> list[dict]:
         "Accept-Encoding": "gzip",
         "X-Subscription-Token": BRAVE_NEWS_API_KEY,
     }
-    full_query = query + _build_exclusions(query)
+    full_query = query + _build_exclusions()
     try:
         res = requests.get(
             "https://api.search.brave.com/res/v1/news/search",
@@ -168,11 +149,9 @@ def search_brave(query: str) -> list[dict]:
         hostname = item.get("meta_url", {}).get("hostname", "") if isinstance(item.get("meta_url"), dict) else ""
         if not url:
             continue
-        # Defense-in-depth: hostname filter in case any slip past -site: operators
+        # Defense-in-depth: drop paywalls (aggregators are kept — we scrape them below)
         url_l, host_l = url.lower(), hostname.lower()
         if any(d in url_l or d in host_l for d in BLOCKED_DOMAINS):
-            continue
-        if any(d in url_l or d in host_l for d in AGGREGATOR_DOMAINS):
             continue
         title = item.get("title", "") or ""
         desc  = item.get("description", "") or ""
@@ -187,6 +166,96 @@ def search_brave(query: str) -> list[dict]:
             "summary": desc,
         })
     return normalized
+
+
+def _hostname(url: str) -> str:
+    try:
+        from urllib.parse import urlparse
+        return (urlparse(url).hostname or "").lower().removeprefix("www.")
+    except Exception:
+        return ""
+
+
+def _host_in(host: str, domains: set) -> bool:
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
+def expand_aggregator(aggregator_url: str) -> list[dict]:
+    """Fetch an aggregator page, extract primary-source links from its body.
+    Each extracted link becomes a separate candidate (anchor text = title,
+    parent paragraph = summary). Generic anchor text ('click here', 'register')
+    is skipped to avoid wrong-URL/wrong-event pairings."""
+    try:
+        from bs4 import BeautifulSoup
+    except Exception as e:
+        print(f"    ⚠ bs4 not available ({e}) — skipping aggregator expansion")
+        return []
+
+    try:
+        r = requests.get(
+            aggregator_url,
+            headers={"User-Agent": BROWSER_UA},
+            timeout=8,
+            allow_redirects=True,
+        )
+        if r.status_code >= 400 or not r.text:
+            print(f"    ✗ Aggregator fetch failed ({r.status_code}): {aggregator_url[:60]}")
+            return []
+    except Exception as e:
+        print(f"    ✗ Aggregator fetch error: {e}")
+        return []
+
+    soup = BeautifulSoup(r.text, "html.parser")
+    body = soup.find("article") or soup.find("main") or soup
+    aggregator_host = _hostname(aggregator_url)
+
+    candidates = []
+    seen = set()
+    skipped_generic = 0
+    for a in body.find_all("a", href=True):
+        href = a["href"].strip()
+        if href.startswith("/"):
+            from urllib.parse import urljoin
+            href = urljoin(aggregator_url, href)
+        if not href.startswith("http"):
+            continue
+
+        host = _hostname(href)
+        if not host or host == aggregator_host:
+            continue
+        if _host_in(host, AGGREGATOR_DOMAINS):  # don't chain aggregators
+            continue
+        if _host_in(host, BLOCKED_DOMAINS):
+            continue
+        if _host_in(host, SOCIAL_DOMAINS):
+            continue
+
+        url_clean = href.rstrip("/")
+        if url_clean in seen:
+            continue
+
+        anchor_text = (a.get_text(strip=True) or "")[:200]
+        # Skip links with generic anchor text — can't reliably associate with event
+        if len(anchor_text) < 4 or anchor_text.strip().lower() in GENERIC_ANCHOR_TEXT:
+            skipped_generic += 1
+            continue
+
+        seen.add(url_clean)
+        parent = a.find_parent(["p", "li", "div"])
+        summary = (parent.get_text(" ", strip=True) if parent else anchor_text)[:500]
+
+        candidates.append({
+            "title":   anchor_text,
+            "url":     href,
+            "source":  host,
+            "date":    "",
+            "summary": summary,
+        })
+
+    label = f"{aggregator_host}"
+    extras = f"({skipped_generic} generic skipped)" if skipped_generic else ""
+    print(f"    ↳ Extracted {len(candidates)} primary sources from {label} {extras}".rstrip())
+    return candidates
 
 
 def fetch_candidates(search_areas: list[str], excluded_urls: set | None = None) -> list[dict]:
@@ -208,6 +277,22 @@ def fetch_candidates(search_areas: list[str], excluded_urls: set | None = None) 
     seen = set()
     candidates = []
     excluded_count = 0
+    expanded_from_aggregators = 0
+    scraped_aggregators = set()  # don't scrape the same aggregator URL twice
+
+    def _add_item(item: dict) -> bool:
+        u = item["url"].rstrip("/")
+        if u in excluded_urls:
+            return False
+        t = item["title"].lower().strip()
+        if u in seen or (t and t in seen):
+            return False
+        seen.add(u)
+        if t:
+            seen.add(t)
+        candidates.append(item)
+        return True
+
     for q in queries:
         print(f"  Searching Brave: {q}")
         results = search_brave(q)
@@ -216,16 +301,23 @@ def fetch_candidates(search_areas: list[str], excluded_urls: set | None = None) 
             if u in excluded_urls:
                 excluded_count += 1
                 continue
-            t = item["title"].lower().strip()
-            if u in seen or (t and t in seen):
-                continue
-            seen.add(u)
-            if t:
-                seen.add(t)
-            candidates.append(item)
+
+            # Always try to add the original item (aggregator or primary — doesn't matter)
+            _add_item(item)
+
+            # If it's from an aggregator, also scrape for primary-source links and add those
+            host = (item.get("source") or "").lower()
+            if _host_in(host, AGGREGATOR_DOMAINS) and u not in scraped_aggregators:
+                scraped_aggregators.add(u)
+                print(f"  🔗 Aggregator: {host} — scraping for primary sources")
+                for p in expand_aggregator(item["url"]):
+                    if _add_item(p):
+                        expanded_from_aggregators += 1
 
     if excluded_count:
         print(f"  Excluded {excluded_count} previously featured URLs")
+    if expanded_from_aggregators:
+        print(f"  Added {expanded_from_aggregators} primary sources from aggregator pages")
     print(f"  {len(candidates)} unique candidates after dedup")
     return candidates
 
