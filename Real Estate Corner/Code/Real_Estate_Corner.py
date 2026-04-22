@@ -351,27 +351,36 @@ def save_real_estate_to_notion(results: list[dict], newsletter_name: str) -> Non
         print("  No NOTION_RE_DB_ID set, skipping Notion save")
         return
 
-    # Find existing entries, separate manually edited ones from auto-generated
+    # Find existing entries. Flip previous auto-generated "approved" rows to "approved - old"
+    # so they stay in the database for exclusion (no repeat listings) but clear the slot for new picks.
+    # Manually edited rows are preserved with their current status.
     protected_tiers = set()
     try:
         existing = query_database(NOTION_RE_DB_ID)
         existing = [p for p in existing if
                     (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
-        archived = 0
+        flipped = 0
         for page in existing:
             props = page["properties"]
             is_edited = props.get("Manually Edited", {}).get("checkbox", False)
             tier = (props.get("Tier", {}).get("select") or {}).get("name", "")
+            status = (props.get("Status", {}).get("select") or {}).get("name", "")
             if is_edited:
                 protected_tiers.add(tier)
                 print(f"  🔒 Preserving manually edited {tier} listing")
-            else:
-                archive_page(page["id"])
-                archived += 1
-        if archived:
-            print(f"  Archived {archived} auto-generated RE entries for {newsletter_name}")
-    except Exception:
-        pass
+            elif status == "approved":
+                # Flip to "approved - old" so it stays for exclusion but is no longer current
+                requests.patch(
+                    f"https://api.notion.com/v1/pages/{page['id']}",
+                    headers=NOTION_HEADERS,
+                    json={"properties": {"Status": {"select": {"name": "approved - old"}}}},
+                    timeout=30,
+                )
+                flipped += 1
+        if flipped:
+            print(f"  Flipped {flipped} previous RE entries to 'approved - old' for {newsletter_name}")
+    except Exception as e:
+        print(f"  Warning: could not process existing RE entries: {e}")
 
     for listing in results:
         tier = listing.get("tier", "")
@@ -560,19 +569,26 @@ if __name__ == "__main__":
         print(f"\n  Generating blurbs for {len(tier_listings)} listings...")
         results = generate_blurbs(tier_listings, skill_prompt, newsletter["display"])
 
-        # Merge original listing data into Claude's results (source of truth for URLs/photos)
+        # Merge original listing data into Claude's results (source of truth for URLs/photos).
+        # Claude only provides text: headline, blurb. Everything else is overwritten from source.
         tier_data_map = {l["tier"]: l for l in tier_listings}
+        validated_results = []
         for r in results:
             tier = r.get("tier", "")
-            original = tier_data_map.get(tier, {})
+            original = tier_data_map.get(tier)
+            if not original:
+                print(f"  ✗ Rejecting result with unknown tier: '{tier}'")
+                continue
             print(f"  Merge {tier}: Claude addr='{r.get('address', '')[:40]}' | Original addr='{original.get('address', '')[:40]}'")
-            r["photo_url"] = original.get("photo_url", r.get("photo_url", ""))
-            r["listing_url"] = original.get("listing_url", r.get("listing_url", ""))
-            r["address"] = original.get("address", r.get("address", ""))
-            r["price"] = original.get("price", r.get("price", 0))
-            r["beds"] = original.get("beds", r.get("beds", 0))
-            r["baths"] = original.get("baths", r.get("baths", 0))
-            r["sqft"] = original.get("sqft", r.get("sqft", 0))
+            r["photo_url"]   = original.get("photo_url", "")
+            r["listing_url"] = original.get("listing_url", "")
+            r["address"]     = original.get("address", "")
+            r["price"]       = original.get("price", 0)
+            r["beds"]        = original.get("beds", 0)
+            r["baths"]       = original.get("baths", 0)
+            r["sqft"]        = original.get("sqft", 0)
+            validated_results.append(r)
+        results = validated_results
 
         # Generate template images (animated GIF with border overlay)
         sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))

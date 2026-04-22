@@ -618,17 +618,35 @@ Exact format:
     raw = next(block.text for block in response.content if block.type == "text")
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
     results = json.loads(clean)
-    
-    # Map photo and listing_url back from original scraped data
-    photo_map   = {p["url"]: p["photos"][0] if p["photos"] else "" for p in pets}
-    listing_map = {p["url"]: p.get("listing_url", "") for p in pets}
-    
+
+    # Build source lookups
+    source_by_url  = {p["url"]: p for p in pets}
+    source_by_name = {p["name"]: p for p in pets if p.get("name")}
+
+    # For each result: match to source (by url, fallback to name), then OVERWRITE URL fields.
+    # Claude only provides text: pet_name, blurb, animal_type.
+    validated = []
     for result in results:
-        result["photo_url"]   = photo_map.get(result["source_url"], "")
-        result["listing_url"] = listing_map.get(result["source_url"], "")
-    
-    print(f"Generated {len(results)} {animal_type} blurbs")
-    return results
+        claude_url = result.get("source_url", "")
+        source = source_by_url.get(claude_url)
+        if not source:
+            source = source_by_name.get(result.get("pet_name", ""))
+            if source:
+                print(f"  ⚠ Fixing hallucinated source_url for {result.get('pet_name', '?')}: {claude_url} → {source['url']}")
+            else:
+                print(f"  ✗ Rejecting pet with no matching source: {result.get('pet_name', '?')} / {claude_url}")
+                continue
+
+        # Overwrite URL and shelter fields from scraped source data
+        result["source_url"]      = source["url"]
+        result["listing_url"]     = source.get("listing_url", "") or source["url"]
+        result["photo_url"]       = source["photos"][0] if source.get("photos") else ""
+        if not result.get("pet_name"):
+            result["pet_name"] = source.get("name", "")
+        validated.append(result)
+
+    print(f"Generated {len(validated)} {animal_type} blurbs")
+    return validated
 
     
 # ---------------------------------------------------------------------------
@@ -700,7 +718,21 @@ Candidates to score:
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
     scores = json.loads(clean)
 
-    score_map = {s["source_url"]: s for s in scores}
+    # Validate scores come from real source_urls; fallback to pet_name match
+    real_urls = {r["source_url"] for r in results}
+    name_to_url = {r["pet_name"]: r["source_url"] for r in results if r.get("pet_name")}
+    score_map = {}
+    for s in scores:
+        url = s.get("source_url", "")
+        if url in real_urls:
+            score_map[url] = s
+        elif s.get("pet_name") in name_to_url:
+            fixed = name_to_url[s["pet_name"]]
+            print(f"  ⚠ Scoring: fixing hallucinated source_url for {s['pet_name']}: {url} → {fixed}")
+            score_map[fixed] = s
+        else:
+            print(f"  ✗ Scoring: rejecting score with unmatched source_url {url} / {s.get('pet_name', '?')}")
+
     for result in results:
         score_data = score_map.get(result["source_url"], {})
         result["adoptability_score"] = score_data.get("adoptability_score", 0)

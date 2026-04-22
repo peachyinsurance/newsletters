@@ -286,6 +286,7 @@ def generate_restaurant_blurbs(restaurants: list[dict], skill_prompt: str) -> li
     for i, r in enumerate(restaurants, 1):
         combined += f"""
 --- Restaurant {i} ---
+Place ID: {r['place_id']}
 Name: {r['name']}
 Cuisine: {r['cuisine']}
 Address: {r['address']}
@@ -313,7 +314,7 @@ Each blurb should feel like a trusted neighbor recommending a place -- warm, spe
 Mention the vibe, 1-2 must-try dishes or drinks, and what kind of occasion it's good for.
 No em dashes. No AI-sounding language. Eighth-grade readability.
 
-Return ONLY a JSON array with no preamble or markdown. Exact format:
+Return ONLY a JSON array with no preamble or markdown. You MUST copy the Place ID for each restaurant exactly from the input above — do not invent or modify Place IDs. Exact format:
 [
   {{
     "place_id": "ChIJ...",
@@ -348,16 +349,42 @@ Restaurants:
     clean  = raw.strip().removeprefix("```json").removesuffix("```").strip()
     results = json.loads(clean)
 
-    # Map photo_url back -- try place_id first, then name
-    photo_map_by_id   = {r["place_id"]: r["photo_url"] for r in restaurants}
-    photo_map_by_name = {r["name"]: r["photo_url"] for r in restaurants}
+    # Build source lookups by place_id and name
+    source_by_id   = {r["place_id"]: r for r in restaurants}
+    source_by_name = {r["name"]: r for r in restaurants}
 
+    # For every Claude result: match back to source and OVERWRITE all URL/ID/factual fields.
+    # Claude only provides text: restaurant_name, cuisine_type, blurb.
+    validated = []
     for result in results:
-        photo_url = photo_map_by_id.get(result["place_id"], "")
-        if not photo_url:
-            photo_url = photo_map_by_name.get(result["restaurant_name"], "")
-        result["photo_url"] = photo_url
-        print(f"  {result['restaurant_name']} photo_url: {'✓' if photo_url else 'EMPTY'}")
+        claude_pid = result.get("place_id", "")
+        source = source_by_id.get(claude_pid)
+        if not source:
+            source = source_by_name.get(result.get("restaurant_name", ""))
+            if source:
+                print(f"  ⚠ Fixing hallucinated place_id for {result.get('restaurant_name', '?')}: {claude_pid} → {source['place_id']}")
+            else:
+                print(f"  ✗ Rejecting result (no matching source): {result.get('restaurant_name', '?')} / {claude_pid}")
+                continue
+
+        # Overwrite all URL/ID/factual fields from source data — Claude's values for these are discarded.
+        result["place_id"]        = source["place_id"]
+        result["address"]         = source.get("address", "")
+        result["phone"]           = source.get("phone", "")
+        result["hours"]           = source.get("hours", "")
+        result["website_url"]     = source.get("website", "")
+        result["google_maps_url"] = source.get("maps_url", "")
+        result["photo_url"]       = source.get("photo_url", "")
+        result["rating"]          = source.get("rating", 0)
+        result["review_count"]    = source.get("review_count", 0)
+        result["price_level"]     = source.get("price_level", "")
+        # Name is Claude text, but fall back to source if blank
+        if not result.get("restaurant_name"):
+            result["restaurant_name"] = source.get("name", "")
+        validated.append(result)
+        print(f"  {result['restaurant_name']} photo_url: {'✓' if result['photo_url'] else 'EMPTY'}")
+
+    results = validated
 
     print(f"Generated {len(results)} restaurant blurbs")
     return results
@@ -433,7 +460,21 @@ def score_restaurants(results: list[dict]) -> list[dict]:
     print(f"  Score results: {[s.get('place_id') for s in scores]}")
     print(f"  Blurb place_ids: {[r.get('place_id') for r in results]}")
 
-    score_map = {s["place_id"]: s for s in scores}
+    # Validate scores come from real place_ids; also accept name as fallback match
+    real_ids = {r["place_id"] for r in results}
+    name_to_id = {r["restaurant_name"]: r["place_id"] for r in results}
+    score_map = {}
+    for s in scores:
+        pid = s.get("place_id", "")
+        if pid in real_ids:
+            score_map[pid] = s
+        elif s.get("restaurant_name") in name_to_id:
+            fixed = name_to_id[s["restaurant_name"]]
+            print(f"  ⚠ Scoring: fixing hallucinated place_id for {s['restaurant_name']}: {pid} → {fixed}")
+            score_map[fixed] = s
+        else:
+            print(f"  ✗ Scoring: rejecting score with unmatched place_id {pid} / {s.get('restaurant_name', '?')}")
+
     for result in results:
         s = score_map.get(result["place_id"], {})
         result["appeal_score"]           = s.get("appeal_score") or s.get("appeal", 0)
