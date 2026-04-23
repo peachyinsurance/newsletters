@@ -209,6 +209,7 @@ def _render_single(template: Image.Image, photo: Image.Image, cfg: dict,
     rounded = _apply_rounded_corners(fitted)
     base.paste(rounded, (cfg["photo_box"][0], cfg["photo_box"][1]), rounded)
     base = base.convert("RGB")
+    _draw_photo_border(base, cfg["photo_box"])
     _draw_listing_overlay(base, cfg, price, beds, baths, sqft, address, lot_info)
     buf = io.BytesIO()
     base.save(buf, format="PNG", optimize=True)
@@ -227,6 +228,7 @@ def _render_animated(template: Image.Image, photos: list[Image.Image], cfg: dict
         rounded = _apply_rounded_corners(fitted)
         base.paste(rounded, (cfg["photo_box"][0], cfg["photo_box"][1]), rounded)
         base = base.convert("RGB")
+        _draw_photo_border(base, cfg["photo_box"])
         _draw_listing_overlay(base, cfg, price, beds, baths, sqft, address, lot_info)
         frames.append(base)
     if not frames:
