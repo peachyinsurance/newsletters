@@ -78,10 +78,10 @@ LAYOUTS = {
     "Sweet Spot": {
         "template":     "sweetspot.png",
         "photo_box":    (472, 42, 1140, 490),
-        "bullet_cover": (55, 160, 470, 360),
+        "bullet_cover": (55, 160, 460, 360),
         "bullet_x":     90,
         "bullet_y":     [175, 225, 275, 325],
-        "price_cover":  (55, 380, 475, 485),
+        "price_cover":  (55, 380, 460, 485),
         "price_xy":     (90, 410),    # align with bullets
         "address_xy":   (806, 525),
     },
