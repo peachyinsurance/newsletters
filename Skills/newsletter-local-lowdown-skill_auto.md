@@ -54,6 +54,7 @@ From the provided scraped articles, choose 3-5 stories. Prioritize in this order
 - Are partisan political content (candidate endorsements, party-line debates). Non-partisan civic items like voting deadlines, referendums, and local government meetings are fine.
 - Are disturbing, graphic, or not family-friendly
 - Link to paywalled sources where readers can't access the full article. Prefer free, publicly accessible sources.
+- **Are event roundups / "things to do" lists / weekend guides** — Local Lowdown is NEWS, not event listings. Dedicated event coverage lives in other newsletter sections. If the article title or summary reads like "5 things to do this weekend", "weekend events", "things to do in X", "what's happening", "upcoming events calendar" — DROP IT.
 
 **Order by newsworthiness**, not chronology. Lead with the highest combination of: reader impact + timeliness + local specificity. End with the most "good to know" rather than "need to know."
 

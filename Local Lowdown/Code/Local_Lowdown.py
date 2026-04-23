@@ -54,6 +54,29 @@ BLOCKED_DOMAINS = {
     "ajc.com",
 }
 
+# Pure event-aggregator domains (no real news content). These get dropped entirely.
+# Note: sites like East Cobb News / Patch publish BOTH news and event roundups, so they
+# are NOT in this list — individual event-list articles are caught by the title filter below.
+AGGREGATOR_DOMAINS = {
+    "cobbcountyevents.com",
+    "atlantaonthecheap.com",
+    "macaronikid.com",
+    "mommypoppins.com",
+    "accessatlanta.com",
+}
+
+# Title/summary markers that indicate an event list or calendar article (not news).
+# We want the Local Lowdown to feel like news, not "10 things to do this weekend."
+EVENT_ROUNDUP_MARKERS = (
+    "weekend events", "things to do", "free events", "events this week",
+    "events this weekend", "things to do this week", "things to do this weekend",
+    "upcoming events", "calendar of events", "what's happening", "whats happening",
+    "what to do this", "fun things to do", "free family events",
+    "events calendar", "community calendar", "weekly events",
+    "roundup of events", "weekend roundup", "your weekend guide",
+    "guide to events", "things to do in",
+)
+
 NEWSLETTERS = [
     {
         "name":         "East_Cobb_Connect",
@@ -174,6 +197,18 @@ def fetch_news_brave(search_terms: list[str]) -> list[dict]:
                 hostname = item.get("meta_url", {}).get("hostname", "") if isinstance(item.get("meta_url"), dict) else ""
                 if any(domain in url.lower() or domain in hostname.lower() for domain in BLOCKED_DOMAINS):
                     print(f"    ✗ Skipping blocked domain: {hostname or url[:50]}")
+                    continue
+
+                # Skip pure event-aggregator sites (no real news content)
+                if any(domain in url.lower() or domain in hostname.lower() for domain in AGGREGATOR_DOMAINS):
+                    print(f"    ✗ Skipping event-aggregator site: {hostname or url[:50]}")
+                    continue
+
+                # Skip articles that are event lists / "things to do" roundups — we want NEWS
+                title_lower = title.lower()
+                matched_roundup = next((m for m in EVENT_ROUNDUP_MARKERS if m in title_lower), None)
+                if matched_roundup:
+                    print(f"    ✗ Skipping event roundup ('{matched_roundup}'): {title[:60]}")
                     continue
 
                 # Check for paywall
