@@ -71,8 +71,8 @@ LAYOUTS = {
         "bullet_cover": (775, 160, 1160, 360),
         "bullet_x":     790,
         "bullet_y":     [175, 225, 275, 325],
-        "price_cover":  (915, 380, 1160, 485),
-        "price_xy":     (922, 410),   # align with left edge of "Starter" badge
+        "price_cover":  (780, 380, 1160, 485),
+        "price_xy":     (790, 410),   # align with bullets
         "address_xy":   (394, 525),
     },
     "Sweet Spot": {
@@ -81,8 +81,8 @@ LAYOUTS = {
         "bullet_cover": (55, 160, 470, 360),
         "bullet_x":     90,
         "bullet_y":     [175, 225, 275, 325],
-        "price_cover":  (50, 380, 475, 485),
-        "price_xy":     (58, 410),    # align with left edge of "Sweet Spot" badge
+        "price_cover":  (55, 380, 475, 485),
+        "price_xy":     (90, 410),    # align with bullets
         "address_xy":   (806, 525),
     },
     "Showcase": {
@@ -91,8 +91,8 @@ LAYOUTS = {
         "bullet_cover": (775, 160, 1160, 360),
         "bullet_x":     790,
         "bullet_y":     [175, 225, 275, 325],
-        "price_cover":  (895, 380, 1160, 485),
-        "price_xy":     (900, 410),   # align with left edge of "Showcase" badge
+        "price_cover":  (780, 380, 1160, 485),
+        "price_xy":     (790, 410),   # align with bullets
         "address_xy":   (394, 525),
     },
 }
