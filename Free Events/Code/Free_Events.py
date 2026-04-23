@@ -413,6 +413,23 @@ Candidates:
 
     candidates_by_index = {i: c for i, c in enumerate(candidates, 1)}
 
+    # Past-tense / recap markers in the article that strongly suggest the event already happened.
+    PAST_TENSE_MARKERS = (
+        "was held", "was hosted", "took place", "has taken place", "has happened",
+        "concluded", "ended last", "wrapped up", "recap", "attendees enjoyed",
+        "turnout was", "drew a crowd", "last saturday", "last sunday", "last weekend",
+        "last friday", "last monday", "last tuesday", "last wednesday", "last thursday",
+        "last week", "last month", "went home with", "winners announced",
+    )
+
+    def _looks_past_tense(source: dict) -> str:
+        """Return a matching past-tense phrase if found in the article title/summary, else ''."""
+        txt = f"{source.get('title', '')} {source.get('summary', '')}".lower()
+        for marker in PAST_TENSE_MARKERS:
+            if marker in txt:
+                return marker
+        return ""
+
     # Build scoreboard from all_scored (fall back to events if all_scored missing)
     scoreboard_input = result.get("all_scored") or result.get("events", [])
     scoreboard = []
@@ -459,7 +476,7 @@ Candidates:
         print(f"    {i}. \"{ev.get('name', '?')}\" {ev.get('event_date', '')}"
               f"  time={s['time_score']} source={s['source_score']} total={s['total']}  ({tag})")
 
-    # Pick the highest that passes date + URL validation
+    # Pick the highest that passes date + URL + past-tense validation
     winner = None
     for s in scoreboard:
         ev = s["ev"]
@@ -475,6 +492,19 @@ Candidates:
         if ev_date > window_end:
             print(f"    ✗ Skipping '{ev.get('name', '?')}': outside 14-day window ({ev_date})")
             continue
+        # Article text looks like a recap — likely Claude hallucinated a future date
+        idx = None
+        # Find the index we used when building this scoreboard entry so we can re-look up the source
+        for i, c in candidates_by_index.items():
+            if c.get("url", "") == s["source_url"]:
+                idx = i
+                break
+        src = candidates_by_index.get(idx) if idx else None
+        if src:
+            past_marker = _looks_past_tense(src)
+            if past_marker:
+                print(f"    ✗ Skipping '{ev.get('name', '?')}': article text looks past-tense ('{past_marker}')")
+                continue
         if not s["source_url"] or not validate_url(s["source_url"]):
             print(f"    ✗ Skipping '{ev.get('name', '?')}': dead/missing URL")
             continue

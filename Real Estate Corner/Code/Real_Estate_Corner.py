@@ -108,6 +108,22 @@ def has_valid_photo(listing: dict) -> bool:
     return True
 
 
+def is_available_for_sale(listing: dict) -> bool:
+    """Drop pending, under contract, or coming-soon listings — we only feature
+    listings a reader can actually shop today."""
+    status = (listing.get("status") or "").lower()
+    flags = listing.get("flags") or {}
+    if status in ("pending", "contingent", "coming_soon", "under_contract", "sold"):
+        return False
+    if flags.get("is_pending"):
+        return False
+    if flags.get("is_contingent"):
+        return False
+    if flags.get("is_coming_soon"):
+        return False
+    return True
+
+
 def filter_by_tier(listings: list[dict], min_price: int, max_price: int | None,
                    min_beds: int = 0, min_baths: int = 0,
                    type_filter: str | None = None) -> list[dict]:
@@ -442,6 +458,12 @@ if __name__ == "__main__":
                         f"https://www.realtor.com{r.get('href', '')}" not in excluded_urls]
         if len(all_listings) < before_count:
             print(f"  Excluded {before_count - len(all_listings)} previously featured listings")
+
+        # Exclude listings that aren't actually for sale today (pending, contingent, coming soon, etc.)
+        before_count = len(all_listings)
+        all_listings = [r for r in all_listings if is_available_for_sale(r)]
+        if len(all_listings) < before_count:
+            print(f"  Excluded {before_count - len(all_listings)} pending / coming-soon listings")
 
         # Validate listing URLs before tier selection (saves Claude costs on dead listings)
         print(f"\n  Validating {len(all_listings)} listing URLs...")

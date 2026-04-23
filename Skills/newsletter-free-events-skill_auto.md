@@ -156,14 +156,24 @@ Return ONLY a valid JSON object with no preamble, explanation, or markdown fence
 - `all_scored` — array of up to 5 candidates ranked by your judgment, including the #1 that appears in `events`
 - `dropped_candidates` — brief reasons for candidates you ruled out entirely
 
-## Date Rules (CRITICAL)
+## Date Rules (CRITICAL — strict)
 
 - The publication date is provided in the user prompt. Treat that as "today".
-- Drop any event where the earliest upcoming instance is BEFORE the publication date. Past events are worthless.
-- If an article clearly refers to a past event ("last weekend", "was held on…", "took place"), DROP IT.
-- If an article mentions an event without a specific date but uses forward-looking language ("upcoming", "this Saturday", "next Friday", "this month"), infer the most likely next date.
-- If an article is about a recurring event (e.g., "every Saturday"), compute the next occurrence that is ≥ publication date.
-- When in doubt between dropping or including, INCLUDE the event and return your best-guess date. Our downstream filter will reject anything that resolves to a past date.
+- **Default is to DROP.** Only include an event when the article text contains EXPLICIT evidence that the event is on or after the publication date.
+- **Past-tense and recap language always means DROP.** Watch for:
+  - "was held", "took place", "happened", "concluded", "ended", "wrapped up"
+  - "last Saturday / last weekend / last week / last month"
+  - "turnout was…", "attendees enjoyed…", "the event drew…"
+  - Articles summarizing results, winners, photos, recaps, or what attendees experienced
+  Any of these = past event = DROP, regardless of other signals.
+- **Forward-looking events** need a concrete, verifiable date signal:
+  - An explicit future date ("May 15", "this Saturday April 26")
+  - A recurring schedule the reader can act on ("every Saturday through May")
+  - Tickets / registration clearly open for a future date
+  If the article only says "upcoming" or "later this month" without a specific date, DROP IT.
+- **Recurring events**: only include if the article explicitly states a recurring schedule AND the next occurrence is clearly on or after the publication date. If you have to guess the next date, drop it.
+- **When in doubt, DROP.** A small honest list beats a big list with stale events.
+- The article's own publication date (if provided in the candidate's `date` field) is a strong hint: if it's more than 10 days BEFORE the publication date, treat the article as a retrospective unless it clearly advertises a future date.
 
 ## Quality Gates
 
