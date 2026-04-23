@@ -221,16 +221,19 @@ def _render_animated(template: Image.Image, photos: list[Image.Image], cfg: dict
                      address: str, lot_info: str,
                      frame_ms: int = 2000) -> bytes:
     """Render an animated GIF that cycles the photo inside the static template."""
+    # Convert template to RGBA once (outside the frame loop)
+    template_rgba = template.convert("RGBA")
     frames = []
     for photo in photos[:3]:  # cap at 3 frames
-        base = template.copy().convert("RGBA")
+        base = template_rgba.copy()
         fitted = _fit_into_box(photo, cfg["photo_box"])
         rounded = _apply_rounded_corners(fitted)
         base.paste(rounded, (cfg["photo_box"][0], cfg["photo_box"][1]), rounded)
         base = base.convert("RGB")
         _draw_photo_border(base, cfg["photo_box"])
         _draw_listing_overlay(base, cfg, price, beds, baths, sqft, address, lot_info)
-        frames.append(base)
+        # Quantize to palette before GIF save — skips the expensive per-frame optimize pass
+        frames.append(base.quantize(colors=128, method=Image.Quantize.FASTOCTREE))
     if not frames:
         return b""
     buf = io.BytesIO()
@@ -241,7 +244,6 @@ def _render_animated(template: Image.Image, photos: list[Image.Image], cfg: dict
         append_images=frames[1:],
         duration=frame_ms,
         loop=0,
-        optimize=True,
     )
     return buf.getvalue()
 
