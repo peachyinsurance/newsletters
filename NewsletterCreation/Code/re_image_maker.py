@@ -71,19 +71,19 @@ LAYOUTS = {
         "bullet_cover": (775, 160, 1160, 360),
         "bullet_x":     790,
         "bullet_y":     [175, 225, 275, 325],
-        "price_cover":  (920, 380, 1160, 485),
-        "price_xy":     (930, 410),
-        "address_xy":   (394, 525),  # center of the photo box, just below it
+        "price_cover":  (915, 380, 1160, 485),
+        "price_xy":     (922, 410),   # align with left edge of "Starter" badge
+        "address_xy":   (394, 525),
     },
     "Sweet Spot": {
         "template":     "sweetspot.png",
         "photo_box":    (472, 42, 1140, 490),
-        "bullet_cover": (60, 160, 440, 360),
+        "bullet_cover": (55, 160, 470, 360),
         "bullet_x":     90,
         "bullet_y":     [175, 225, 275, 325],
-        "price_cover":  (220, 380, 470, 485),
-        "price_xy":     (230, 410),
-        "address_xy":   (806, 525),  # center of the photo box, just below it
+        "price_cover":  (50, 380, 475, 485),
+        "price_xy":     (58, 410),    # align with left edge of "Sweet Spot" badge
+        "address_xy":   (806, 525),
     },
     "Showcase": {
         "template":     "showcase.png",
@@ -91,8 +91,8 @@ LAYOUTS = {
         "bullet_cover": (775, 160, 1160, 360),
         "bullet_x":     790,
         "bullet_y":     [175, 225, 275, 325],
-        "price_cover":  (920, 380, 1160, 485),
-        "price_xy":     (930, 410),
+        "price_cover":  (895, 380, 1160, 485),
+        "price_xy":     (900, 410),   # align with left edge of "Showcase" badge
         "address_xy":   (394, 525),
     },
 }
@@ -122,6 +122,19 @@ def _fit_into_box(photo: Image.Image, box: tuple[int, int, int, int]) -> Image.I
     target_w, target_h = x2 - x1, y2 - y1
     # Pillow's fit() does center-crop to target size
     return ImageOps.fit(photo, (target_w, target_h), method=Image.Resampling.LANCZOS)
+
+
+def _apply_rounded_corners(photo: Image.Image, radius: int = 22) -> Image.Image:
+    """Return an RGBA version of `photo` with rounded corners (transparent outside the radius)."""
+    mask = Image.new("L", photo.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, photo.size[0], photo.size[1]),
+        radius=radius,
+        fill=255,
+    )
+    rgba = photo.convert("RGBA")
+    rgba.putalpha(mask)
+    return rgba
 
 
 def _format_lot(lot_info: str, sqft: int) -> str | None:
@@ -176,11 +189,11 @@ def _render_single(template: Image.Image, photo: Image.Image, cfg: dict,
                    price: int, beds: int, baths: int, sqft: int,
                    address: str, lot_info: str) -> bytes:
     """Render a static PNG with the photo and data composited onto the template."""
-    base = template.copy().convert("RGB")
-    # Fit + paste photo
+    base = template.copy().convert("RGBA")
     fitted = _fit_into_box(photo, cfg["photo_box"])
-    base.paste(fitted, (cfg["photo_box"][0], cfg["photo_box"][1]))
-    # Overlay data
+    rounded = _apply_rounded_corners(fitted)
+    base.paste(rounded, (cfg["photo_box"][0], cfg["photo_box"][1]), rounded)
+    base = base.convert("RGB")
     _draw_listing_overlay(base, cfg, price, beds, baths, sqft, address, lot_info)
     buf = io.BytesIO()
     base.save(buf, format="PNG", optimize=True)
@@ -194,9 +207,11 @@ def _render_animated(template: Image.Image, photos: list[Image.Image], cfg: dict
     """Render an animated GIF that cycles the photo inside the static template."""
     frames = []
     for photo in photos[:3]:  # cap at 3 frames
-        base = template.copy().convert("RGB")
+        base = template.copy().convert("RGBA")
         fitted = _fit_into_box(photo, cfg["photo_box"])
-        base.paste(fitted, (cfg["photo_box"][0], cfg["photo_box"][1]))
+        rounded = _apply_rounded_corners(fitted)
+        base.paste(rounded, (cfg["photo_box"][0], cfg["photo_box"][1]), rounded)
+        base = base.convert("RGB")
         _draw_listing_overlay(base, cfg, price, beds, baths, sqft, address, lot_info)
         frames.append(base)
     if not frames:
