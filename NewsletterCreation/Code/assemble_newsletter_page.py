@@ -354,7 +354,7 @@ def sync_edits_back(page_id: str, newsletter_name: str) -> None:
                 print(f"  Warning: lowdown sync-back failed: {r.text[:200]}")
 
     # --- Free Events ---
-    free_events_text, free_events_edited = extract_section_text(blocks, "Free Events This Week")
+    free_events_text, free_events_edited = extract_section_text(blocks, "Free Event of the Week")
     if free_events_edited and free_events_text and NOTION_FREE_EVENTS_DB_ID:
         try:
             pages = query_database(NOTION_FREE_EVENTS_DB_ID, filters={
@@ -981,8 +981,8 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
     blocks.append(_placeholder("Not yet automated."))
     blocks.append(divider_block())
 
-    # 12. Free Events (automated)
-    blocks.append(heading_block("🆓 Free Events This Week"))
+    # 12. Free Event of the Week (automated)
+    blocks.append(heading_block("🆓 Free Event of the Week"))
     free_events_text = get_latest_free_events(newsletter_name)
     if free_events_text:
         paragraphs = free_events_text.split("\n\n")

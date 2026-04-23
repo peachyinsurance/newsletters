@@ -339,7 +339,9 @@ def fetch_candidates(search_areas: list[str], excluded_urls: set | None = None) 
 # ---------------------------------------------------------------------------
 def write_free_events(candidates: list[dict], newsletter_name: str, display_area: str,
                       skill_prompt: str, pub_date: str) -> dict:
-    """Ask Claude to pick 3-5 real free events and write blurbs.
+    """Ask Claude to score up to 5 free-event candidates on time sensitivity.
+    Then combine with a deterministic source_quality score (based on
+    AGGREGATOR_DOMAINS) to pick the single Free Event of the Week.
     URLs are attached from source data — Claude returns candidate_index only."""
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
 
@@ -355,15 +357,18 @@ def write_free_events(candidates: list[dict], newsletter_name: str, display_area
                 system=skill_prompt,
                 messages=[{
                     "role": "user",
-                    "content": f"""Find 3-5 actually-free events happening in the next 7 days near the {display_area} area.
+                    "content": f"""Evaluate the candidates below and pick the single best free event for this week's {display_area} newsletter.
 
 Newsletter: {newsletter_name}
 Publication date: {pub_date}
 Coverage area: {display_area}
 
-CRITICAL: Do NOT return raw URLs. Return "candidate_index" for each event — we will attach the source URL from the candidate list using that index.
+RETURN:
+- `events`: array of EXACTLY ONE event — your #1 pick
+- `all_scored`: array of up to 5 candidates, ranked best-to-worst, each with `time_sensitivity_score` (1-10) per the rubric
+- `dropped_candidates`: anything you ruled out entirely and why
 
-Mix family-friendly and adults-only events when they qualify, and label each.
+CRITICAL: Do NOT return raw URLs. Return `candidate_index` for each entry — we attach the source URL from the candidate list using that index. A downstream step adds a source_quality bonus (based on whether the URL is from an aggregator) and may re-rank, so giving us your full top-5 with scores is more useful than just returning one.
 
 Return ONLY valid JSON, no preamble or markdown fences.
 
@@ -394,26 +399,24 @@ Candidates:
         print(f"  Raw response (first 500 chars): {raw[:500]}")
         return {"newsletter_name": newsletter_name, "events": []}
 
-    events = result.get("events", [])
     dropped = result.get("dropped_candidates", [])
-    print(f"  Claude returned {len(events)} events, dropped {len(dropped)} candidates")
-    # Log why Claude dropped things — useful for diagnosing when Claude is too strict
+    print(f"  Claude dropped {len(dropped)} candidates")
     for d in dropped[:10]:
         print(f"    • dropped idx {d.get('candidate_index', '?')}: {d.get('reason', '')[:120]}")
 
-    # Parse publication date once for filtering
     from datetime import date, timedelta
     try:
         pub = datetime.strptime(pub_date, "%Y-%m-%d").date()
     except Exception:
         pub = date.today()
-    window_end = pub + timedelta(days=14)  # allow 2-week lookahead to reduce false drops
+    window_end = pub + timedelta(days=14)
 
-    # Attach real URLs from candidates using index. Reject events with invalid data.
     candidates_by_index = {i: c for i, c in enumerate(candidates, 1)}
-    validated = []
-    for ev in events:
-        # 1. Index → real URL
+
+    # Build scoreboard from all_scored (fall back to events if all_scored missing)
+    scoreboard_input = result.get("all_scored") or result.get("events", [])
+    scoreboard = []
+    for ev in scoreboard_input:
         idx = ev.get("candidate_index")
         try:
             idx = int(idx) if idx is not None else None
@@ -421,42 +424,79 @@ Candidates:
             idx = None
         source = candidates_by_index.get(idx) if idx is not None else None
         if not source:
-            print(f"    ✗ Rejecting event with invalid candidate_index {idx}: {ev.get('name', '?')}")
+            print(f"    ✗ Dropping scored entry with invalid candidate_index {idx}: {ev.get('name', '?')}")
             continue
 
-        # 2. Event date is on or after pub_date, and within a reasonable window
+        url  = source.get("url", "")
+        host = (source.get("source") or "").lower()
+        time_score = int(ev.get("time_sensitivity_score", 0) or 0)
+        is_aggregator = _host_in(host, AGGREGATOR_DOMAINS)
+        source_score = 3 if is_aggregator else 10
+        total = time_score + source_score
+
+        scoreboard.append({
+            "ev":            ev,
+            "source_url":    url,
+            "source_host":   host,
+            "time_score":    time_score,
+            "source_score":  source_score,
+            "total":         total,
+            "is_aggregator": is_aggregator,
+        })
+
+    # Sort: total DESC (primary), event_date DESC (tiebreaker — pick latest)
+    def _event_date(s):
+        try:
+            return datetime.strptime((s["ev"].get("event_date") or "").strip(), "%Y-%m-%d").date()
+        except Exception:
+            return date.min
+    scoreboard.sort(key=lambda s: (s["total"], _event_date(s)), reverse=True)
+
+    print(f"  Scoreboard ({len(scoreboard)} candidates):")
+    for i, s in enumerate(scoreboard, 1):
+        ev = s["ev"]
+        tag = "aggregator" if s["is_aggregator"] else "primary"
+        print(f"    {i}. \"{ev.get('name', '?')}\" {ev.get('event_date', '')}"
+              f"  time={s['time_score']} source={s['source_score']} total={s['total']}  ({tag})")
+
+    # Pick the highest that passes date + URL validation
+    winner = None
+    for s in scoreboard:
+        ev = s["ev"]
         date_str = (ev.get("event_date") or "").strip()
-        if not date_str:
-            print(f"    ✗ Dropping event with no event_date: {ev.get('name', '?')}")
-            continue
         try:
             ev_date = datetime.strptime(date_str, "%Y-%m-%d").date()
         except Exception:
-            print(f"    ✗ Dropping event with unparseable event_date '{date_str}': {ev.get('name', '?')}")
+            print(f"    ✗ Skipping '{ev.get('name', '?')}': unparseable event_date '{date_str}'")
             continue
         if ev_date < pub:
-            print(f"    ✗ Dropping past event ({ev_date}): {ev.get('name', '?')}")
+            print(f"    ✗ Skipping '{ev.get('name', '?')}': past event ({ev_date})")
             continue
         if ev_date > window_end:
-            print(f"    ✗ Dropping event outside 7-day window ({ev_date}): {ev.get('name', '?')}")
+            print(f"    ✗ Skipping '{ev.get('name', '?')}': outside 14-day window ({ev_date})")
             continue
-
-        # 3. URL is live
-        url = source.get("url", "")
-        if not url or not validate_url(url):
-            print(f"    ✗ Dropping event with dead/missing URL: {ev.get('name', '?')}")
+        if not s["source_url"] or not validate_url(s["source_url"]):
+            print(f"    ✗ Skipping '{ev.get('name', '?')}': dead/missing URL")
             continue
+        winner = s
+        break
 
-        ev["source_url"] = url
-        ev["source"]     = source.get("source", "")
-        ev.pop("candidate_index", None)
-        validated.append(ev)
+    if not winner:
+        print(f"  No qualifying free event for {newsletter_name}")
+        result["events"] = []
+        return result
 
-    result["events"] = validated
-    print(f"  Claude selected {len(validated)} free events (after date + URL validation)")
-    for ev in validated:
-        print(f"    {ev.get('emoji', '')} {ev.get('name', '')} — {ev.get('event_date', '?')} ({ev.get('audience', '?')})")
+    ev = winner["ev"]
+    ev["source_url"] = winner["source_url"]
+    ev["source"]     = winner["source_host"]
+    ev.pop("candidate_index", None)
+    ev["time_sensitivity_score"] = winner["time_score"]
+    ev["source_quality_score"]   = winner["source_score"]
+    ev["total_score"]            = winner["total"]
 
+    result["events"] = [ev]
+    print(f"  🏆 Winner: {ev.get('emoji', '')} {ev.get('name', '')} "
+          f"({ev.get('audience', '?')})  total={winner['total']}")
     return result
 
 
