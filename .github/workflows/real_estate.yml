@@ -33,6 +33,7 @@ jobs:
           path: |
             Real Estate Corner/Code/output/*.gif
             Real Estate Corner/Code/output/*.png
+            Real Estate Corner/Code/output/*.webp
           if-no-files-found: ignore
 
       - name: Publish images to gh-pages for public URLs

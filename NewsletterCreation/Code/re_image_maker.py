@@ -220,11 +220,11 @@ def _render_animated(template: Image.Image, photos: list[Image.Image], cfg: dict
                      price: int, beds: int, baths: int, sqft: int,
                      address: str, lot_info: str,
                      frame_ms: int = 2000) -> bytes:
-    """Render an animated GIF that cycles the photo inside the static template."""
-    # Convert template to RGBA once (outside the frame loop)
+    """Render an animated WebP that cycles the photo inside the static template.
+    WebP preserves photo quality without the palette limits of GIF, and encodes fast."""
     template_rgba = template.convert("RGBA")
     frames = []
-    for photo in photos[:3]:  # cap at 3 frames
+    for photo in photos[:3]:
         base = template_rgba.copy()
         fitted = _fit_into_box(photo, cfg["photo_box"])
         rounded = _apply_rounded_corners(fitted)
@@ -232,18 +232,19 @@ def _render_animated(template: Image.Image, photos: list[Image.Image], cfg: dict
         base = base.convert("RGB")
         _draw_photo_border(base, cfg["photo_box"])
         _draw_listing_overlay(base, cfg, price, beds, baths, sqft, address, lot_info)
-        # Quantize to palette before GIF save — skips the expensive per-frame optimize pass
-        frames.append(base.quantize(colors=128, method=Image.Quantize.FASTOCTREE))
+        frames.append(base)
     if not frames:
         return b""
     buf = io.BytesIO()
     frames[0].save(
         buf,
-        format="GIF",
+        format="WebP",
         save_all=True,
         append_images=frames[1:],
         duration=frame_ms,
         loop=0,
+        quality=88,
+        method=4,  # balance of speed + compression
     )
     return buf.getvalue()
 
@@ -332,7 +333,7 @@ def generate_re_images(listings: list[dict], newsletter_name: str, output_dir: s
             continue
 
         slug = tier.lower().replace(" ", "_")
-        ext = "gif" if len(photo_urls) > 1 else "png"
+        ext = "webp" if len(photo_urls) > 1 else "png"
         filename = f"re_{newsletter_name}_{slug}_template_{datetime.datetime.today().strftime('%Y%m%d')}.{ext}"
         filepath = out / filename
         filepath.write_bytes(img_bytes)
