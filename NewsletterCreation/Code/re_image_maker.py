@@ -124,7 +124,12 @@ def _fit_into_box(photo: Image.Image, box: tuple[int, int, int, int]) -> Image.I
     return ImageOps.fit(photo, (target_w, target_h), method=Image.Resampling.LANCZOS)
 
 
-def _apply_rounded_corners(photo: Image.Image, radius: int = 22) -> Image.Image:
+BRAND_RED   = (224, 30, 34)
+CORNER_RAD  = 22
+BORDER_PX   = 8
+
+
+def _apply_rounded_corners(photo: Image.Image, radius: int = CORNER_RAD) -> Image.Image:
     """Return an RGBA version of `photo` with rounded corners (transparent outside the radius)."""
     mask = Image.new("L", photo.size, 0)
     ImageDraw.Draw(mask).rounded_rectangle(
@@ -135,6 +140,16 @@ def _apply_rounded_corners(photo: Image.Image, radius: int = 22) -> Image.Image:
     rgba = photo.convert("RGBA")
     rgba.putalpha(mask)
     return rgba
+
+
+def _draw_photo_border(base: Image.Image, box: tuple[int, int, int, int]) -> None:
+    """Draw a red rounded border around the photo box (in-place)."""
+    ImageDraw.Draw(base).rounded_rectangle(
+        box,
+        radius=CORNER_RAD,
+        outline=BRAND_RED,
+        width=BORDER_PX,
+    )
 
 
 def _format_lot(lot_info: str, sqft: int) -> str | None:
