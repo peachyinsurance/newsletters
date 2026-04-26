@@ -565,8 +565,11 @@ def cleanup_pets_notion(approved_old_weeks: int = 8) -> None:
     """
     pages = query_database(NOTION_PETS_DB_ID)
     cutoff = (datetime.today() - timedelta(weeks=approved_old_weeks)).strftime("%Y-%m-%d")
+    print(f"  Cutoff for 'approved - old' archival: {cutoff} ({approved_old_weeks} weeks ago)")
+    print(f"  Scanning {len(pages)} rows…")
     count = 0
     kept_old = 0
+    kept_approved = 0
     for page in pages:
         props = page["properties"]
         status = props.get("Status", {}).get("select", {})
@@ -575,17 +578,20 @@ def cleanup_pets_notion(approved_old_weeks: int = 8) -> None:
         name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
 
         if status_name == "approved":
+            kept_approved += 1
             continue
         if status_name == "approved - old":
             if not date_str or date_str >= cutoff:
                 kept_old += 1
+                print(f"  🔒 Keeping 'approved - old': {name} (date: {date_str})")
                 continue  # within window — keep for exclusion
-            # else falls through to archive
 
         archive_page(page["id"])
-        print(f"  Archived: {name} (status: {status_name})")
+        print(f"  Archived: {name} (status: '{status_name}', date: {date_str})")
         count += 1
-    print(f"Archived {count} stale pet entries (kept {kept_old} 'approved - old' within {approved_old_weeks}-week window)")
+    print(f"\nArchived {count} stale pet entries")
+    print(f"  Kept {kept_approved} 'approved' rows")
+    print(f"  Kept {kept_old} 'approved - old' rows within {approved_old_weeks}-week window")
 
 # ---------------------------------------------------------------------------
 # RESTAURANTS HELPERS
