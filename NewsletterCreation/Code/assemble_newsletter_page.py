@@ -825,7 +825,9 @@ def get_real_estate(newsletter_name: str) -> list[dict]:
 def get_featured_event(newsletter_name: str) -> dict | None:
     """Get the approved featured event for a newsletter."""
     if not NOTION_EVENTS_DB_ID:
+        print(f"  ⚠ NOTION_EVENTS_DB_ID is empty — Featured Event section will not render")
         return None
+    print(f"  Looking up Featured Event for {newsletter_name} (db {NOTION_EVENTS_DB_ID[:8]}…)")
     try:
         pages = query_database(NOTION_EVENTS_DB_ID)
         # Filter to approved events for this newsletter
