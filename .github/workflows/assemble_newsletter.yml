@@ -2,6 +2,11 @@ name: Assemble Newsletter Pages
 
 on:
   workflow_dispatch:
+    inputs:
+      section:
+        description: 'Which section to update. "all" = full rebuild. Section keys: intro, summary, poll, sponsor, featured_event, restaurants, business_brief, real_estate, lowdown, pets, local_events, free_events, tip, in_search_of, meme'
+        required: false
+        default: 'all'
 
 jobs:
   assemble:
@@ -24,4 +29,5 @@ jobs:
           NOTION_FREE_EVENTS_DB_ID: ${{ secrets.NOTION_FREE_EVENTS_DB_ID }}
           NOTION_POLLS_DB_ID:       ${{ secrets.NOTION_POLLS_DB_ID }}
           NOTION_PARENT_PAGE_ID:    ${{ secrets.NOTION_PARENT_PAGE_ID }}
+          SECTION:                  ${{ github.event.inputs.section || 'all' }}
         run: python NewsletterCreation/Code/assemble_newsletter_page.py
