@@ -597,7 +597,8 @@ def get_restaurants(newsletter_name: str) -> list[dict]:
         props = page["properties"]
         status_prop = props.get("Status", {})
         status = (status_prop.get("select") or status_prop.get("status") or {}).get("name", "")
-        if status == "pending" or not status:
+        # Only show current week's tiered winners — 'approved - old' is exclusion-only
+        if status not in ("Tier 1 Winner", "Tier 2 Winner"):
             continue
         def _rt(key):
             rt = props.get(key, {}).get("rich_text", [])
@@ -667,6 +668,9 @@ def get_latest_free_events(newsletter_name: str) -> str | None:
         })
     except Exception:
         return None
+    # Only show current 'approved' rows (not 'approved - old' which are exclusion-only)
+    pages = [p for p in pages if
+             (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
     if not pages:
         return None
     pages.sort(
