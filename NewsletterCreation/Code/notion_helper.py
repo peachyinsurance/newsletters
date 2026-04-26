@@ -554,23 +554,24 @@ def redo_pet_selection(newsletter_name: str) -> None:
     print(f"Reset {count} pets to pending for {newsletter_name}")
 
 def cleanup_pets_notion(approved_old_weeks: int = 8) -> None:
-    """Archive stale pet entries.
+    """Weekly cleanup of pets database.
 
     Rules:
-      - Keep all 'approved' rows (current featured pet).
-      - Keep all 'approved - old' rows newer than `approved_old_weeks` weeks
-        (these are the exclusion history that prevents re-featuring the same pet).
-      - Archive 'pending' and 'rejected' rows immediately (stale candidates).
-      - Archive 'approved - old' rows older than the cutoff.
+      - 'approved' rows (this week's featured pet) → flipped to 'approved - old'.
+        This advances the cycle so next week we don't re-feature the same pet.
+      - 'approved - old' rows newer than `approved_old_weeks` weeks → kept (exclusion history).
+      - 'approved - old' rows older than the cutoff → archived.
+      - 'pending' and 'rejected' rows → archived (stale candidates).
     """
     pages = query_database(NOTION_PETS_DB_ID)
     cutoff = (datetime.today() - timedelta(weeks=approved_old_weeks)).strftime("%Y-%m-%d")
     print(f"  Cutoff for 'approved - old' archival: {cutoff} ({approved_old_weeks} weeks ago)")
     print(f"  Scanning {len(pages)} rows…")
-    count = 0
+    archived = 0
+    flipped = 0
     kept_old = 0
-    kept_approved = 0
     for page in pages:
+        page_id = page["id"]
         props = page["properties"]
         status = props.get("Status", {}).get("select", {})
         status_name = status.get("name", "") if status else ""
@@ -578,7 +579,11 @@ def cleanup_pets_notion(approved_old_weeks: int = 8) -> None:
         name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
 
         if status_name == "approved":
-            kept_approved += 1
+            # Flip current week's pet to 'approved - old' so it stays in the exclusion list
+            # but the slot is freed for next week.
+            update_page(page_id, {"Status": {"select": {"name": "approved - old"}}})
+            print(f"  🔄 Flipped 'approved' → 'approved - old': {name}")
+            flipped += 1
             continue
         if status_name == "approved - old":
             if not date_str or date_str >= cutoff:
@@ -586,12 +591,12 @@ def cleanup_pets_notion(approved_old_weeks: int = 8) -> None:
                 print(f"  🔒 Keeping 'approved - old': {name} (date: {date_str})")
                 continue  # within window — keep for exclusion
 
-        archive_page(page["id"])
+        archive_page(page_id)
         print(f"  Archived: {name} (status: '{status_name}', date: {date_str})")
-        count += 1
-    print(f"\nArchived {count} stale pet entries")
-    print(f"  Kept {kept_approved} 'approved' rows")
-    print(f"  Kept {kept_old} 'approved - old' rows within {approved_old_weeks}-week window")
+        archived += 1
+    print(f"\nFlipped  {flipped} 'approved' → 'approved - old'")
+    print(f"Kept     {kept_old} 'approved - old' rows within {approved_old_weeks}-week window")
+    print(f"Archived {archived} stale pet entries (pending / rejected / >{approved_old_weeks}w old)")
 
 # ---------------------------------------------------------------------------
 # RESTAURANTS HELPERS
