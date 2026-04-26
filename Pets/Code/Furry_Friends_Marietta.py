@@ -596,6 +596,11 @@ Here are adoptable {animal_type}s from shelters near East Cobb, GA.
 Pick the TOP 3 with the best story potential and write a blurb for each.
 Use the pet's actual description -- do not invent details.
 
+AUTOMATED PIPELINE — do not return plain English, do not ask clarifying questions,
+do not refuse to write. Even if a listing has thin data, write the best blurb you
+can using only the verified facts (name, breed, age, gender, photo). Editorial
+review happens later. Always return valid JSON.
+
 Return ONLY a JSON array with exactly 3 objects, no preamble or markdown.
 Exact format:
 [

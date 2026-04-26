@@ -553,20 +553,39 @@ def redo_pet_selection(newsletter_name: str) -> None:
             count += 1
     print(f"Reset {count} pets to pending for {newsletter_name}")
 
-def cleanup_pets_notion() -> None:
-    """Delete all pet entries that are not approved."""
+def cleanup_pets_notion(approved_old_weeks: int = 8) -> None:
+    """Archive stale pet entries.
+
+    Rules:
+      - Keep all 'approved' rows (current featured pet).
+      - Keep all 'approved - old' rows newer than `approved_old_weeks` weeks
+        (these are the exclusion history that prevents re-featuring the same pet).
+      - Archive 'pending' and 'rejected' rows immediately (stale candidates).
+      - Archive 'approved - old' rows older than the cutoff.
+    """
     pages = query_database(NOTION_PETS_DB_ID)
+    cutoff = (datetime.today() - timedelta(weeks=approved_old_weeks)).strftime("%Y-%m-%d")
     count = 0
+    kept_old = 0
     for page in pages:
-        status = page["properties"].get("Status", {}).get("select", {})
+        props = page["properties"]
+        status = props.get("Status", {}).get("select", {})
         status_name = status.get("name", "") if status else ""
+        date_str = (props.get("Date Generated", {}).get("date") or {}).get("start", "") or ""
+        name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+
         if status_name == "approved":
             continue
-        name = page["properties"].get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+        if status_name == "approved - old":
+            if not date_str or date_str >= cutoff:
+                kept_old += 1
+                continue  # within window — keep for exclusion
+            # else falls through to archive
+
         archive_page(page["id"])
         print(f"  Archived: {name} (status: {status_name})")
         count += 1
-    print(f"Archived {count} non-approved pets")
+    print(f"Archived {count} stale pet entries (kept {kept_old} 'approved - old' within {approved_old_weeks}-week window)")
 
 # ---------------------------------------------------------------------------
 # RESTAURANTS HELPERS

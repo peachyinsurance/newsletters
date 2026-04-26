@@ -141,19 +141,21 @@ Good Mews is a no-kill, cage-free shelter on Robinson Road in Marietta. You'll n
 
 ---
 
-## What to Do If Things Go Wrong
+## What to Do If Things Go Wrong (automated mode — DO NOT prompt the user)
 
-**If the listing is unavailable or returns no content:**
-Tell the user the page didn't load and ask them to paste the pet's description directly.
+**This skill runs in an automated pipeline. NEVER respond with plain English questions, status messages, or "let me flag this." ALWAYS return valid JSON.** Editorial review happens later — your job is to produce the best JSON you can with what's given.
 
-**If there's almost no information:**
-Tell the user before writing. Ask if they have anything to add. Don't invent personality details or make assumptions about the animal's temperament.
+**If a listing has very little information:**
+Write the best blurb you can using whatever IS available (name, breed, age, gender, photo). Be honest in the blurb that this pet doesn't have a full profile yet ("Eugene is new to the rescue and his bio is still being built…"). Do NOT invent personality traits, but DO write a complete blurb of the requested length using only verified facts. Do not refuse to write — write a thinner blurb instead.
 
 **If the pet has a serious behavioral flag (aggression history, bite record):**
-Do not spin this positively in the blurb. Flag it to the user separately and ask how they want to handle it. It's their call whether to feature this animal.
+Still write the JSON blurb, but include `"editor_flag"` in the output with the concern (e.g., `"editor_flag": "Bite history mentioned — review before publishing"`) so editorial can decide whether to feature.
 
 **If the shelter info (hours, address, phone) is missing:**
-Note it at the end of your response and ask the user to fill it in before publishing.
+Leave those fields as empty strings in the JSON. Don't refuse to write the blurb because of missing shelter info.
+
+**If something is genuinely unwritable:**
+Return the JSON object with empty `blurb: ""` and an `error` field explaining why. The pipeline will skip that pet. Do NOT return plain English.
 
 ---
 
