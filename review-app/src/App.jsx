@@ -3,6 +3,8 @@ import "./styles.css";
 import { isOddWeek, checkPassword } from "./helpers";
 import PetTile from "./PetTile";
 import RestaurantTile from "./RestaurantTile";
+import FeaturedEventTile from "./FeaturedEventTile";
+
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 const GITHUB_OWNER = "peachyinsurance";
@@ -101,6 +103,46 @@ const SECTIONS = {
       eyebrow:    "Newsletter Restaurant Review",
       h1Prefix:   "Pick This Week's",
       h1Emphasis: "Featured Restaurant",
+      sub:        "Review candidates and approve the one that best fits the newsletter.",
+    },
+  },
+
+  events: {
+    dataFile:        "events.json",
+    idField:         "source_url",
+    nameField:       "event_name",
+    approveWorkflow: "approve_featured_event.yml",
+    approveInputs:   (item) => ({ source_url: item.source_url }),
+    redoWorkflow:    (newsletter) => `redo_${newsletter.toLowerCase()}.yml`,
+    redoSection:     "events",
+    approvedStatus:  "approved",
+    rejectedStatus:  "rejected",
+    storageKey:      "approved_event_ids",
+    sectionPrefix:   "events",
+    TileComponent:   FeaturedEventTile,
+    itemPropName:    "event",
+    label:           "Featured Events",
+    navIcon:         "\uD83C\uDFAB",
+    loadingText:     "Loading this week's event candidates...",
+    emptyText:       "No pending events found. Run the pipeline to generate new candidates.",
+    statusBarText:   (count) => `${count} event candidates this week`,
+    emptyCandidatesText: () => ({ title: "No candidates", sub: "Run the pipeline to generate new event candidates." }),
+    filterCandidates: (items) => ({ candidates: items, extra: {} }),
+    renderDefaultWinners: (visibleItems) => {
+      const defaultWinner = visibleItems.find(e => e.default_winner === "yes");
+      return {
+        label: "Default Winner",
+        rows: [
+          { badgeClass: "winner-badge-overall", badgeText: "Event",
+            name: defaultWinner ? defaultWinner.event_name : "None set",
+            score: defaultWinner ? `${defaultWinner.total_score}/30` : null },
+        ],
+      };
+    },
+    header: {
+      eyebrow:    "Newsletter Featured Event Review",
+      h1Prefix:   "Pick This Week's",
+      h1Emphasis: "Featured Event",
       sub:        "Review candidates and approve the one that best fits the newsletter.",
     },
   },

@@ -26,12 +26,14 @@ jobs:
           NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
           NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+          NOTION_EVENTS_DB_ID:      ${{ secrets.NOTION_EVENTS_DB_ID }}
         run: |
           pip install requests
           cd NewsletterCreation/Code
           python export_notion_data.py
           cp pets.json ../../review-app/public/pets.json
           cp restaurants.json ../../review-app/public/restaurants.json
+          cp events.json ../../review-app/public/events.json
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

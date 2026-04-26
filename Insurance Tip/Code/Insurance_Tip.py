@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from brave_search import search_web
 from claude_json import call_with_json_output
-from notion_helper import save_tips_to_notion, get_existing_tip_urls
+from notion_helper import save_tips_to_notion, get_existing_tip_urls, get_existing_tip_subjects
 from url_validator import filter_valid_items
 
 # ---------------------------------------------------------------------------
@@ -152,7 +152,11 @@ def pick_topics_for_run(n: int = TOPICS_PER_RUN) -> list[tuple]:
 # ---------------------------------------------------------------------------
 # 4. CLAUDE: SCORE AND WRITE BLURBS (SHARED ACROSS BOTH NEWSLETTERS)
 # ---------------------------------------------------------------------------
-def build_claude_user_prompt(candidates: list[dict], newsletters: list[dict]) -> str:
+def build_claude_user_prompt(
+    candidates: list[dict],
+    newsletters: list[dict],
+    previously_covered: list[dict] | None = None,
+) -> str:
     """Build the Claude user-message content for the shared-tip prompt."""
     audience_sections = []
     for nl in newsletters:
@@ -174,6 +178,25 @@ def build_claude_user_prompt(candidates: list[dict], newsletters: list[dict]) ->
         f"Current month is {today.strftime('%B')} — weight seasonal topics accordingly."
     )
 
+    if previously_covered:
+        prior_json = json.dumps(previously_covered, indent=2)
+        prior_section = f"""
+Previously covered in the last 6 months (across both newsletters). Each item has topic,
+tip_title, summary, and date. Do NOT write another tip on the same subject UNLESS you can
+approach it from a substantively different angle. Examples of "different angle":
+ - Prior tip was about WHEN you need gap insurance → your tip is about what it DOESN'T cover.
+ - Prior tip was HOW to build a home inventory → your tip is how to VALUE items in it.
+ - Prior tip framed as a homeowner decision → your tip framed as a renter's parallel.
+If no fresh angle is possible, skip the candidate. When you do pick a repeat subject with a
+new angle, state the angle explicitly in `scoring_notes` (e.g., "Repeat subject of gap
+insurance, new angle: coverage exclusions rather than when-you-need-it").
+
+Previously covered:
+{prior_json}
+"""
+    else:
+        prior_section = ""
+
     candidates_json = json.dumps(candidates, indent=2)
     return f"""
 {pub_context}
@@ -185,7 +208,7 @@ meaningful homeowner populations).
 
 Audiences:
 {demo_summary}
-
+{prior_section}
 Below are insurance tip candidates pulled from trusted consumer-insurance sources.
 Each candidate has a topic, category, source URL, source domain, title, and summary.
 
@@ -194,9 +217,12 @@ Your job:
    and scoring rules in your instructions.
 2. For each pick, write a polished blurb following the skill's format and voice rules
    exactly (short title, 3-5 sentence body, soft Peachy CTA, "Learn more" line).
-3. Diversify categories — do not return two tips from the same category unless there
+3. Also write a 1-2 sentence `summary` capturing the SUBJECT and ANGLE of the tip (not the
+   voice). This is used for future dedup — future runs will read it to judge whether a
+   new candidate is a repeat subject. Keep it factual, specific, and under 300 characters.
+4. Diversify categories — do not return two tips from the same category unless there
    are no good alternatives.
-4. Score each 1-10 on relevance, actionability, timeliness.
+5. Score each 1-10 on relevance, actionability, timeliness.
 
 Return ONLY a JSON array with no preamble, explanation, or markdown fences. Exact format:
 [
@@ -205,6 +231,7 @@ Return ONLY a JSON array with no preamble, explanation, or markdown fences. Exac
     "category": "home",
     "tip_title": "Short headline",
     "blurb": "Full blurb text including CTA and learn-more line, following skill format",
+    "summary": "1-2 sentence factual summary of the subject and angle for future dedup.",
     "source_url": "https://...",
     "source_name": "Insurance Information Institute",
     "relevance_score": 9,
@@ -285,6 +312,20 @@ if __name__ == "__main__":
         print("All candidates were previously used. Exiting.")
         sys.exit(0)
 
+    # Previously-covered subjects (last 6 months, union across both newsletters).
+    # Deduped by (topic, tip_title) so an identical tip saved twice (one row per
+    # newsletter) shows up once in the prompt.
+    seen_keys = set()
+    previously_covered = []
+    for nl in NEWSLETTERS:
+        for s in get_existing_tip_subjects(nl["name"], months_back=6):
+            key = (s.get("topic", ""), s.get("tip_title", ""))
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            previously_covered.append(s)
+    print(f"  {len(previously_covered)} prior tip subjects loaded for Claude dedup context")
+
     print(f"\n  Validating {len(candidates)} candidate URLs...")
     candidates, rejected = filter_valid_items(
         candidates,
@@ -299,7 +340,7 @@ if __name__ == "__main__":
         sys.exit(0)
 
     print(f"\n  Sending {len(candidates)} candidates to Claude (one pick for both newsletters)...")
-    user_prompt = build_claude_user_prompt(candidates, NEWSLETTERS)
+    user_prompt = build_claude_user_prompt(candidates, NEWSLETTERS, previously_covered)
     results = call_with_json_output(
         api_key=CLAUDE_API_KEY,
         system=skill_prompt,

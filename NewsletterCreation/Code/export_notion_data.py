@@ -8,7 +8,7 @@ import os
 import sys
 import json
 sys.path.append(os.path.dirname(__file__))
-from notion_helper import query_database, NOTION_PETS_DB_ID, NOTION_RESTAURANTS_DB_ID
+from notion_helper import query_database, NOTION_PETS_DB_ID, NOTION_RESTAURANTS_DB_ID, NOTION_EVENTS_DB_ID
 
 def extract_text(prop) -> str:
     if not prop:
@@ -114,6 +114,40 @@ def export_restaurants():
         json.dump(restaurants, f, indent=2)
     print(f"Exported {len(restaurants)} restaurants to restaurants.json")
 
+def export_events(): 
+    pages = query_database(NOTION_EVENTS_DB_ID)
+    events = []
+    for page in pages:
+        props = page["properties"]
+        status_val = extract_text(props.get("Status", {})) or "pending"
+        # Skip archived statuses so they don't show up as candidates in the review UI
+        if status_val in ("approved - old", "rejected"):
+            continue
+        events.append({
+            "source_url":            extract_text(props.get("Source URL", {})),
+            "event_name":            extract_text(props.get("Event Name", {})),
+            "date":                  extract_text(props.get("Date", {})),
+            "time":                  extract_text(props.get("Time", {})),
+            "venue":                 extract_text(props.get("Venue", {})),
+            "price":                 extract_text(props.get("Price", {})),
+            "blurb":                 extract_text(props.get("Blurb", {})),
+            "ticket_url":            extract_text(props.get("Ticket URL", {})),
+            "date_generated":        extract_text(props.get("Date Generated", {})),
+            "status":                status_val,
+            "newsletter_name":       extract_text(props.get("Newsletter", {})),
+            "total_score":           str(extract_text(props.get("Total Score", {}))),
+            "demographic_fit_score": str(extract_text(props.get("Demographic Fit Score", {}))),
+            "uniqueness_score":      str(extract_text(props.get("Uniqueness Score", {}))),
+            "audience_match_score":  str(extract_text(props.get("Audience Match Score", {}))),
+            "scoring_notes":         extract_text(props.get("Scoring Notes", {})),
+            "default_winner":        "yes" if extract_text(props.get("Default Winner", {})) else "",
+        })
+
+    with open("events.json", "w") as f:
+        json.dump(events, f, indent=2)
+    print(f"Exported {len(events)} events to events.json")
+
 if __name__ == "__main__":
     export_pets()
     export_restaurants()
+    export_events()

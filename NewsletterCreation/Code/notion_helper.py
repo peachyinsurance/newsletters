@@ -813,7 +813,51 @@ def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
 
 # ---------------------------------------------------------------------------
 # FEATURED EVENT HELPERS
-# ---------------------------------------------------------------------------
+def approve_event_in_notion(source_url: str) -> None:
+    """Set selected event to approved, others in same newsletter to rejected"""
+    source_url = (source_url or "").strip()
+    if not source_url:
+        print("✗ No source_url provided — aborting approval to avoid updating all rows")
+        return 
+
+    pages = query_database(NOTION_EVENTS_DB_ID)
+    approved_newsletter = None
+    approved_page_id = None
+    for page in pages:
+        props = page["properties"]
+        page_url = props.get("Source URL", {}).get("url", "")
+        if page_url and page_url == source_url:
+            newsletter = props.get("Newsletter", {}).get("select", {})
+            approved_newsletter = newsletter.get("name", "") if newsletter else ""
+            approved_page_id = page["id"]
+            break
+
+    if not approved_newsletter:
+        print(f"✗ No event found with source_url '{source_url}' — aborting")
+        return
+    
+    print(f"Approving for newsletter: {approved_newsletter}")
+
+    for page in pages:
+        page_id = page["id"]
+        props = page["properties"]
+        status = props.get("Status", {}).get("select", {})
+        status_name = status.get("name", "") if status else ""
+
+        if status_name != "pending":
+            continue
+
+        newsletter = props.get("Newsletter", {}).get("select", {})
+        newsletter_name = newsletter.get("name", "") if newsletter else ""
+        if newsletter_name != approved_newsletter:
+            continue
+
+        new_status = "approved" if page_id == approved_page_id else "rejected"
+        update_page(page_id, {"Status": {"select": {"name": new_status}}})
+        name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+        print(f"{new_status}: {name}")
+
+
 def get_existing_event_urls(newsletter_name: str) -> set:
     """Get source URLs of existing events for this newsletter to avoid duplicates."""
     if not NOTION_EVENTS_DB_ID:
@@ -875,6 +919,7 @@ def save_events_to_notion(results: list, newsletter_name: str) -> None:
         saved += 1
     print(f"  Saved {saved} new events to Notion")
 
+    
 
 # ---------------------------------------------------------------------------
 # WELCOME INTRO HELPERS
@@ -996,6 +1041,7 @@ def _ensure_tips_schema():
             {"name": "life_event"},
         ]}},
         "Blurb":                {"rich_text": {}},
+        "Summary":              {"rich_text": {}},
         "Source URL":           {"url": {}},
         "Source Name":          {"rich_text": {}},
         "Newsletter":           {"select": {"options": [
@@ -1049,6 +1095,54 @@ def get_existing_tip_urls(newsletter_name: str) -> set:
         return set()
 
 
+def get_existing_tip_subjects(newsletter_name: str, months_back: int = 6) -> list:
+    """Return recent tip subjects for this newsletter so Claude can avoid repeats.
+
+    Each item: {topic, tip_title, summary, date}. Summary falls back to a
+    truncated blurb if the Summary column is empty (e.g., rows created before
+    Summary was added). Date filter uses Date Generated; rows missing that
+    field are included (they predate the filter, treat as recent-enough)."""
+    if not NOTION_TIPS_DB_ID:
+        return []
+    cutoff = (datetime.today() - timedelta(days=months_back * 30)).strftime("%Y-%m-%d")
+    try:
+        pages = query_database(NOTION_TIPS_DB_ID, filters={
+            "and": [
+                {"property": "Newsletter",    "select": {"equals": newsletter_name}},
+                {"property": "Date Generated", "date":   {"on_or_after": cutoff}},
+            ]
+        })
+    except Exception:
+        return []
+
+    subjects = []
+    for page in pages:
+        props = page.get("properties", {})
+
+        def _rt(field: str) -> str:
+            items = props.get(field, {}).get("rich_text", [])
+            return items[0].get("text", {}).get("content", "") if items else ""
+
+        topic     = _rt("Topic")
+        tip_title = _rt("Tip Title")
+        summary   = _rt("Summary")
+        blurb     = _rt("Blurb")
+        date_prop = props.get("Date Generated", {}).get("date", {}) or {}
+        date_str  = date_prop.get("start", "") if date_prop else ""
+
+        if not summary and blurb:
+            summary = blurb[:300]
+
+        if topic or tip_title or summary:
+            subjects.append({
+                "topic":     topic,
+                "tip_title": tip_title,
+                "summary":   summary,
+                "date":      date_str,
+            })
+    return subjects
+
+
 def save_tips_to_notion(results: list, newsletter_name: str) -> None:
     """Save insurance tip candidates to Notion for this newsletter.
     Called once per newsletter with the same `results` — the tips are shared
@@ -1076,6 +1170,7 @@ def save_tips_to_notion(results: list, newsletter_name: str) -> None:
             "Tip Title":            {"rich_text": [{"text": {"content": safe_str(data.get("tip_title"))}}]},
             "Topic":                {"rich_text": [{"text": {"content": safe_str(data.get("topic"))}}]},
             "Blurb":                {"rich_text": [{"text": {"content": safe_str(data.get("blurb"))[:2000]}}]},
+            "Summary":              {"rich_text": [{"text": {"content": safe_str(data.get("summary"))[:500]}}]},
             "Source URL":           {"url": data.get("source_url") or None},
             "Source Name":          {"rich_text": [{"text": {"content": safe_str(data.get("source_name"))}}]},
             "Newsletter":           {"select": {"name": newsletter_name}},
