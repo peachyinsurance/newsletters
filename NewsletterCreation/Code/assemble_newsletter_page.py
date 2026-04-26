@@ -28,6 +28,7 @@ NOTION_RE_DB_ID          = os.environ.get("NOTION_RE_DB_ID", "")
 NOTION_EVENTS_DB_ID      = os.environ.get("NOTION_EVENTS_DB_ID", "")
 NOTION_INTRO_DB_ID       = os.environ.get("NOTION_INTRO_DB_ID", "")
 NOTION_FREE_EVENTS_DB_ID = os.environ.get("NOTION_FREE_EVENTS_DB_ID", "")
+NOTION_POLLS_DB_ID       = os.environ.get("NOTION_POLLS_DB_ID", "")
 NOTION_PARENT_PAGE_ID    = os.environ["NOTION_PARENT_PAGE_ID"]
 
 HEADERS = {
@@ -391,6 +392,50 @@ def sync_edits_back(page_id: str, newsletter_name: str) -> None:
             else:
                 print(f"  Warning: free events sync-back failed: {r.text[:200]}")
 
+    # --- Reader Poll ---
+    poll_text, poll_edited = extract_section_text(blocks, "Reader Poll")
+    if poll_edited and poll_text and NOTION_POLLS_DB_ID:
+        # Parse: first non-empty line = Question; lines starting with • or - are options.
+        lines = [ln.strip() for ln in poll_text.split("\n") if ln.strip()]
+        new_question = ""
+        new_options = []
+        for ln in lines:
+            if ln.startswith("•") or ln.startswith("-") or ln.startswith("*"):
+                new_options.append(ln.lstrip("•-* ").strip())
+            elif not new_question:
+                new_question = ln
+        if new_question:
+            try:
+                pages = query_database(NOTION_POLLS_DB_ID, filters={
+                    "property": "Newsletter",
+                    "select": {"equals": newsletter_name}
+                })
+            except Exception:
+                pages = []
+            pages = [p for p in pages if
+                     (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
+            if pages:
+                pages.sort(
+                    key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+                    reverse=True,
+                )
+                target_id = pages[0]["id"]
+                options_md = "\n".join(f"- {o}" for o in new_options)
+                r = requests.patch(
+                    f"https://api.notion.com/v1/pages/{target_id}",
+                    headers=HEADERS,
+                    json={"properties": {
+                        "Question":        {"rich_text": [{"text": {"content": new_question[:2000]}}]},
+                        "Options":         {"rich_text": [{"text": {"content": options_md[:2000]}}]},
+                        "Manually Edited": {"checkbox": True},
+                    }},
+                    timeout=30,
+                )
+                if r.ok:
+                    print(f"  🔄 Synced Reader Poll edits back to database (marked as manually edited)")
+                else:
+                    print(f"  Warning: poll sync-back failed: {r.text[:200]}")
+
 
 # ---------------------------------------------------------------------------
 # BLOCK BUILDERS
@@ -635,6 +680,57 @@ def get_latest_free_events(newsletter_name: str) -> str | None:
     return None
 
 
+def get_latest_poll(newsletter_name: str) -> dict | None:
+    """Get the most recent approved poll for this newsletter."""
+    if not NOTION_POLLS_DB_ID:
+        return None
+    try:
+        pages = query_database(NOTION_POLLS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+    except Exception:
+        return None
+    # Only show current 'approved' rows (not 'approved - old' which are exclusion-only)
+    pages = [p for p in pages if
+             (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
+    if not pages:
+        return None
+    pages.sort(
+        key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+        reverse=True,
+    )
+    props = pages[0]["properties"]
+
+    def _rt(key: str) -> str:
+        rt = props.get(key, {}).get("rich_text", [])
+        return "".join(chunk.get("text", {}).get("content", "") for chunk in rt) if rt else ""
+
+    question = _rt("Question")
+    options_md = _rt("Options")
+    intel = _rt("Ad Intel Mapping")
+    framing = _rt("Framing")
+    if not question:
+        return None
+
+    options = []
+    for line in (options_md or "").split("\n"):
+        line = line.strip()
+        if line.startswith("- "):
+            options.append(line[2:].strip())
+        elif line.startswith("* "):
+            options.append(line[2:].strip())
+        elif line:
+            options.append(line)
+
+    return {
+        "question": question,
+        "options":  options,
+        "framing":  framing,
+        "ad_intel": intel,
+    }
+
+
 def get_latest_intro(newsletter_name: str) -> dict | None:
     """Get the most recent Welcome Intro blurb from the database."""
     if not NOTION_INTRO_DB_ID:
@@ -808,8 +904,21 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
     blocks.append(divider_block())
 
     # 3. Poll
-    blocks.append(heading_block("📊 Poll"))
-    blocks.append(_placeholder("Not yet automated."))
+    blocks.append(heading_block("📊 Reader Poll"))
+    poll = get_latest_poll(newsletter_name)
+    if poll:
+        blocks.append(paragraph_block(poll["question"], bold=True))
+        for opt in poll.get("options", []):
+            blocks.append(paragraph_block(f"• {opt}"))
+        if poll.get("ad_intel"):
+            # Editorial-only context (not part of the published newsletter copy)
+            blocks.append(paragraph_block(""))
+            blocks.append(callout_block(
+                "Ad intel mapping (internal — do not paste into Beehiiv):\n" + poll["ad_intel"],
+                emoji="🧭",
+            ))
+    else:
+        blocks.append(_placeholder("Not yet automated."))
     blocks.append(divider_block())
 
     # 4. Sponsor Corner

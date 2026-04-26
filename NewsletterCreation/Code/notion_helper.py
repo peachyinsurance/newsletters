@@ -18,6 +18,7 @@ NOTION_EVENTS_DB_ID      = os.environ.get("NOTION_EVENTS_DB_ID", "")
 NOTION_INTRO_DB_ID       = os.environ.get("NOTION_INTRO_DB_ID", "")
 NOTION_TIPS_DB_ID        = os.environ.get("NOTION_TIPS_DB_ID", "")
 NOTION_FREE_EVENTS_DB_ID = os.environ.get("NOTION_FREE_EVENTS_DB_ID", "")
+NOTION_POLLS_DB_ID       = os.environ.get("NOTION_POLLS_DB_ID", "")
 
 HEADERS = {
     "Authorization":  f"Bearer {NOTION_API_KEY}",
@@ -364,6 +365,37 @@ def setup_notion_databases():
             print("✓ Free Events database schema created")
         else:
             print(f"✗ Free Events schema error: {r.text[:300]}")
+
+    # Reader Poll database properties
+    if NOTION_POLLS_DB_ID:
+        poll_properties = {
+            "Name":              {"title": {}},
+            "Newsletter":        {"select": {"options": [
+                {"name": "East_Cobb_Connect", "color": "purple"},
+                {"name": "Perimeter_Post",    "color": "pink"}
+            ]}},
+            "Date Generated":    {"date": {}},
+            "Status":            {"select": {"options": [
+                {"name": "approved",       "color": "green"},
+                {"name": "approved - old", "color": "gray"}
+            ]}},
+            "Framing":           {"rich_text": {}},
+            "Question":          {"rich_text": {}},
+            "Options":           {"rich_text": {}},
+            "Target Businesses": {"rich_text": {}},
+            "Ad Intel Mapping":  {"rich_text": {}},
+            "Manually Edited":   {"checkbox": {}},
+        }
+        r = requests.patch(
+            f"https://api.notion.com/v1/databases/{NOTION_POLLS_DB_ID}",
+            headers=HEADERS,
+            json={"properties": poll_properties},
+            timeout=30
+        )
+        if r.ok:
+            print("✓ Reader Poll database schema created")
+        else:
+            print(f"✗ Reader Poll schema error: {r.text[:300]}")
 
 # ---------------------------------------------------------------------------
 # PETS HELPERS
@@ -1356,3 +1388,152 @@ def get_used_free_event_urls(newsletter_name: str) -> set:
                 urls.add(u)
     print(f"  Loaded {len(urls)} previously featured free event URLs to exclude")
     return urls
+
+
+# ---------------------------------------------------------------------------
+# READER POLL HELPERS
+# ---------------------------------------------------------------------------
+
+def _ensure_polls_schema():
+    """Create Polls database properties if they don't exist (idempotent)."""
+    if not NOTION_POLLS_DB_ID:
+        return
+    props = {
+        "Name":              {"title": {}},
+        "Newsletter":        {"select": {"options": [
+            {"name": "East_Cobb_Connect", "color": "purple"},
+            {"name": "Perimeter_Post",    "color": "pink"}
+        ]}},
+        "Date Generated":    {"date": {}},
+        "Status":            {"select": {"options": [
+            {"name": "approved",       "color": "green"},
+            {"name": "approved - old", "color": "gray"}
+        ]}},
+        "Framing":           {"rich_text": {}},
+        "Question":          {"rich_text": {}},
+        "Options":           {"rich_text": {}},
+        "Target Businesses": {"rich_text": {}},
+        "Ad Intel Mapping":  {"rich_text": {}},
+        "Manually Edited":   {"checkbox": {}},
+    }
+    r = requests.patch(
+        f"https://api.notion.com/v1/databases/{NOTION_POLLS_DB_ID}",
+        headers=HEADERS,
+        json={"properties": props},
+        timeout=30,
+    )
+    if not r.ok:
+        print(f"  Warning: poll schema update failed: {r.text[:200]}")
+
+
+def save_poll_to_notion(result: dict, newsletter_name: str) -> None:
+    """Save the weekly reader poll to Notion. Previous 'approved' rows for this newsletter
+    are flipped to 'approved - old' (kept for the 8-week exclusion lookback). Manually-edited
+    rows are preserved as-is."""
+    if not NOTION_POLLS_DB_ID:
+        print("  No NOTION_POLLS_DB_ID set, skipping Notion save")
+        return
+
+    _ensure_polls_schema()
+
+    # Flip existing approved rows to approved-old (keep for exclusion history)
+    try:
+        existing = query_database(NOTION_POLLS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+        has_manual_edit = any(
+            p["properties"].get("Manually Edited", {}).get("checkbox", False)
+            for p in existing
+        )
+        if has_manual_edit:
+            print(f"  🔒 Manually edited Poll exists for {newsletter_name} — preserving, skipping save")
+            return
+
+        flipped = 0
+        for page in existing:
+            status = (page["properties"].get("Status", {}).get("select") or {}).get("name", "")
+            if status == "approved":
+                requests.patch(
+                    f"https://api.notion.com/v1/pages/{page['id']}",
+                    headers=HEADERS,
+                    json={"properties": {"Status": {"select": {"name": "approved - old"}}}},
+                    timeout=30,
+                )
+                flipped += 1
+        if flipped:
+            print(f"  Flipped {flipped} previous Poll entries to 'approved - old' for {newsletter_name}")
+    except Exception as e:
+        print(f"  Warning: could not process existing Poll rows: {e}")
+
+    framing = result.get("framing", "")
+    question = result.get("question", "")
+    options = result.get("options", []) or []
+
+    # Render Options as a markdown bullet list (newline-separated, with bullets)
+    options_text = "\n".join(f"- {opt.get('text', '').strip()}" for opt in options)
+
+    # Collect all categories pipe-separated
+    all_categories = []
+    for opt in options:
+        for c in (opt.get("categories") or []):
+            c = c.strip().lower()
+            if c and c not in all_categories:
+                all_categories.append(c)
+    categories_text = " | ".join(all_categories)[:2000]
+
+    # Build the human-readable Ad Intel Mapping
+    intel_lines = result.get("ad_intel_mapping") or [
+        f"{opt.get('text', '?')} → {', '.join(opt.get('categories') or [])}"
+        for opt in options
+    ]
+    intel_text = "\n".join(intel_lines)[:2000]
+
+    properties = {
+        "Name":              {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - Poll - {datetime.today().strftime('%Y-%m-%d')}"}}]},
+        "Newsletter":        {"select": {"name": newsletter_name}},
+        "Date Generated":    {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
+        "Status":            {"select": {"name": "approved"}},
+        "Framing":           {"rich_text": [{"text": {"content": safe_str(framing)[:2000]}}]},
+        "Question":          {"rich_text": [{"text": {"content": safe_str(question)[:2000]}}]},
+        "Options":           {"rich_text": [{"text": {"content": options_text[:2000]}}]},
+        "Target Businesses": {"rich_text": [{"text": {"content": categories_text}}]},
+        "Ad Intel Mapping":  {"rich_text": [{"text": {"content": intel_text}}]},
+        "Manually Edited":   {"checkbox": False},
+    }
+
+    create_page(NOTION_POLLS_DB_ID, properties)
+    print(f"  ✓ Saved Reader Poll to Notion ({len(options)} options, {len(all_categories)} categories)")
+
+
+def get_used_poll_categories(newsletter_name: str, lookback_weeks: int = 8) -> set:
+    """Return the set of target-business categories used by polls for this newsletter
+    in the past `lookback_weeks` (across approved + approved - old rows)."""
+    used = set()
+    if not NOTION_POLLS_DB_ID:
+        return used
+    cutoff = (datetime.today() - timedelta(weeks=lookback_weeks)).strftime("%Y-%m-%d")
+    try:
+        pages = query_database(NOTION_POLLS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+    except Exception:
+        return used
+
+    keep_statuses = {"approved", "approved - old"}
+    for page in pages:
+        props = page["properties"]
+        status = (props.get("Status", {}).get("select") or {}).get("name", "")
+        if status not in keep_statuses:
+            continue
+        date_str = (props.get("Date Generated", {}).get("date") or {}).get("start", "")
+        if date_str and date_str < cutoff:
+            continue
+        cat_rt = props.get("Target Businesses", {}).get("rich_text", [])
+        blob = "".join(chunk.get("text", {}).get("content", "") for chunk in cat_rt)
+        for c in blob.split("|"):
+            c = c.strip().lower()
+            if c:
+                used.add(c)
+    return used

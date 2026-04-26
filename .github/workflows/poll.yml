@@ -1,0 +1,40 @@
+name: Generate Reader Poll
+
+on:
+  schedule:
+    - cron: '0 16 * * 3'  # Every Wednesday at 11am EST (4pm UTC) — after Free Events
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install requests anthropic
+
+      - name: Generate Reader Poll
+        env:
+          CLAUDE_API_KEY:           ${{ secrets.CLAUDE_API_KEY }}
+          NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
+          NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+          NOTION_POLLS_DB_ID:       ${{ secrets.NOTION_POLLS_DB_ID }}
+        run: python "Poll/Code/Poll.py"
+
+      - name: Trigger newsletter page rebuild
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
+            -d '{"ref":"main"}'
+          echo "✓ Newsletter page rebuild triggered"
