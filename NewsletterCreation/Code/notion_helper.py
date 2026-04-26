@@ -10,8 +10,8 @@ import requests
 from datetime import datetime, timedelta
 
 NOTION_API_KEY           = os.environ["NOTION_API_KEY"]
-NOTION_PETS_DB_ID        = os.environ["NOTION_PETS_DB_ID"]
-NOTION_RESTAURANTS_DB_ID = os.environ["NOTION_RESTAURANTS_DB_ID"]
+NOTION_PETS_DB_ID        = os.environ.get("NOTION_PETS_DB_ID", "")
+NOTION_RESTAURANTS_DB_ID = os.environ.get("NOTION_RESTAURANTS_DB_ID", "")
 NOTION_LOWDOWN_DB_ID     = os.environ.get("NOTION_LOWDOWN_DB_ID", "")
 NOTION_RE_DB_ID          = os.environ.get("NOTION_RE_DB_ID", "")
 NOTION_EVENTS_DB_ID      = os.environ.get("NOTION_EVENTS_DB_ID", "")
@@ -888,6 +888,32 @@ def approve_event_in_notion(source_url: str) -> None:
         update_page(page_id, {"Status": {"select": {"name": new_status}}})
         name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
         print(f"{new_status}: {name}")
+
+
+def redo_event_selection(newsletter_name: str) -> None:
+    """Reset all approved/rejected featured events for a newsletter back to pending."""
+    if not NOTION_EVENTS_DB_ID:
+        print("  NOTION_EVENTS_DB_ID not set — skipping")
+        return
+    pages = query_database(NOTION_EVENTS_DB_ID)
+    count = 0
+    for page in pages:
+        page_id = page["id"]
+        props = page["properties"]
+
+        newsletter = props.get("Newsletter", {}).get("select", {})
+        if not newsletter or newsletter.get("name") != newsletter_name:
+            continue
+
+        status = props.get("Status", {}).get("select", {})
+        status_name = status.get("name", "") if status else ""
+
+        if status_name in ("approved", "rejected"):
+            update_page(page_id, {"Status": {"select": {"name": "pending"}}})
+            name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+            print(f"  Reset to pending: {name}")
+            count += 1
+    print(f"Reset {count} events to pending for {newsletter_name}")
 
 
 def get_existing_event_urls(newsletter_name: str) -> set:

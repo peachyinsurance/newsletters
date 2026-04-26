@@ -6,13 +6,17 @@ this script resets statuses in Notion to keep it in sync.
 
 Env vars:
   NEWSLETTER_NAME  – e.g. "East_Cobb_Connect"
-  SECTION          – "pets" or "restaurants"
+  SECTION          – "pets", "restaurants", or "events"
 """
 import os
 import sys
 
 sys.path.append(os.path.dirname(__file__))
-from notion_helper import redo_pet_selection, redo_restaurant_selection
+from notion_helper import (
+    redo_pet_selection,
+    redo_restaurant_selection,
+    redo_event_selection,
+)
 
 NEWSLETTER_NAME = os.environ["NEWSLETTER_NAME"]
 SECTION         = os.environ["SECTION"]
@@ -25,6 +29,10 @@ SECTION_CONFIG = {
     "restaurants": {
         "redo_fn": redo_restaurant_selection,
         "label":   "restaurants",
+    },
+    "events": {
+        "redo_fn": redo_event_selection,
+        "label":   "events",
     },
 }
 

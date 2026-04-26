@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       section:
-        description: 'Section to reset (pets or restaurants)'
+        description: 'Section to reset (pets, restaurants, or events)'
         required: true
 
 jobs:
@@ -24,6 +24,7 @@ jobs:
           NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
           NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+          NOTION_EVENTS_DB_ID:      ${{ secrets.NOTION_EVENTS_DB_ID }}
           NEWSLETTER_NAME:          Perimeter_Post
           SECTION:                  ${{ github.event.inputs.section }}
         run: python NewsletterCreation/Code/redo_section.py
