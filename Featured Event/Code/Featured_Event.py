@@ -16,7 +16,7 @@ import requests
 import anthropic
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
-from notion_helper import save_events_to_notion
+from notion_helper import save_events_to_notion, get_existing_event_urls
 from url_validator import filter_valid_items
 
 # ---------------------------------------------------------------------------
@@ -352,6 +352,19 @@ if __name__ == "__main__":
             print(f"  Dropped {len(rejected)} candidates with dead URLs before evaluation")
         if not candidates:
             print(f"  No candidates with valid URLs for {newsletter['name']}. Skipping.")
+            continue
+
+        # Cross-newsletter URL dedup — union of existing event URLs across both newsletters.
+        # Re-fetched per iteration so Newsletter 2 sees Newsletter 1's freshly-saved winners.
+        existing_urls = set()
+        for nl in NEWSLETTERS:
+            existing_urls |= get_existing_event_urls(nl["name"])
+        if existing_urls:
+            before = len(candidates)
+            candidates = [c for c in candidates if c["url"] not in existing_urls]
+            print(f"  Filtered {before - len(candidates)} previously-used URLs (union across both newsletters)")
+        if not candidates:
+            print(f"  All candidates were previously used for {newsletter['name']}. Skipping.")
             continue
 
         # Claude evaluates and writes blurbs
