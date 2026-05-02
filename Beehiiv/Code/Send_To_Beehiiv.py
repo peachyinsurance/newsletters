@@ -180,13 +180,33 @@ def upload_remote_image(client: BeehiivClient, publication_id: str, url: str) ->
 # ---------------------------------------------------------------------------
 # 3. PLACEHOLDER REPLACEMENT
 # ---------------------------------------------------------------------------
+def _placeholder_variants(key: str) -> list[str]:
+    """Beehiiv's editor stores curly braces as HTML entities, so `{key}` in the
+    UI may be `&#123;key&#125;`, `&lbrace;key&rbrace;`, or even split across
+    span tags. Return every form we should try to match.
+    """
+    inner = key
+    return [
+        "{" + inner + "}",
+        "&#123;" + inner + "&#125;",
+        "&#x7b;" + inner + "&#x7d;",
+        "&lbrace;" + inner + "&rbrace;",
+        "&lcub;" + inner + "&rcub;",
+    ]
+
+
 def replace_placeholders(html: str, replacements: dict[str, str]) -> str:
-    """Replace literal `{placeholder}` tokens in `html` with their string values.
+    """Replace `{placeholder}` tokens (in any HTML-encoded form) with values.
     Unset placeholders are left alone (visible in the draft so editor can spot them)."""
     out = html
+    hits = 0
     for key, value in replacements.items():
-        token = "{" + key + "}"
-        out = out.replace(token, value or "")
+        replacement = value or ""
+        for token in _placeholder_variants(key):
+            if token in out:
+                out = out.replace(token, replacement)
+                hits += 1
+    print(f"  Placeholder replacements applied: {hits} matches")
     return out
 
 
@@ -194,8 +214,9 @@ def hide_unused_lowdown_slots(html: str, used_count: int) -> str:
     """For Local Lowdown placeholders we don't fill (e.g., we have 3 stories, slots
     4-5 are unused), wipe the remaining placeholders so they don't render literally."""
     for n in range(used_count + 1, 6):
-        html = html.replace("{local_lowdown" + str(n) + "_title}", "")
-        html = html.replace("{local_lowdown" + str(n) + "_message}", "")
+        for key in (f"local_lowdown{n}_title", f"local_lowdown{n}_message"):
+            for token in _placeholder_variants(key):
+                html = html.replace(token, "")
     return html
 
 
