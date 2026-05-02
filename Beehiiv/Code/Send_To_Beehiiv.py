@@ -202,6 +202,7 @@ def _placeholder_variants(key: str) -> list[str]:
 # `http://{key}`). We need to clean those scheme-prepended forms in addition
 # to the bare placeholder.
 URL_TYPED_KEYS = {
+    # canonical keys
     "event_of_the_week_link",
     "free_event_link_1",
     "PET_SOURCE_URL",
@@ -213,6 +214,9 @@ URL_TYPED_KEYS = {
     "real_estate_showcase_link",
     "local_lowdown1_link", "local_lowdown2_link", "local_lowdown3_link",
     "local_lowdown4_link", "local_lowdown5_link",
+    # aliases (shorter forms users typed in URL fields)
+    "event_of_the_week",
+    "free_event_link",
 }
 
 
