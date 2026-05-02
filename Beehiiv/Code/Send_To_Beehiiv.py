@@ -530,6 +530,11 @@ def main():
     # placeholder images get replaced with the actual content image. Author
     # sets alt='restaurant_radar_image' etc. on each placeholder image in
     # Beehiiv editor; we find by alt and replace its src.
+    # DEBUG: dump every <img> tag so we can see how Beehiiv stores alt text
+    img_tags = re.findall(r"<img\b[^>]*>", new_body, re.IGNORECASE)
+    print(f"\n  [debug] Found {len(img_tags)} <img> tags in body. Showing up to 8:")
+    for t in img_tags[:8]:
+        print(f"    {t[:300]}")
     print("\n  Swapping image src by alt-text…")
     new_body, alt_swap_count = swap_images_by_alt(new_body, alt_swaps)
     print(f"  Image alt-swaps applied: {alt_swap_count}")
