@@ -378,7 +378,12 @@ def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
     if not alt_swaps:
         return html, 0
 
-    # Map: logical slot key → filename token to look for in src URLs
+    # Map: logical slot key → filename token to look for in src URLs.
+    # IMPORTANT: tokens must NOT collide with section-banner filenames
+    # already in the template (restaurant-radar.png, furry-friends.png,
+    # real-estate-corner.png are headers).
+    # `restaurant-radar-1` etc. don't collide with `restaurant-radar` (substring).
+    # `furry-friends` would collide → use `pet-photo` instead.
     SLOT_TO_FILENAME = {
         "event_of_the_week_image":     "event-of-the-week",
         "restaurant_radar_image":      "restaurant-radar-1",
@@ -387,8 +392,8 @@ def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
         "real_estate_image_starter":   "real-estate-starter",
         "real_estate_image_sweetspot": "real-estate-sweetspot",
         "real_estate_image_showcase":  "real-estate-showcase",
-        "PET_IMAGE":                   "furry-friends",
-        "PET_PHOTO":                   "furry-friends",
+        "PET_IMAGE":                   "pet-photo",
+        "PET_PHOTO":                   "pet-photo",
         "free_event_image_1":          "free-event",
     }
 
