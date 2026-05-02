@@ -108,10 +108,12 @@ class BeehiivClient:
                     status: str = "draft",
                     thumbnail_url: str | None = None) -> dict:
         """Create a new post. status: 'draft', 'confirmed', 'scheduled'."""
+        # Beehiiv expects 'body_content' (HTML string) or 'blocks' (structured).
+        # We always send HTML, since we're cloning the template post body.
         body: dict[str, Any] = {
             "title":        title,
             "status":       status,
-            "content_html": content_html,
+            "body_content": content_html,
         }
         if subtitle:      body["subtitle"]      = subtitle
         if subject_line:  body["subject_line"]  = subject_line
