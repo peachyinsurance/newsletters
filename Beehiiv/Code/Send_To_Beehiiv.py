@@ -197,13 +197,44 @@ def _placeholder_variants(key: str) -> list[str]:
     ]
 
 
+# Keys whose values are full URLs. When Beehiiv stores these in a link/button
+# URL field, it auto-prepends `http://` (e.g. typed `{key}` → saved as
+# `http://{key}`). We need to clean those scheme-prepended forms in addition
+# to the bare placeholder.
+URL_TYPED_KEYS = {
+    "event_of_the_week_link",
+    "free_event_link_1",
+    "PET_SOURCE_URL",
+    "restaurant_radar_url",
+    "restaurant_radar_2_url",
+    "restaurant_radar_3_url",
+    "real_estate_starter_link",
+    "real_estate_sweetspot_link",
+    "real_estate_showcase_link",
+    "local_lowdown1_link", "local_lowdown2_link", "local_lowdown3_link",
+    "local_lowdown4_link", "local_lowdown5_link",
+}
+
+
 def replace_placeholders(html: str, replacements: dict[str, str]) -> str:
     """Replace `{placeholder}` tokens (in any HTML-encoded form) with values.
+    For URL-typed keys, also replace `http://{key}` / `https://{key}` patterns
+    that Beehiiv produces when you paste a placeholder into a URL field.
     Unset placeholders are left alone (visible in the draft so editor can spot them)."""
     out = html
     hits = 0
     for key, value in replacements.items():
         replacement = value or ""
+        # First handle Beehiiv's auto-prepended scheme on URL fields,
+        # so `http://{key}` → real URL (not `http://real-url`).
+        if key in URL_TYPED_KEYS:
+            for variant in _placeholder_variants(key):
+                for scheme in ("http://", "https://"):
+                    prefixed = scheme + variant
+                    if prefixed in out:
+                        out = out.replace(prefixed, replacement)
+                        hits += 1
+        # Then ordinary token replacement (covers text uses).
         for token in _placeholder_variants(key):
             if token in out:
                 out = out.replace(token, replacement)
@@ -250,7 +281,10 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     if event and event.get("blurb"):
         repl["event_of_the_week_headline"]    = event.get("event_name", "")
         repl["event_of_the_week_description"] = event.get("blurb", "")
-        repl["event_of_the_week_link"]        = event.get("ticket_url") or event.get("source_url") or ""
+        ev_link = event.get("ticket_url") or event.get("source_url") or ""
+        repl["event_of_the_week_link"]        = ev_link
+        # Alias: template URL fields sometimes lose the `_link` suffix
+        repl["event_of_the_week"]             = ev_link
         ev_img = event.get("image_url") or event.get("photo") or ""
         if ev_img:
             hosted = upload_remote_image(client, publication_id, ev_img)
@@ -266,6 +300,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     if tier1:
         repl["restaurant_radar_name"]    = tier1.get("name", "")
         repl["restaurant_radar_message"] = tier1.get("blurb", "")
+        repl["restaurant_radar_url"]     = tier1.get("maps_url") or tier1.get("website") or ""
         # upload tier 1 image
         img_url = tier1.get("gif") or tier1.get("photo")
         if img_url:
@@ -276,6 +311,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     for i, r in enumerate(others[:2], start=2):
         repl[f"restaurant_radar_{i}_name"]    = r.get("name", "")
         repl[f"restaurant_radar_{i}_message"] = r.get("blurb", "")
+        repl[f"restaurant_radar_{i}_url"]     = r.get("maps_url") or r.get("website") or ""
         img_url = r.get("gif") or r.get("photo")
         if img_url:
             hosted = upload_remote_image(client, publication_id, img_url)
@@ -291,6 +327,11 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         "Sweet Spot":   "real_estate_image_sweetspot",
         "Showcase":     "real_estate_image_showcase",
     }
+    re_tier_to_link_key = {
+        "Starter Home": "real_estate_starter_link",
+        "Sweet Spot":   "real_estate_sweetspot_link",
+        "Showcase":     "real_estate_showcase_link",
+    }
     for listing in re_listings:
         img_url = listing.get("template") or listing.get("photo")
         if img_url:
@@ -300,20 +341,31 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             alt_key = re_tier_to_alt.get(listing.get("tier", ""))
             if alt_key:
                 alt_swaps[alt_key] = hosted or img_url
+        link_key = re_tier_to_link_key.get(listing.get("tier", ""))
+        if link_key:
+            repl[link_key] = listing.get("url", "")
 
     # ---- Local Lowdown (1–5 stories) ----
     lowdown_text = get_latest_lowdown(newsletter_name)
     story_count = 0
     if lowdown_text:
-        # Parse the markdown: ### {emoji} {headline}\n\n{body}\n\nMore: ...
+        # Parse the markdown: ### {emoji} {headline}\n\n{body}\n\nMore: [label](url)
         sections = re.split(r"\n(?=### )", lowdown_text.strip())
         for i, section in enumerate(sections[:5], start=1):
             lines = section.splitlines()
             heading = lines[0].lstrip("# ").strip() if lines else ""
             body_lines = [ln for ln in lines[1:] if ln.strip()]
+            # Pull the trailing markdown link `[label](url)` if present (story permalink)
+            story_url = ""
+            for ln in reversed(body_lines):
+                m = re.search(r"\((https?://[^\)]+)\)", ln)
+                if m:
+                    story_url = m.group(1)
+                    break
             body = "\n".join(body_lines).strip()
             repl[f"local_lowdown{i}_title"]   = heading
             repl[f"local_lowdown{i}_message"] = body
+            repl[f"local_lowdown{i}_link"]    = story_url
             story_count += 1
 
     # ---- Pet ----
@@ -359,6 +411,8 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             repl["free_event_address_1"]     = details
             repl["free_event_description_1"] = description
             repl["free_event_link_1"]        = link
+            # Alias: template URL fields sometimes drop the trailing `_1`
+            repl["free_event_link"]          = link
 
     return repl, image_swaps, alt_swaps, story_count
 
