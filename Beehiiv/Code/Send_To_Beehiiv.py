@@ -490,7 +490,9 @@ def main():
     print()
     print("=" * 60)
     print(f"✓ Sent to Beehiiv: {new_post_id}")
-    print(f"  Edit in Beehiiv: https://app.beehiiv.com/posts/{new_post_id}/edit")
+    # Beehiiv UI URLs use the bare UUID, not the API's `post_` prefix
+    ui_post_id = new_post_id[5:] if new_post_id.startswith("post_") else new_post_id
+    print(f"  Edit in Beehiiv: https://app.beehiiv.com/posts/{ui_post_id}/edit")
     print("=" * 60)
 
 
