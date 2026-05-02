@@ -55,11 +55,24 @@ CLAUDE_API_KEY = os.environ["CLAUDE_API_KEY"]
 NEWSLETTER = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
 STATUS     = os.environ.get("STATUS", "draft")
 
+
+def _normalize_post_id(raw: str) -> str:
+    """Beehiiv's API requires post IDs prefixed with 'post_', but the dashboard
+    URL only shows the bare UUID. Auto-prefix so a secret containing either form
+    works."""
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("post_"):
+        return raw
+    return f"post_{raw}"
+
+
 # Per-newsletter Beehiiv config — extend when PP is added
 NEWSLETTER_CONFIG = {
     "East_Cobb_Connect": {
-        "publication_id":   os.environ.get("BEEHIIV_ECC_PUBLICATION_ID", ""),
-        "template_post_id": os.environ.get("BEEHIIV_ECC_TEMPLATE_POST_ID", ""),
+        "publication_id":   os.environ.get("BEEHIIV_ECC_PUBLICATION_ID", "").strip(),
+        "template_post_id": _normalize_post_id(os.environ.get("BEEHIIV_ECC_TEMPLATE_POST_ID", "")),
         "display_area":     "East Cobb",
     },
     # "Perimeter_Post": {
@@ -125,27 +138,42 @@ def _guess_content_type(url: str) -> str:
     return ct or "image/png"
 
 
+# Module-level cache: once Beehiiv tells us media upload isn't available on this
+# plan, stop trying and just pass through the original URL. Beehiiv's email engine
+# fetches external image URLs at send time, so this works fine.
+_BEEHIIV_UPLOAD_DISABLED = False
+
+
 def upload_remote_image(client: BeehiivClient, publication_id: str, url: str) -> str:
-    """Download an image from `url`, upload to Beehiiv, return Beehiiv-hosted URL.
-    Returns empty string on failure (caller decides whether to skip or fall back to original URL)."""
+    """Try to upload an image to Beehiiv's media library, fall back to passing through
+    the original URL if Beehiiv's media endpoint isn't available on this plan."""
+    global _BEEHIIV_UPLOAD_DISABLED
     if not url:
         return ""
+    if _BEEHIIV_UPLOAD_DISABLED:
+        return url  # already determined Beehiiv upload isn't available — just pass through
     try:
         r = requests.get(url, timeout=30,
                          headers={"User-Agent": "Mozilla/5.0 (newsletter-automation)"})
         if r.status_code != 200 or not r.content:
             print(f"    ✗ Image fetch failed ({r.status_code}): {url[:60]}")
-            return ""
+            return url
         filename = url.split("/")[-1].split("?")[0] or "image.png"
         ct = _guess_content_type(filename)
         hosted = client.upload_image(publication_id, r.content, filename, ct)
         print(f"    ✓ Uploaded {filename} → {hosted[:80]}")
         return hosted
     except BeehiivError as e:
-        print(f"    ✗ Beehiiv upload error for {url[:50]}: {e}")
-        return url  # fall back to the original URL — Beehiiv may still embed it
+        # If the FIRST upload returns 404, the media API isn't enabled on this plan.
+        # Disable for the rest of the run and just return original URLs.
+        if "404" in str(e):
+            _BEEHIIV_UPLOAD_DISABLED = True
+            print(f"    ⓘ Beehiiv media upload not available (404) — using original URLs")
+        else:
+            print(f"    ⚠ Beehiiv upload error for {url[:50]}: {e}")
+        return url
     except Exception as e:
-        print(f"    ✗ Image upload error for {url[:50]}: {e}")
+        print(f"    ⚠ Image upload error for {url[:50]}: {e}")
         return url
 
 
@@ -333,8 +361,8 @@ def main():
         sys.exit(f"BEEHIIV_*_TEMPLATE_POST_ID not set for {NEWSLETTER}")
 
     print(f"Sending {NEWSLETTER} to Beehiiv (status: {STATUS})…")
-    print(f"  Publication: {cfg['publication_id']}")
-    print(f"  Template:    {cfg['template_post_id']}")
+    print(f"  Publication: {cfg['publication_id']}  (len={len(cfg['publication_id'])})")
+    print(f"  Template:    {cfg['template_post_id']}  (len={len(cfg['template_post_id'])}, prefix_ok={cfg['template_post_id'].startswith('post_')})")
 
     client = BeehiivClient()
 
