@@ -41,6 +41,8 @@ from assemble_newsletter_page import (
     get_approved_pet,
     get_latest_free_events,
     get_latest_poll,
+    sync_edits_back,
+    notion_search_page,
 )
 
 import anthropic
@@ -384,6 +386,21 @@ def main():
     print(f"Sending {NEWSLETTER} to Beehiiv (status: {STATUS})…")
     print(f"  Publication: {cfg['publication_id']}  (len={len(cfg['publication_id'])})")
     print(f"  Template:    {cfg['template_post_id']}  (len={len(cfg['template_post_id'])}, prefix_ok={cfg['template_post_id'].startswith('post_')})")
+
+    # Sync any manual edits made on the Notion landing page back to the
+    # underlying section DBs, so get_* below reads the freshest content.
+    display_name = NEWSLETTER.replace("_", " ")
+    landing_page_title = f"{display_name} — Current Edition"
+    print(f"\n  Syncing landing page edits back to DBs ({landing_page_title})…")
+    landing_page_id = notion_search_page(landing_page_title)
+    if landing_page_id:
+        try:
+            sync_edits_back(landing_page_id, NEWSLETTER)
+            print(f"  ✓ Sync complete")
+        except Exception as e:
+            print(f"  ⚠ sync_edits_back failed: {e} (continuing with DB content)")
+    else:
+        print(f"  ⚠ Landing page not found — using DB content as-is")
 
     client = BeehiivClient()
 
