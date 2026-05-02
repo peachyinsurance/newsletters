@@ -533,9 +533,13 @@ def main():
     # Beehiiv editor; we find by alt and replace its src.
     # DEBUG: dump every <img> tag so we can see how Beehiiv stores alt text
     img_tags = re.findall(r"<img\b[^>]*>", new_body, re.IGNORECASE)
-    print(f"\n  [debug] Found {len(img_tags)} <img> tags in body. Showing up to 8:")
-    for t in img_tags[:8]:
-        print(f"    {t[:300]}")
+    print(f"\n  [debug] Found {len(img_tags)} <img> tags in body. Listing src-only filenames:")
+    for i, t in enumerate(img_tags):
+        m = re.search(r'\bsrc\s*=\s*["\']([^"\']+)["\']', t, re.IGNORECASE)
+        src = m.group(1) if m else "(no src)"
+        # Just the filename portion at the tail of the URL (last `/` segment, stripping query)
+        tail = src.split("?")[0].rstrip("/").split("/")[-1] if "/" in src else src
+        print(f"    [{i:2d}] …/{tail}   (full src len={len(src)})")
     print("\n  Swapping image src by filename token (Beehiiv strips alt; filenames persist)…")
     new_body, alt_swap_count = swap_images_by_alt(new_body, alt_swaps)
     print(f"  Image alt-swaps applied: {alt_swap_count}")
