@@ -364,56 +364,57 @@ def build_replacements(client: BeehiivClient, publication_id: str,
 
 
 def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
-    """For each <img> tag whose alt attribute matches a key in alt_swaps,
-    replace its src with the mapped URL. Returns (new_html, swap_count).
+    """Swap <img src> by detecting a filename token in the URL.
 
-    Why alt-based and not src-based: the template's placeholder images have
-    Beehiiv-hosted URLs we don't know in advance. Alt text is editor-controlled
-    and stable. Author tags each placeholder image with alt='restaurant_radar_image'
-    etc., and we find/replace by alt.
+    Beehiiv strips alt text on user-uploaded images but PRESERVES the
+    original filename in the hosted URL (e.g., `.../restaurant-radar-1.png`).
+    So author renames each placeholder image to a known filename before
+    uploading; we find <img> tags whose src URL contains that filename
+    and replace the src with the real content URL.
+
+    The map `alt_swaps` keys are logical slot names (e.g., 'restaurant_radar_image');
+    we translate each to a filename token via SLOT_TO_FILENAME and match URL substrings.
     """
     if not alt_swaps:
         return html, 0
 
-    # Beehiiv may serialize alt text with HTML entities — accept both literal and encoded forms
-    import html as _htmllib
-
-    def _build_pattern(alt_value: str) -> re.Pattern:
-        # Match an <img ...> tag where alt="<alt_value>" appears (any attribute order)
-        # Also handle alt='...' single quotes
-        encoded_alt = _htmllib.escape(alt_value, quote=True)
-        alt_alts = {alt_value, encoded_alt}
-        # Build the alt match group: alt="X" or alt='X' for any of the alts
-        alt_group = "|".join(re.escape(a) for a in alt_alts)
-        # Tolerant <img> matcher — we capture the whole tag, then replace its src=
-        return re.compile(
-            r'(<img\b[^>]*\balt\s*=\s*["\'](?:' + alt_group + r')["\'][^>]*>)',
-            re.IGNORECASE,
-        )
+    # Map: logical slot key → filename token to look for in src URLs
+    SLOT_TO_FILENAME = {
+        "event_of_the_week_image":     "event-of-the-week",
+        "restaurant_radar_image":      "restaurant-radar-1",
+        "restaurant_radar_2_image":    "restaurant-radar-2",
+        "restaurant_radar_3_image":    "restaurant-radar-3",
+        "real_estate_image_starter":   "real-estate-starter",
+        "real_estate_image_sweetspot": "real-estate-sweetspot",
+        "real_estate_image_showcase":  "real-estate-showcase",
+        "PET_IMAGE":                   "furry-friends",
+        "PET_PHOTO":                   "furry-friends",
+        "free_event_image_1":          "free-event",
+    }
 
     out = html
     total_swaps = 0
-    for alt_value, new_src in alt_swaps.items():
-        pat = _build_pattern(alt_value)
+    for slot_key, new_src in alt_swaps.items():
+        token = SLOT_TO_FILENAME.get(slot_key)
+        if not token:
+            print(f"    · slot='{slot_key}' — no filename token configured")
+            continue
 
-        def _replace_src_in_tag(m: re.Match) -> str:
-            tag = m.group(1)
-            # Replace src="..." or src='...' with the new URL
-            new_tag, n = re.subn(
-                r'(\bsrc\s*=\s*)(["\'])[^"\']*\2',
-                lambda mm: f'{mm.group(1)}"{new_src}"',
-                tag,
-                count=1,
-                flags=re.IGNORECASE,
-            )
-            return new_tag if n else tag
+        # Match <img ...src="...{token}...">  (token must appear in the src URL)
+        pat = re.compile(
+            r'(<img\b[^>]*\bsrc\s*=\s*["\'])([^"\']*' + re.escape(token) + r'[^"\']*)(["\'][^>]*>)',
+            re.IGNORECASE,
+        )
 
-        out, n = pat.subn(_replace_src_in_tag, out)
+        def _replace_src(m: re.Match) -> str:
+            return f"{m.group(1)}{new_src}{m.group(3)}"
+
+        out, n = pat.subn(_replace_src, out)
         if n:
             total_swaps += n
-            print(f"    ✓ alt='{alt_value}' → swapped {n} <img> src")
+            print(f"    ✓ slot='{slot_key}' (token='{token}') → swapped {n} <img>")
         else:
-            print(f"    · alt='{alt_value}' — no matching <img> tag found")
+            print(f"    · slot='{slot_key}' (token='{token}') — no <img> with that filename")
     return out, total_swaps
 
 
@@ -535,7 +536,7 @@ def main():
     print(f"\n  [debug] Found {len(img_tags)} <img> tags in body. Showing up to 8:")
     for t in img_tags[:8]:
         print(f"    {t[:300]}")
-    print("\n  Swapping image src by alt-text…")
+    print("\n  Swapping image src by filename token (Beehiiv strips alt; filenames persist)…")
     new_body, alt_swap_count = swap_images_by_alt(new_body, alt_swaps)
     print(f"  Image alt-swaps applied: {alt_swap_count}")
 
