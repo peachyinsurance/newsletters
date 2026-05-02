@@ -228,14 +228,16 @@ def hide_unused_lowdown_slots(html: str, used_count: int) -> str:
 def build_replacements(client: BeehiivClient, publication_id: str,
                       newsletter_name: str) -> tuple[dict, dict, int]:
     """Pull section data, upload images, return:
-      (text_replacements, image_url_swaps, lowdown_story_count)
+      (text_replacements, image_url_swaps, alt_image_swaps, lowdown_story_count)
 
     text_replacements: {placeholder_key: string_value}
-    image_url_swaps:   {original_url: beehiiv_hosted_url} (may be empty if no images uploaded)
+    image_url_swaps:   {original_url: beehiiv_hosted_url}  — used as fallback string-find
+    alt_image_swaps:   {alt_text: image_url}  — used to swap <img alt="..." src="...">
     lowdown_story_count: number of stories actually used (0-5)
     """
     repl: dict[str, str] = {}
     image_swaps: dict[str, str] = {}
+    alt_swaps: dict[str, str] = {}
 
     # ---- Welcome Intro ----
     intro = get_latest_intro(newsletter_name)
@@ -249,6 +251,12 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["event_of_the_week_headline"]    = event.get("event_name", "")
         repl["event_of_the_week_description"] = event.get("blurb", "")
         repl["event_of_the_week_link"]        = event.get("ticket_url") or event.get("source_url") or ""
+        ev_img = event.get("image_url") or event.get("photo") or ""
+        if ev_img:
+            hosted = upload_remote_image(client, publication_id, ev_img)
+            if hosted:
+                image_swaps[ev_img] = hosted
+            alt_swaps["event_of_the_week_image"] = hosted or ev_img
 
     # ---- Restaurants (Tier 1 + others) ----
     restaurants = get_restaurants(newsletter_name)
@@ -264,6 +272,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             hosted = upload_remote_image(client, publication_id, img_url)
             if hosted:
                 image_swaps[img_url] = hosted
+            alt_swaps["restaurant_radar_image"] = hosted or img_url
     for i, r in enumerate(others[:2], start=2):
         repl[f"restaurant_radar_{i}_name"]    = r.get("name", "")
         repl[f"restaurant_radar_{i}_message"] = r.get("blurb", "")
@@ -272,19 +281,25 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             hosted = upload_remote_image(client, publication_id, img_url)
             if hosted:
                 image_swaps[img_url] = hosted
+            alt_swaps[f"restaurant_radar_{i}_image"] = hosted or img_url
 
     # ---- Real Estate ----
+    # Tier names from RE corner: "Starter Home", "Sweet Spot", "Showcase"
     re_listings = get_real_estate(newsletter_name)
+    re_tier_to_alt = {
+        "Starter Home": "real_estate_image_starter",
+        "Sweet Spot":   "real_estate_image_sweetspot",
+        "Showcase":     "real_estate_image_showcase",
+    }
     for listing in re_listings:
-        # Tier-specific URL/image swaps. Template references existing image URLs;
-        # we just upload + record swaps. Listing URL placeholder isn't in the
-        # template per the user's note (Zillow links are baked in), so nothing
-        # to replace by token.
         img_url = listing.get("template") or listing.get("photo")
         if img_url:
             hosted = upload_remote_image(client, publication_id, img_url)
             if hosted:
                 image_swaps[img_url] = hosted
+            alt_key = re_tier_to_alt.get(listing.get("tier", ""))
+            if alt_key:
+                alt_swaps[alt_key] = hosted or img_url
 
     # ---- Local Lowdown (1–5 stories) ----
     lowdown_text = get_latest_lowdown(newsletter_name)
@@ -318,6 +333,9 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             hosted = upload_remote_image(client, publication_id, img_url)
             if hosted:
                 image_swaps[img_url] = hosted
+            # Template uses both PET_IMAGE and PET_PHOTO as alt-text aliases
+            alt_swaps["PET_IMAGE"] = hosted or img_url
+            alt_swaps["PET_PHOTO"] = hosted or img_url
 
     # ---- Free Event ----
     free_text = get_latest_free_events(newsletter_name)
@@ -342,7 +360,61 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             repl["free_event_description_1"] = description
             repl["free_event_link_1"]        = link
 
-    return repl, image_swaps, story_count
+    return repl, image_swaps, alt_swaps, story_count
+
+
+def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
+    """For each <img> tag whose alt attribute matches a key in alt_swaps,
+    replace its src with the mapped URL. Returns (new_html, swap_count).
+
+    Why alt-based and not src-based: the template's placeholder images have
+    Beehiiv-hosted URLs we don't know in advance. Alt text is editor-controlled
+    and stable. Author tags each placeholder image with alt='restaurant_radar_image'
+    etc., and we find/replace by alt.
+    """
+    if not alt_swaps:
+        return html, 0
+
+    # Beehiiv may serialize alt text with HTML entities — accept both literal and encoded forms
+    import html as _htmllib
+
+    def _build_pattern(alt_value: str) -> re.Pattern:
+        # Match an <img ...> tag where alt="<alt_value>" appears (any attribute order)
+        # Also handle alt='...' single quotes
+        encoded_alt = _htmllib.escape(alt_value, quote=True)
+        alt_alts = {alt_value, encoded_alt}
+        # Build the alt match group: alt="X" or alt='X' for any of the alts
+        alt_group = "|".join(re.escape(a) for a in alt_alts)
+        # Tolerant <img> matcher — we capture the whole tag, then replace its src=
+        return re.compile(
+            r'(<img\b[^>]*\balt\s*=\s*["\'](?:' + alt_group + r')["\'][^>]*>)',
+            re.IGNORECASE,
+        )
+
+    out = html
+    total_swaps = 0
+    for alt_value, new_src in alt_swaps.items():
+        pat = _build_pattern(alt_value)
+
+        def _replace_src_in_tag(m: re.Match) -> str:
+            tag = m.group(1)
+            # Replace src="..." or src='...' with the new URL
+            new_tag, n = re.subn(
+                r'(\bsrc\s*=\s*)(["\'])[^"\']*\2',
+                lambda mm: f'{mm.group(1)}"{new_src}"',
+                tag,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+            return new_tag if n else tag
+
+        out, n = pat.subn(_replace_src_in_tag, out)
+        if n:
+            total_swaps += n
+            print(f"    ✓ alt='{alt_value}' → swapped {n} <img> src")
+        else:
+            print(f"    · alt='{alt_value}' — no matching <img> tag found")
+    return out, total_swaps
 
 
 # ---------------------------------------------------------------------------
@@ -441,17 +513,26 @@ def main():
 
     # Gather all section data + upload images
     print("\n  Gathering section data + uploading images…")
-    repl, image_swaps, story_count = build_replacements(client,
-                                                       cfg["publication_id"],
-                                                       NEWSLETTER)
+    repl, image_swaps, alt_swaps, story_count = build_replacements(client,
+                                                                  cfg["publication_id"],
+                                                                  NEWSLETTER)
 
     # Apply text placeholder replacements
     new_body = replace_placeholders(body_html, repl)
     new_body = hide_unused_lowdown_slots(new_body, story_count)
 
-    # Apply image URL swaps (replace original gh-pages URLs with Beehiiv URLs)
+    # Apply image URL string-swaps (covers cases where the template already
+    # references the original gh-pages URL directly)
     for orig, hosted in image_swaps.items():
         new_body = new_body.replace(orig, hosted)
+
+    # Apply alt-text → src swaps for <img> tags. This is how the template's
+    # placeholder images get replaced with the actual content image. Author
+    # sets alt='restaurant_radar_image' etc. on each placeholder image in
+    # Beehiiv editor; we find by alt and replace its src.
+    print("\n  Swapping image src by alt-text…")
+    new_body, alt_swap_count = swap_images_by_alt(new_body, alt_swaps)
+    print(f"  Image alt-swaps applied: {alt_swap_count}")
 
     # Generate subject line
     print("\n  Generating subject line…")
