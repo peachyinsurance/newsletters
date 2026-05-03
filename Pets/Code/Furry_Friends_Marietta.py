@@ -108,15 +108,14 @@ async function pageFunction(context) {
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
 
-    # preNavigationHooks must be passed as an ARRAY of strings (each string
-    # is a JS function source). This sets the User-Agent before each navigation.
-    pre_nav_hook = (
+    # Apify wants preNavigationHooks as a JSON-stringified array of function
+    # sources (despite docs sometimes calling it an "array"). Each string is
+    # a JS function source. This sets the User-Agent before each navigation.
+    pre_nav_hook_str = json.dumps([
         "async ({ page }) => { "
-        "  await page.setExtraHTTPHeaders({ "
-        f"    'User-Agent': '{real_browser_ua}' "
-        "  }); "
+        f"  await page.setExtraHTTPHeaders({{ 'User-Agent': '{real_browser_ua}' }}); "
         "}"
-    )
+    ])
 
     for attempt in range(3):
         try:
@@ -134,7 +133,7 @@ async function pageFunction(context) {
                     # real Chrome binary instead of headless Chromium.
                     "useStealth":         True,
                     "useChrome":          True,
-                    "preNavigationHooks": [pre_nav_hook],
+                    "preNavigationHooks": pre_nav_hook_str,
                 },
                 timeout=APIFY_SCRAPER_TIMEOUT,
             )
