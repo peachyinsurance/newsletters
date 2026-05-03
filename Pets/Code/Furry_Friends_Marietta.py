@@ -99,6 +99,25 @@ async function pageFunction(context) {
 }
 """
 
+    # Real Mac Chrome UA — Apify's default Chromium UA gets fingerprinted by
+    # Petfinder, who then serve a bot-stub page with no animal data. The
+    # pageFunction sets the UA via an extra HTTP header injection AND uses
+    # Apify's stealth mode + Chrome browser to look like a real visitor.
+    real_browser_ua = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+
+    # preNavigationHooks must be passed as an ARRAY of strings (each string
+    # is a JS function source). This sets the User-Agent before each navigation.
+    pre_nav_hook = (
+        "async ({ page }) => { "
+        "  await page.setExtraHTTPHeaders({ "
+        f"    'User-Agent': '{real_browser_ua}' "
+        "  }); "
+        "}"
+    )
+
     for attempt in range(3):
         try:
             print(f"  Starting Apify run for {len(urls)} URLs (concurrency=5){' (retry)' if attempt > 0 else ''}...")
@@ -110,6 +129,12 @@ async function pageFunction(context) {
                     "pageFunction": page_function,
                     "maxConcurrency": 5,
                     "maxRequestsPerCrawl": len(urls),
+                    # Anti-bot evasion. useStealth patches headless detection
+                    # markers (navigator.webdriver, etc.). useChrome runs a
+                    # real Chrome binary instead of headless Chromium.
+                    "useStealth":         True,
+                    "useChrome":          True,
+                    "preNavigationHooks": [pre_nav_hook],
                 },
                 timeout=APIFY_SCRAPER_TIMEOUT,
             )
@@ -487,13 +512,28 @@ def parse_detail_html(html: str) -> dict:
             detail["photos"] = dom_photos[:3]
             print(f"      Photos collected from DOM: {len(dom_photos)} (using first 3)")
 
-    # Description: try (in order) the proper Pet_Story selector, generic
-    # description-class divs, JSON-LD ld+json blocks, og:description and
-    # twitter:description meta tags. Whichever is longest wins — we want
-    # real bio text, not meta-tag boilerplate.
+    # Description: try (in order) the current Petfinder story section by ID,
+    # legacy class-based selectors, JSON-LD ld+json blocks, og:description and
+    # twitter:description meta tags. Whichever is longest wins.
     desc_candidates = []
 
-    # 1. Petfinder's preferred selectors
+    # 0. Current Petfinder layout (verified May 2026): bio lives in
+    #    <section id="pet-details-story-section"> with the text in <p id="animalStory">
+    #    plus mobile + desktop variants. Take the deepest <p> whose text is
+    #    longest — that's the visible bio.
+    story_section = soup.select_one("#pet-details-story-section, #animalStory")
+    if story_section:
+        # Prefer #animalStory specifically if present
+        story_p = soup.select_one("#animalStory")
+        if story_p:
+            desc_candidates.append(clean_text(story_p.get_text(separator=" ", strip=True)))
+        # Also walk the section for any <p> with longer text (mobile/desktop variants)
+        for p in story_section.find_all("p"):
+            t = clean_text(p.get_text(separator=" ", strip=True))
+            if len(t) > 30:
+                desc_candidates.append(t)
+
+    # 1. Legacy / fallback selectors (older Petfinder layouts and other shelters)
     desc_el = soup.select_one(
         "[data-test='Pet_Story_Section'], "
         "[class*='description'], [class*='Description'], "
