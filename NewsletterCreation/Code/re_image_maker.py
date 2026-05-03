@@ -211,6 +211,8 @@ def _render_single(template: Image.Image, photo: Image.Image, cfg: dict,
     base = base.convert("RGB")
     _draw_photo_border(base, cfg["photo_box"])
     _draw_listing_overlay(base, cfg, price, beds, baths, sqft, address, lot_info)
+    # Downscale the final composite by 20% so the email renders at a friendlier size
+    base = base.resize((int(base.width * 0.8), int(base.height * 0.8)), Image.LANCZOS)
     buf = io.BytesIO()
     base.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
@@ -232,19 +234,27 @@ def _render_animated(template: Image.Image, photos: list[Image.Image], cfg: dict
         base = base.convert("RGB")
         _draw_photo_border(base, cfg["photo_box"])
         _draw_listing_overlay(base, cfg, price, beds, baths, sqft, address, lot_info)
+        # Downscale 20% to match email-friendly target size
+        base = base.resize((int(base.width * 0.8), int(base.height * 0.8)), Image.LANCZOS)
         frames.append(base)
     if not frames:
         return b""
+    # Animated GIF (universal email support — Beehiiv flattens WebP to JPG
+    # in delivered emails because Outlook/Apple Mail don't render animated WebP).
     buf = io.BytesIO()
-    frames[0].save(
+    palette_frames = [
+        f.convert("RGB").convert("P", palette=Image.ADAPTIVE, colors=256)
+        for f in frames
+    ]
+    palette_frames[0].save(
         buf,
-        format="WebP",
+        format="GIF",
         save_all=True,
-        append_images=frames[1:],
+        append_images=palette_frames[1:],
         duration=frame_ms,
         loop=0,
-        quality=88,
-        method=4,  # balance of speed + compression
+        optimize=False,
+        disposal=2,
     )
     return buf.getvalue()
 
