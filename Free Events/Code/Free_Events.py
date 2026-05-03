@@ -19,6 +19,61 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterC
 from notion_helper import save_free_events_to_notion, get_used_free_event_urls
 from url_validator import validate_url
 
+import re as _re
+
+
+def fetch_event_image(source_url: str) -> str:
+    """Pull a hero image URL from the source page via og:image / twitter:image
+    meta tags. Returns empty string if the page can't be fetched, has no meta
+    image, or the image URL is obviously a logo/sprite/icon.
+
+    Best-effort; failure is silent so it never blocks publishing the event.
+    """
+    if not source_url:
+        return ""
+    try:
+        r = requests.get(
+            source_url,
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0 (newsletter-automation)"},
+            allow_redirects=True,
+        )
+        if r.status_code != 200 or not r.text:
+            return ""
+        html = r.text[:200_000]  # cap for safety; meta tags are in <head>
+    except Exception:
+        return ""
+
+    # Try og:image first, then twitter:image, then explicit image_src link
+    patterns = [
+        r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::secure_url)?["\']',
+        r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
+        r'<link[^>]+rel=["\']image_src["\'][^>]+href=["\']([^"\']+)["\']',
+    ]
+    for pat in patterns:
+        m = _re.search(pat, html, _re.IGNORECASE)
+        if not m:
+            continue
+        url = m.group(1).strip()
+        if not url:
+            continue
+        ul = url.lower()
+        # Filter out obvious non-photo assets
+        if any(skip in ul for skip in ("logo", "favicon", "sprite", "icon-", "/icons/", "placeholder")):
+            continue
+        # Make protocol-relative absolute
+        if url.startswith("//"):
+            url = "https:" + url
+        # Skip data URIs
+        if url.startswith("data:"):
+            continue
+        print(f"      ✓ free-event image: {url[:80]}…")
+        return url
+
+    return ""
+
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
 # ---------------------------------------------------------------------------
@@ -523,6 +578,7 @@ Candidates:
     ev["time_sensitivity_score"] = winner["time_score"]
     ev["source_quality_score"]   = winner["source_score"]
     ev["total_score"]            = winner["total"]
+    ev["image_url"]              = fetch_event_image(ev["source_url"])
 
     result["events"] = [ev]
     print(f"  🏆 Winner: {ev.get('emoji', '')} {ev.get('name', '')} "

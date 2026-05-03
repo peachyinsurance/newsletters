@@ -1330,6 +1330,7 @@ def _ensure_free_events_schema():
         "Events Count":     {"number": {"format": "number"}},
         "Full Section":     {"rich_text": {}},
         "Event URLs":       {"rich_text": {}},
+        "Image URL":        {"url": {}},
         "Manually Edited":  {"checkbox": {}},
     }
     r = requests.patch(
@@ -1427,6 +1428,9 @@ def save_free_events_to_notion(result: dict, newsletter_name: str) -> None:
     event_urls = [ev.get("source_url", "") for ev in events if ev.get("source_url")]
     urls_text = " | ".join(event_urls)[:2000]  # respect Notion rich_text limit
 
+    # Image URL: take the first event's image (we currently only feature 1)
+    image_url = next((ev.get("image_url") for ev in events if ev.get("image_url")), "") or None
+
     properties = {
         "Name":           {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - Free Events - {datetime.today().strftime('%Y-%m-%d')}"}}]},
         "Newsletter":     {"select": {"name": newsletter_name}},
@@ -1436,6 +1440,7 @@ def save_free_events_to_notion(result: dict, newsletter_name: str) -> None:
         "Events Count":   {"number": len(events)},
         "Full Section":   {"rich_text": chunks},
         "Event URLs":     {"rich_text": [{"text": {"content": urls_text}}]},
+        "Image URL":      {"url": image_url},
         "Manually Edited": {"checkbox": False},
     }
 

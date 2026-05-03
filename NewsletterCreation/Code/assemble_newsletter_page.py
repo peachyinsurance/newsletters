@@ -684,6 +684,28 @@ def get_latest_free_events(newsletter_name: str) -> str | None:
     return None
 
 
+def get_latest_free_event_image(newsletter_name: str) -> str:
+    """Return the Image URL for the latest approved Free Event row, or "" if none."""
+    if not NOTION_FREE_EVENTS_DB_ID:
+        return ""
+    try:
+        pages = query_database(NOTION_FREE_EVENTS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+    except Exception:
+        return ""
+    pages = [p for p in pages if
+             (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
+    if not pages:
+        return ""
+    pages.sort(
+        key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+        reverse=True,
+    )
+    return pages[0]["properties"].get("Image URL", {}).get("url", "") or ""
+
+
 def get_latest_poll(newsletter_name: str) -> dict | None:
     """Get the most recent approved poll for this newsletter."""
     if not NOTION_POLLS_DB_ID:

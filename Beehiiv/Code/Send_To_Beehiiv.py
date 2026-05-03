@@ -40,6 +40,7 @@ from assemble_newsletter_page import (
     get_latest_lowdown,
     get_approved_pet,
     get_latest_free_events,
+    get_latest_free_event_image,
     get_latest_poll,
     sync_edits_back,
     notion_search_page,
@@ -513,6 +514,18 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             # Alias: template URL fields sometimes drop the trailing `_1`
             repl["free_event_link"]          = link
 
+            # Hero image scraped from the source page (og:image / twitter:image).
+            # If present, set up the alt-swap so the placeholder image gets
+            # replaced with the real event photo. If absent, do NOT add to
+            # alt_swaps — prune_image_when_missing() will then strip the
+            # <img> from the final body.
+            free_img = get_latest_free_event_image(newsletter_name)
+            if free_img:
+                hosted = upload_remote_image(client, publication_id, free_img)
+                if hosted:
+                    image_swaps[free_img] = hosted
+                alt_swaps["free_event_image_1"] = hosted or free_img
+
     return repl, image_swaps, alt_swaps, story_count
 
 
@@ -542,6 +555,8 @@ def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
         "restaurant_radar_image":      "restaurant-radar-1",
         "restaurant_radar_2_image":    "restaurant-radar-2",
         "restaurant_radar_3_image":    "restaurant-radar-3",
+        "restaurant_radar_4_image":    "restaurant-radar-4",
+        "restaurant_radar_5_image":    "restaurant-radar-5",
         "real_estate_image_starter":   "real-estate-starter",
         "real_estate_image_sweetspot": "real-estate-sweetspot",
         "real_estate_image_showcase":  "real-estate-showcase",
@@ -574,6 +589,47 @@ def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
         else:
             print(f"    · slot='{slot_key}' (token='{token}') — no <img> with that filename")
     return out, total_swaps
+
+
+def prune_unused_image_slots(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
+    """For image slots that are present in the template but have no real
+    image URL in `alt_swaps`, remove the placeholder <img> tag entirely so
+    the email doesn't show a generic placeholder.
+
+    Uses the same SLOT_TO_FILENAME mapping as swap_images_by_alt — if a
+    template <img>'s src contains a known filename token AND we don't have
+    a swap target for that slot, the <img> is removed.
+    """
+    SLOT_TO_FILENAME = {
+        "event_of_the_week_image":     "event-of-the-week",
+        "restaurant_radar_image":      "restaurant-radar-1",
+        "restaurant_radar_2_image":    "restaurant-radar-2",
+        "restaurant_radar_3_image":    "restaurant-radar-3",
+        "restaurant_radar_4_image":    "restaurant-radar-4",
+        "restaurant_radar_5_image":    "restaurant-radar-5",
+        "real_estate_image_starter":   "real-estate-starter",
+        "real_estate_image_sweetspot": "real-estate-sweetspot",
+        "real_estate_image_showcase":  "real-estate-showcase",
+        "PET_IMAGE":                   "pet-photo",
+        "PET_PHOTO":                   "pet-photo",
+        "free_event_image_1":          "free-event",
+    }
+
+    out = html
+    pruned = 0
+    for slot_key, token in SLOT_TO_FILENAME.items():
+        if slot_key in alt_swaps:
+            continue  # we have an image for this slot — keep the <img>
+        # No image for this slot. Remove any <img> whose src contains the token.
+        pat = re.compile(
+            r'<img\b[^>]*\bsrc\s*=\s*["\'][^"\']*' + re.escape(token) + r'[^"\']*["\'][^>]*>',
+            re.IGNORECASE,
+        )
+        out, n = pat.subn("", out)
+        if n:
+            pruned += n
+            print(f"    ✗ pruned placeholder <img> for missing slot='{slot_key}' (token='{token}')")
+    return out, pruned
 
 
 # ---------------------------------------------------------------------------
@@ -706,6 +762,13 @@ def main():
     print("\n  Swapping image src by filename token (Beehiiv strips alt; filenames persist)…")
     new_body, alt_swap_count = swap_images_by_alt(new_body, alt_swaps)
     print(f"  Image alt-swaps applied: {alt_swap_count}")
+
+    # Remove placeholder <img> tags for sections we have no image for
+    # (e.g., free event has no og:image — strip the placeholder so the email
+    # doesn't show a generic stock image).
+    print("\n  Pruning unused image placeholders…")
+    new_body, pruned_imgs = prune_unused_image_slots(new_body, alt_swaps)
+    print(f"  Image placeholders removed: {pruned_imgs}")
 
     # Generate subject line
     print("\n  Generating subject line…")
