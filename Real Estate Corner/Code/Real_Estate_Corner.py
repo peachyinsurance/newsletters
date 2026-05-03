@@ -78,9 +78,16 @@ def fetch_listings(location: str, limit: int = 100) -> list[dict]:
         "x-rapidapi-key": REALTOR_API_KEY,
     }
 
+    # Different RapidAPI Realtor wrappers use different param names for page size.
+    # Send all common variants — unknown params are ignored, but the right one wins.
     params = {
-        "location": location,
-        "limit": str(limit),
+        "location":  location,
+        "limit":     str(limit),
+        "page_size": str(limit),
+        "pageSize":  str(limit),
+        "count":     str(limit),
+        "size":      str(limit),
+        "offset":    "0",
     }
 
     try:
@@ -94,9 +101,13 @@ def fetch_listings(location: str, limit: int = 100) -> list[dict]:
             print(f"    API error {res.status_code}: {res.text[:200]}")
             return []
 
+        # Diagnostic — surfaces whether the limit param is being honored
+        print(f"  Realtor URL: {res.url}")
         data = res.json().get("data", {})
         results = data.get("results", [])
-        print(f"  Got {len(results)} total listings from API")
+        # Realtor's response may include total/count; print if available
+        total = data.get("total") or data.get("count") or "?"
+        print(f"  Got {len(results)} listings from API (api total={total}, requested limit={limit})")
         return results
 
     except Exception as e:
