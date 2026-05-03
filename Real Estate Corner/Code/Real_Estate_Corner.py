@@ -179,11 +179,15 @@ def parse_listing(raw: dict) -> dict:
 
     primary_photo = _upgrade_photo(raw.get("primary_photo", {}).get("href", ""))
 
-    # Get up to 3 photos for GIF creation
+    # Get up to 3 photos for GIF creation. Accept any URL — `_upgrade_photo`
+    # handles the Realtor s.jpg → od.jpg upgrade where applicable; for other
+    # URL shapes we just take what the API gave us. The previous "l-m" filter
+    # silently dropped legitimate photo URLs, leaving some listings with only
+    # the primary photo and a static (grainy) single-image render.
     all_photos = []
     for p in raw.get("photos", [])[:3]:
         url = _upgrade_photo(p.get("href", ""))
-        if url and "l-m" in url:
+        if url:
             all_photos.append(url)
     if not all_photos and primary_photo:
         all_photos = [primary_photo]

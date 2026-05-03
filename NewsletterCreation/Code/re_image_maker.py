@@ -101,19 +101,54 @@ LAYOUTS = {
 # ---------------------------------------------------------------------------
 # HELPERS
 # ---------------------------------------------------------------------------
+def _upgrade_realtor_photo_url(url: str) -> str:
+    """Rewrite a Realtor.com photo URL to request the largest available size.
+    Realtor's CDN encodes target dimensions in the path, e.g.
+        .../od-w480_h360_x2.webp     (small thumbnail — what their search API often returns)
+        .../od-w1280_h960_x2.webp    (much larger — browsers serve when explicitly requested)
+    Rewriting w<num> upward gives us a higher-quality source for our composite.
+    Returns the original URL unchanged if it doesn't match a known pattern.
+    """
+    if not url:
+        return url
+    # Common: w<number> in path. Bump to 1280 if smaller, leave alone otherwise.
+    import re as _re
+    def _bump(m: _re.Match) -> str:
+        cur = int(m.group(1))
+        return f"w{max(cur, 1280)}"
+    upgraded = _re.sub(r"w(\d{2,4})(?=[_./])", _bump, url)
+    return upgraded
+
+
 def _fetch_image(url: str) -> Image.Image | None:
-    """Download an image URL into a Pillow Image. Returns None on failure."""
+    """Download an image URL into a Pillow Image. Tries a higher-res URL first
+    (Realtor's CDN supports size requests via path tokens). Falls back to the
+    original URL if the upgraded variant 404s. Returns None on failure."""
     if not url:
         return None
-    try:
-        r = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
-        if r.status_code != 200 or not r.content:
-            return None
-        img = Image.open(io.BytesIO(r.content)).convert("RGB")
-        return img
-    except Exception as e:
-        print(f"    Image fetch error: {e}")
-        return None
+
+    candidates = []
+    upgraded = _upgrade_realtor_photo_url(url)
+    if upgraded != url:
+        candidates.append(upgraded)
+    candidates.append(url)
+
+    last_err = None
+    for candidate in candidates:
+        try:
+            r = requests.get(candidate, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code == 200 and r.content:
+                img = Image.open(io.BytesIO(r.content)).convert("RGB")
+                if candidate != url:
+                    print(f"    ✓ Got higher-res photo ({img.size[0]}x{img.size[1]})")
+                return img
+            last_err = f"HTTP {r.status_code}"
+        except Exception as e:
+            last_err = str(e)
+            continue
+
+    print(f"    Image fetch error after {len(candidates)} URL variants: {last_err}")
+    return None
 
 
 def _fit_into_box(photo: Image.Image, box: tuple[int, int, int, int]) -> Image.Image:
@@ -343,7 +378,9 @@ def generate_re_images(listings: list[dict], newsletter_name: str, output_dir: s
             continue
 
         slug = tier.lower().replace(" ", "_")
-        ext = "webp" if len(photo_urls) > 1 else "png"
+        # Multi-photo case is encoded as animated GIF (universal email support);
+        # single-photo case is a static PNG.
+        ext = "gif" if len(photo_urls) > 1 else "png"
         filename = f"re_{newsletter_name}_{slug}_template_{datetime.datetime.today().strftime('%Y%m%d')}.{ext}"
         filepath = out / filename
         filepath.write_bytes(img_bytes)
