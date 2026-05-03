@@ -99,24 +99,9 @@ async function pageFunction(context) {
 }
 """
 
-    # Real Mac Chrome UA — Apify's default Chromium UA gets fingerprinted by
-    # Petfinder, who then serve a bot-stub page with no animal data. The
-    # pageFunction sets the UA via an extra HTTP header injection AND uses
-    # Apify's stealth mode + Chrome browser to look like a real visitor.
-    real_browser_ua = (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    )
-
-    # Apify wants preNavigationHooks as a JSON-stringified array of function
-    # sources (despite docs sometimes calling it an "array"). Each string is
-    # a JS function source. This sets the User-Agent before each navigation.
-    pre_nav_hook_str = json.dumps([
-        "async ({ page }) => { "
-        f"  await page.setExtraHTTPHeaders({{ 'User-Agent': '{real_browser_ua}' }}); "
-        "}"
-    ])
-
+    # Anti-bot: useStealth patches navigator.webdriver and other headless
+    # detection markers. Set the UA inside the pageFunction itself rather than
+    # via preNavigationHooks (which has plan-tier and syntax pitfalls).
     for attempt in range(3):
         try:
             print(f"  Starting Apify run for {len(urls)} URLs (concurrency=5){' (retry)' if attempt > 0 else ''}...")
@@ -128,12 +113,7 @@ async function pageFunction(context) {
                     "pageFunction": page_function,
                     "maxConcurrency": 5,
                     "maxRequestsPerCrawl": len(urls),
-                    # Anti-bot evasion. useStealth patches headless detection
-                    # markers (navigator.webdriver, etc.). useChrome runs a
-                    # real Chrome binary instead of headless Chromium.
-                    "useStealth":         True,
-                    "useChrome":          True,
-                    "preNavigationHooks": pre_nav_hook_str,
+                    "useStealth": True,
                 },
                 timeout=APIFY_SCRAPER_TIMEOUT,
             )
