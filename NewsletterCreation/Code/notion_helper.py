@@ -750,22 +750,48 @@ def redo_restaurant_selection(newsletter_name: str) -> None:
             count += 1
     print(f"Reset {count} restaurants to pending for {newsletter_name}")
 
-def cleanup_old_restaurants_notion() -> None:
-    """Delete restaurant entries older than 8 weeks."""
-    cutoff = (datetime.today() - timedelta(weeks=8)).strftime("%Y-%m-%d")
-    pages = query_database(NOTION_RESTAURANTS_DB_ID, filters={
-        "property": "Date Generated",
-        "date":     {"before": cutoff}
-    })
-    count = 0
+def cleanup_old_restaurants_notion(approved_old_weeks: int = 8) -> None:
+    """Weekly cleanup of restaurants database.
+
+    Lifecycle:
+      - 'Tier 1 Winner' / 'Tier 2 Winner' (this week's picks) → flipped to
+        'approved - old' (frees the slots; row stays in exclusion list).
+      - 'approved - old' newer than `approved_old_weeks` weeks → kept (exclusion).
+      - 'approved - old' older than the cutoff → archived.
+      - 'pending' / 'rejected' / blank → archived (stale candidates).
+    """
+    pages = query_database(NOTION_RESTAURANTS_DB_ID)
+    cutoff = (datetime.today() - timedelta(weeks=approved_old_weeks)).strftime("%Y-%m-%d")
+    print(f"  Cutoff for 'approved - old' archival: {cutoff} ({approved_old_weeks} weeks ago)")
+    print(f"  Scanning {len(pages)} restaurant rows…")
+    flipped = archived = kept_old = 0
     for page in pages:
-        name = page["properties"].get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
-        date_prop = page["properties"].get("Date Generated", {}).get("date", {})
-        date_str = date_prop.get("start", "") if date_prop else ""
-        archive_page(page["id"])
-        print(f"  Archived: {name} (generated: {date_str})")
-        count += 1
-    print(f"Archived {count} restaurants older than 8 weeks")
+        page_id = page["id"]
+        props = page["properties"]
+        status_obj = props.get("Status", {}).get("select") or {}
+        status_name = status_obj.get("name", "") if isinstance(status_obj, dict) else ""
+        date_str = (props.get("Date Generated", {}).get("date") or {}).get("start", "") or ""
+        name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+
+        if status_name in ("Tier 1 Winner", "Tier 2 Winner"):
+            update_page(page_id, {"Status": {"select": {"name": "approved - old"}}})
+            print(f"  🔄 Flipped '{status_name}' → 'approved - old': {name}")
+            flipped += 1
+            continue
+
+        if status_name == "approved - old":
+            if not date_str or date_str >= cutoff:
+                kept_old += 1
+                print(f"  🔒 Keeping 'approved - old': {name} (date: {date_str})")
+                continue
+
+        archive_page(page_id)
+        print(f"  Archived: {name} (status: '{status_name}', date: {date_str})")
+        archived += 1
+
+    print(f"\nFlipped  {flipped} winners → 'approved - old'")
+    print(f"Kept     {kept_old} 'approved - old' rows within {approved_old_weeks}-week window")
+    print(f"Archived {archived} stale restaurant entries (pending / rejected / >{approved_old_weeks}w old)")
 
 # ---------------------------------------------------------------------------
 # LOCAL LOWDOWN HELPERS
