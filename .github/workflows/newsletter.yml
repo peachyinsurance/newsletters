@@ -24,7 +24,7 @@ jobs:
         run: pip install -r NewsletterCreation/Code/requirements.txt
 
       - name: Install dependencies
-        run: pip install anthropic requests notion-client Pillow
+        run: pip install anthropic requests notion-client Pillow curl_cffi beautifulsoup4
  
       - name: Run newsletter script
         env:

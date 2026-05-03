@@ -75,113 +75,88 @@ def load_skill_prompt() -> str:
 approved_urls = get_approved_pet_urls()
 
 # ---------------------------------------------------------------------------
-# 5. FETCH PETS FROM PETFINDER VIA APIFY
+# 5. FETCH PETS FROM PETFINDER (via curl_cffi — Chrome TLS impersonation)
 # ---------------------------------------------------------------------------
+# Petfinder fingerprints TLS handshakes (JA3) — Python's `requests` + Apify's
+# default Chromium both get a 403. curl_cffi uses libcurl with Chrome's exact
+# TLS signature, so Petfinder serves the full SSR'd HTML (real bio, photo URLs
+# in __NEXT_DATA__). Faster than Apify, no service costs, no rate limits at
+# our volume.
 
-def fetch_all_html_apify(urls: list[str]) -> dict[str, str]:
-    """Fetch URLs in a single Apify web-scraper run. Returns {url: html} dict.
-    Retries up to 2 times on connection errors. Plain HTML grab — no carousel
-    clicking (Petfinder serves a stub to scrapers; clicking can't recover the data
-    and the extra waits caused timeouts)."""
-    if not urls:
-        return {}
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {APIFY_API_KEY}",
-    }
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    page_function = """
-async function pageFunction(context) {
-    return {
-        url: context.request.url,
-        html: document.documentElement.outerHTML
-    };
-}
-"""
+# Module-level session so cookies persist across calls. Petfinder sets a
+# session cookie on the homepage that the detail pages expect.
+_petfinder_session = None
+_petfinder_session_warmed = False
 
-    # Anti-bot: useStealth patches navigator.webdriver and other headless
-    # detection markers. Set the UA inside the pageFunction itself rather than
-    # via preNavigationHooks (which has plan-tier and syntax pitfalls).
+
+def _get_petfinder_session():
+    """Lazy-init a curl_cffi Session warmed with a homepage GET (for cookies)."""
+    global _petfinder_session, _petfinder_session_warmed
+    from curl_cffi import requests as cffi_requests
+    if _petfinder_session is None:
+        _petfinder_session = cffi_requests.Session()
+    if not _petfinder_session_warmed:
+        try:
+            r = _petfinder_session.get(
+                "https://www.petfinder.com/",
+                impersonate="chrome120",
+                timeout=15,
+            )
+            _petfinder_session_warmed = (r.status_code == 200)
+            print(f"  curl_cffi session warmed: status={r.status_code}, cookies={len(_petfinder_session.cookies)}")
+        except Exception as e:
+            print(f"  ⚠ Session warm failed: {e}")
+    return _petfinder_session
+
+
+def _fetch_one(url: str) -> tuple[str, str]:
+    """Fetch one URL, return (url, html). Empty html on failure."""
+    session = _get_petfinder_session()
     for attempt in range(3):
         try:
-            print(f"  Starting Apify run for {len(urls)} URLs (concurrency=5){' (retry)' if attempt > 0 else ''}...")
-            res = requests.post(
-                "https://api.apify.com/v2/acts/apify~web-scraper/run-sync-get-dataset-items",
-                headers=headers,
-                json={
-                    "startUrls": [{"url": u} for u in urls],
-                    "pageFunction": page_function,
-                    "maxConcurrency": 5,
-                    "maxRequestsPerCrawl": len(urls),
-                    "useStealth": True,
-                },
-                timeout=APIFY_SCRAPER_TIMEOUT,
-            )
-            if res.status_code not in (200, 201):
-                print(f"  Apify error {res.status_code}: {res.text[:200]}")
-                if attempt < 2:
-                    time.sleep(10)
-                    continue
-                return {}
-            items = res.json()
-            result = {}
-            for item in items:
-                u = item.get("url", "")
-                h = item.get("html", "")
-                if u and h:
-                    result[u] = h
-            print(f"  Apify returned {len(result)} pages")
-            return result
-        except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError) as e:
-            print(f"  Apify connection error (attempt {attempt + 1}): {type(e).__name__}")
+            r = session.get(url, impersonate="chrome120", timeout=20)
+            if r.status_code == 200 and r.text:
+                return (url, r.text)
+            if r.status_code in (403, 429) and attempt < 2:
+                time.sleep(2 * (attempt + 1))
+                continue
+            return (url, "")
+        except Exception as e:
             if attempt < 2:
-                time.sleep(10)
-            else:
-                print(f"  Failed after 3 attempts")
-                return {}
+                time.sleep(2)
+                continue
+            print(f"  ⚠ fetch failed for {url[:60]}: {e}")
+            return (url, "")
+    return (url, "")
+
+
+def fetch_all_html_apify(urls: list[str]) -> dict[str, str]:
+    """Fetch URLs in parallel via curl_cffi (Chrome TLS impersonation).
+    Returns {url: html} dict.
+
+    Function name kept for backwards compat with existing call sites — the
+    implementation no longer uses Apify."""
+    if not urls:
+        return {}
+
+    print(f"  Fetching {len(urls)} URLs via curl_cffi (concurrency=5)...")
+    result: dict[str, str] = {}
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        futures = [pool.submit(_fetch_one, u) for u in urls]
+        for f in as_completed(futures):
+            url, html = f.result()
+            if url and html:
+                result[url] = html
+    print(f"  curl_cffi returned {len(result)}/{len(urls)} pages")
+    return result
 
 
 def fetch_html_apify(url: str, retries: int = 2) -> str | None:
-    """Fetch a single page's rendered HTML via Apify web-scraper."""
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {APIFY_API_KEY}",
-    }
-    for attempt in range(retries):
-        try:
-            res = requests.post(
-                "https://api.apify.com/v2/acts/apify~web-scraper/run-sync-get-dataset-items",
-                headers=headers,
-                json={
-                    "startUrls": [{"url": url}],
-                    "pageFunction": """
-async function pageFunction(context) {
-    return {
-        url: context.request.url,
-        html: document.documentElement.outerHTML
-    };
-}
-""",
-                    "maxConcurrency": 1,
-                    "maxRequestsPerCrawl": 1,
-                },
-                timeout=APIFY_SCRAPER_TIMEOUT,
-            )
-            if res.status_code not in (200, 201):
-                print(f"  Apify error {res.status_code}: {res.text[:200]}")
-                if attempt < retries - 1:
-                    time.sleep(3)
-                    continue
-                return None
-            items = res.json()
-            if items and len(items) > 0:
-                return items[0].get("html")
-            return None
-        except requests.exceptions.ReadTimeout:
-            print(f"  Timeout on attempt {attempt + 1} for {url}")
-            if attempt < retries - 1:
-                time.sleep(3)
-    return None
+    """Fetch a single page via curl_cffi. Name kept for backwards compat."""
+    _, html = _fetch_one(url)
+    return html or None
 
 
 def parse_search_html(html: str, species: str) -> list[dict]:
