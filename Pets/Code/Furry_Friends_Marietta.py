@@ -101,8 +101,19 @@ async function pageFunction(context) {
     const photoUrls = new Set();
 
     const collectPhotos = async () => {
-        const imgs = await page.$$eval('img[src*="cloudfront"], img[src*="dl5zpyw5k3jeb"]', els =>
-            els.map(el => el.src || el.dataset.src).filter(s => s && !s.includes('logo'))
+        // Cast a wide net: any <img> on the page whose src looks like a real photo.
+        // Different shelters host on different CDNs (cloudfront, dl5zpyw5k3jeb, petfinder
+        // media, custom CDNs), so don't gate on a specific domain. Skip logos/icons.
+        const imgs = await page.$$eval('img', els =>
+            els.map(el => el.src || el.dataset.src || '')
+               .filter(s => {
+                   if (!s) return false;
+                   const sl = s.toLowerCase();
+                   if (sl.includes('logo') || sl.includes('favicon') || sl.includes('sprite')
+                       || sl.includes('icon-') || sl.includes('avatar')) return false;
+                   return /\.(jpg|jpeg|png|webp)/.test(sl)
+                       || sl.includes('/photos/') || sl.includes('/media/') || sl.includes('/images/');
+               })
         );
         imgs.forEach(u => photoUrls.add(u));
     };
@@ -587,7 +598,23 @@ def fetch_petfinder_apify(species: str, excluded_urls: set, state: str, zip_code
         age         = detail.get("age") or item.get("age", "")
         gender      = detail.get("gender") or item.get("gender", "")
         size        = detail.get("size") or item.get("size", "")
-        photos      = detail.get("photos") or item.get("photos", [])
+
+        # Photos: combine three sources, in priority order:
+        #   1. Carousel photos collected by Apify's click-through (most reliable)
+        #   2. Photos parsed out of the detail HTML
+        #   3. Search-page item photo (1 thumbnail fallback)
+        # Dedupe + cap at 3 (gif_maker uses 3 frames).
+        carousel_photos = cache.get(source_url + "__photos", []) or []
+        photos = []
+        seen = set()
+        for u in (carousel_photos + (detail.get("photos") or []) + (item.get("photos", []) or [])):
+            if u and u not in seen:
+                seen.add(u)
+                photos.append(u)
+        photos = photos[:3]
+        if carousel_photos:
+            print(f"      {name}: carousel={len(carousel_photos)}  detail={len(detail.get('photos') or [])}  → {len(photos)} unique used")
+
         org_name    = detail.get("org_name") or item.get("org_name", "")
         org_address = detail.get("org_address") or item.get("org_address", "")
         org_phone   = detail.get("org_phone") or item.get("org_phone", "")
@@ -981,7 +1008,11 @@ if __name__ == "__main__":
         for i in range(0, len(detail_urls), BATCH_SIZE):
             batch = detail_urls[i:i + BATCH_SIZE]
             print(f"\n  Batch {i // BATCH_SIZE + 1}: {len(batch)} URLs")
-            batch_cache = fetch_all_html_apify(batch)
+            # click_carousel=True so the Apify scraper clicks through the
+            # photo carousel and captures all 3 photos (lazy-loaded). Without
+            # this, only the first photo is rendered in the HTML and we get
+            # 1 photo per pet (the og:image hero).
+            batch_cache = fetch_all_html_apify(batch, click_carousel=True)
             html_cache.update(batch_cache)
     else:
         print("\n  No detail pages to scrape")
