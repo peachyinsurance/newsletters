@@ -23,6 +23,7 @@ jobs:
         env:
           CLAUDE_API_KEY:            ${{ secrets.CLAUDE_API_KEY }}
           BRAVE_NEWS_API_KEY:        ${{ secrets.BRAVE_NEWS_API_KEY }}
+          GOOGLE_PLACES_API_KEY:     ${{ secrets.GOOGLE_PLACES_API_KEY }}
           NOTION_API_KEY:            ${{ secrets.NOTION_API_KEY }}
           NOTION_PETS_DB_ID:         ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID:  ${{ secrets.NOTION_RESTAURANTS_DB_ID }}

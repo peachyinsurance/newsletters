@@ -146,13 +146,36 @@ NEWSLETTERS = [
         "name":         "East_Cobb_Connect",
         "display_area": "East Cobb",
         "search_areas": ["East Cobb GA", "Marietta GA", "Kennesaw GA"],
+        "lat":          33.9773,
+        "lng":          -84.5130,
     },
     {
         "name":         "Perimeter_Post",
         "display_area": "Perimeter",
         "search_areas": ["Dunwoody GA", "Sandy Springs GA", "Perimeter Atlanta"],
+        "lat":          33.9462,
+        "lng":          -84.3346,
     },
 ]
+
+# Evergreen "free thing" search radius (~10 miles)
+EVERGREEN_RADIUS_METERS = 16093
+
+# Google Places types worth featuring as a year-round free outing.
+# All are typically free to enter; we additionally filter out anything with
+# explicit `priceLevel` indicating fees.
+EVERGREEN_PLACE_TYPES = [
+    "park",
+    "library",
+    "museum",
+    "tourist_attraction",
+    "garden",
+    "hiking_area",
+    "dog_park",
+    "playground",
+]
+
+GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 
 
 # ---------------------------------------------------------------------------
@@ -587,6 +610,141 @@ Candidates:
 
 
 # ---------------------------------------------------------------------------
+# 4b. EVERGREEN FALLBACK (Google Places — parks, libraries, museums, etc.)
+# ---------------------------------------------------------------------------
+def fetch_evergreen_freebie(lat: float, lng: float, display_area: str,
+                            excluded_urls: set) -> dict | None:
+    """When no time-sensitive free event is available, fall back to a year-round
+    free public facility from Google Places (parks, libraries, museums, etc.).
+    Returns a dict shaped like a free event, or None if Places lookup fails or
+    every candidate has already been featured.
+    """
+    if not GOOGLE_PLACES_API_KEY:
+        print("  ⚠ Evergreen fallback: GOOGLE_PLACES_API_KEY not set — skipping.")
+        return None
+
+    print(f"\n  🌿 Evergreen fallback: searching Google Places near {lat},{lng} for free public facilities…")
+    url = "https://places.googleapis.com/v1/places:searchNearby"
+    headers = {
+        "Content-Type":     "application/json",
+        "X-Goog-Api-Key":   GOOGLE_PLACES_API_KEY,
+        "X-Goog-FieldMask": (
+            "places.id,places.displayName,places.formattedAddress,"
+            "places.googleMapsUri,places.websiteUri,places.rating,"
+            "places.userRatingCount,places.primaryTypeDisplayName,"
+            "places.editorialSummary,places.priceLevel,places.types"
+        ),
+    }
+    payload = {
+        "includedTypes":    EVERGREEN_PLACE_TYPES,
+        "maxResultCount":   20,
+        "locationRestriction": {
+            "circle": {
+                "center": {"latitude": lat, "longitude": lng},
+                "radius": EVERGREEN_RADIUS_METERS,
+            }
+        },
+        "rankPreference": "POPULARITY",
+    }
+    try:
+        res = requests.post(url, headers=headers, json=payload, timeout=20)
+    except Exception as e:
+        print(f"  ⚠ Evergreen Places error: {e}")
+        return None
+    if res.status_code != 200:
+        print(f"  ⚠ Evergreen Places returned {res.status_code}: {res.text[:200]}")
+        return None
+
+    places = res.json().get("places", []) or []
+    print(f"  Got {len(places)} evergreen candidates from Places API")
+
+    # Filter: must be highly rated, plenty of reviews, no obvious paid label
+    qualified = []
+    for p in places:
+        name    = (p.get("displayName") or {}).get("text", "")
+        rating  = p.get("rating") or 0
+        reviews = p.get("userRatingCount") or 0
+        link    = p.get("websiteUri") or p.get("googleMapsUri") or ""
+        # Reject if priceLevel suggests a paid attraction (e.g., MODERATE+).
+        # Free public facilities either omit priceLevel or report PRICE_LEVEL_FREE.
+        plevel = (p.get("priceLevel") or "").upper()
+        if plevel and plevel not in ("", "PRICE_LEVEL_FREE", "PRICE_LEVEL_INEXPENSIVE"):
+            continue
+        if rating < 4.2 or reviews < 50:
+            continue
+        if not link:
+            continue
+        if link in excluded_urls:
+            continue  # already featured before
+        qualified.append({
+            "place_id": p.get("id", ""),
+            "name":     name,
+            "type":     (p.get("primaryTypeDisplayName") or {}).get("text", ""),
+            "address":  p.get("formattedAddress", ""),
+            "rating":   rating,
+            "reviews":  reviews,
+            "url":      link,
+            "summary":  (p.get("editorialSummary") or {}).get("text", ""),
+        })
+
+    if not qualified:
+        print("  ⚠ No qualified evergreen candidates found.")
+        return None
+
+    qualified.sort(key=lambda q: (q["rating"], q["reviews"]), reverse=True)
+    pick = qualified[0]
+    print(f"  ⭐ Evergreen pick: {pick['name']} ({pick['rating']}★, {pick['reviews']} reviews)")
+
+    # Generate a Claude blurb so it reads like a real recommendation
+    blurb = _claude_evergreen_blurb(pick, display_area)
+
+    return {
+        "emoji":   "🌳",
+        "name":    pick["name"],
+        "when":    "Open year-round",
+        "venue":   pick["address"],
+        "audience": "all ages",
+        "blurb":   blurb,
+        "source":  "Google Places",
+        "source_url":   pick["url"],
+        "image_url":    fetch_event_image(pick["url"]),
+        "time_sensitivity_score": 0,  # not time-sensitive
+        "source_quality_score":   8,  # primary, high quality
+        "total_score":            8,
+        "is_evergreen": True,
+    }
+
+
+def _claude_evergreen_blurb(pick: dict, display_area: str) -> str:
+    """Short neighborly blurb for an evergreen free spot."""
+    client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+    prompt = f"""Write a 2-3 sentence neighbor-style recommendation for this free, year-round
+spot in the {display_area} area newsletter. Conversational, warm. No em dashes.
+Eighth-grade reading level. Don't repeat the name verbatim more than once.
+Mention what makes it worth visiting and a hint of what to do there.
+
+Place: {pick['name']}
+Type: {pick['type']}
+Address: {pick['address']}
+Rating: {pick['rating']}★ ({pick['reviews']} reviews)
+Editorial summary (may be empty): {pick['summary']}
+
+Return ONLY the blurb text. No preamble, no markdown, no quotes."""
+    try:
+        resp = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=400,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = next((b.text for b in resp.content if b.type == "text"), "")
+        return text.strip()
+    except Exception as e:
+        print(f"  ⚠ Claude blurb error: {e}")
+        # Fallback to summary or a generic line
+        return pick.get("summary") or f"A neighborhood favorite worth a free visit."
+
+
+# ---------------------------------------------------------------------------
 # 5. SAVE
 # ---------------------------------------------------------------------------
 def save_results(result: dict, newsletter_name: str) -> None:
@@ -628,8 +786,19 @@ if __name__ == "__main__":
         )
 
         if not result.get("events"):
-            print(f"  No qualifying free events for {newsletter['name']}. Skipping.")
-            continue
+            # No time-sensitive event qualified — fall back to an evergreen
+            # public freebie (park / library / museum) from Google Places.
+            evergreen = fetch_evergreen_freebie(
+                lat=newsletter["lat"],
+                lng=newsletter["lng"],
+                display_area=newsletter["display_area"],
+                excluded_urls=excluded,
+            )
+            if not evergreen:
+                print(f"  No qualifying free events or evergreen fallback for {newsletter['name']}. Skipping.")
+                continue
+            result["events"] = [evergreen]
+            print(f"  🏆 Evergreen winner: {evergreen.get('emoji', '')} {evergreen.get('name', '')}")
 
         save_results(result, newsletter["name"])
         print(f"  Done with {newsletter['name']}.")

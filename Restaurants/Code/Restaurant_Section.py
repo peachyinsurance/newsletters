@@ -600,7 +600,15 @@ def festive_swap_inline(results: list[dict], newsletter_name: str,
     for boost in boosts:
         bc = boost["cuisines"]
         # Already represented in current results?
-        if any(_cuisine_matches_boost(r.get("cuisine", ""), bc) for r in results):
+        # After blurb generation, the Claude-derived dicts use 'cuisine_type';
+        # earlier Places API dicts use 'cuisine'. Check both so we don't miss
+        # a match just because the field name shifted upstream.
+        def _has_match(r):
+            for key in ("cuisine_type", "cuisine"):
+                if _cuisine_matches_boost(r.get(key, ""), bc):
+                    return True
+            return False
+        if any(_has_match(r) for r in results):
             print(f"  ✓ Festive '{boost['name']}': already represented ({bc}).")
             continue
 
