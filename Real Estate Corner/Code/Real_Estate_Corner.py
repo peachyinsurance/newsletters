@@ -176,11 +176,17 @@ def parse_listing(raw: dict) -> dict:
         if not url:
             return ""
         url = url.replace("http://", "https://")
-        # Replace single-letter-suffix.jpg with od.jpg unconditionally
-        # Examples upgraded: .../s.jpg, .../m.jpg, .../n.jpg, .../l.jpg, .../p.jpg
-        # Already-large URLs (.../od.jpg, .../od-w1280_h960_x2.webp) match neither.
-        url = _re.sub(r"/([smnlpx])\.jpg(\?[^/]*)?$", r"/od.jpg\2", url)
-        # Also handle the parameterized form /od-w480_... → bump width to at least 1280
+        # Realtor's CDN encodes size as a single letter immediately before `.jpg`,
+        # following the asset hash digits. Examples we see in the wild:
+        #     .../<hash>s.jpg   →  small  (~120x80 thumbnail)
+        #     .../<hash>m.jpg   →  medium
+        #     .../<hash>l.jpg   →  large
+        #     .../<hash>od.jpg  →  original / full-resolution
+        # We rewrite any single-letter size code to `od` for full quality.
+        # Anchored with a preceding digit so we don't accidentally chop the last
+        # letter of a non-Realtor URL or a hash that happens to end in s/m/l.
+        url = _re.sub(r"(\d)[smnlpx]\.jpg(\?[^/]*)?$", r"\1od.jpg\2", url)
+        # Also handle the parameterized form /od-w480_... → bump width ≥ 1280
         def _bump(m: _re.Match) -> str:
             cur = int(m.group(1))
             return f"w{max(cur, 1280)}"
