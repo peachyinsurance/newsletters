@@ -946,12 +946,7 @@ if __name__ == "__main__":
         for i in range(0, len(detail_urls), BATCH_SIZE):
             batch = detail_urls[i:i + BATCH_SIZE]
             print(f"\n  Batch {i // BATCH_SIZE + 1}: {len(batch)} URLs")
-            # Reverted: carousel-click mode was timing out the Apify run.
-            # Petfinder is bot-detecting our scraper anyway — the page they
-            # serve doesn't contain carousel data even with clicks. Get the
-            # plain HTML (~1 photo via og:image) and accept the limitation
-            # until we move to Petfinder's official API.
-            batch_cache = fetch_all_html_apify(batch, click_carousel=False)
+            batch_cache = fetch_all_html_apify(batch)
             html_cache.update(batch_cache)
     else:
         print("\n  No detail pages to scrape")
