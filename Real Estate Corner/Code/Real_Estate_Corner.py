@@ -79,17 +79,21 @@ def fetch_listings(location: str, limit: int = 100) -> list[dict]:
         "x-rapidapi-key": REALTOR_API_KEY,
     }
 
-    PAGE_SIZE = 20  # API hard cap per request
-    MAX_PAGES = 10  # safety: at most 10 calls = 200 listings
+    # API confirms `page` (1-indexed) + `limit` are both honored. Response
+    # meta returns currentPage / limit / totalRecords / totalPage.
+    # Try `limit=50` first; if that's still capped at 20 we'll see in logs and
+    # paginate further.
+    REQUESTED_LIMIT = 50
+    MAX_PAGES = 6  # safety: 6 calls × 50 = up to 300 listings
     collected: list[dict] = []
     seen_ids: set = set()
 
-    for page in range(MAX_PAGES):
-        offset = page * PAGE_SIZE
+    last_page = 0
+    for page in range(1, MAX_PAGES + 1):
         params = {
             "location": location,
-            "limit":    str(PAGE_SIZE),
-            "offset":   str(offset),
+            "limit":    str(REQUESTED_LIMIT),
+            "page":     str(page),
         }
         try:
             res = requests.get(
@@ -106,12 +110,14 @@ def fetch_listings(location: str, limit: int = 100) -> list[dict]:
             print(f"    API error {res.status_code} on page {page}: {res.text[:200]}")
             break
 
-        data = res.json().get("data", {})
+        body = res.json()
+        data = body.get("data", {})
+        meta = body.get("meta", {})
         results = data.get("results", []) or []
-        if page == 0:
-            total = data.get("total") or data.get("count") or "?"
-            print(f"  Realtor URL (page 0): {res.url}")
-            print(f"  API reports total={total}; paginating in pages of {PAGE_SIZE}")
+
+        if page == 1:
+            print(f"  Realtor URL (page 1): {res.url}")
+            print(f"  API meta: limit={meta.get('limit')} totalRecords={meta.get('totalRecords')} totalPage={meta.get('totalPage')}")
 
         new_rows = 0
         for r in results:
@@ -123,15 +129,22 @@ def fetch_listings(location: str, limit: int = 100) -> list[dict]:
             collected.append(r)
             new_rows += 1
 
-        print(f"    page {page} (offset {offset}): +{new_rows} new rows  (total so far: {len(collected)})")
+        print(f"    page {page}: returned {len(results)} rows, +{new_rows} new (total: {len(collected)})")
+        last_page = page
 
         if len(collected) >= limit:
             break
-        if len(results) < PAGE_SIZE:
-            # last page — no more data
+        # Stop if API said this is the last page
+        total_pages = meta.get("totalPage")
+        if total_pages and page >= total_pages:
+            break
+        # Stop if API returned fewer than requested (likely last page)
+        if len(results) < REQUESTED_LIMIT and len(results) > 0:
+            break
+        if not results:
             break
 
-    print(f"  Got {len(collected)} listings from API across {page + 1} page(s)")
+    print(f"  Got {len(collected)} listings from API across {last_page} page(s)")
     return collected[:limit]
 
 
