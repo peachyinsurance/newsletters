@@ -653,18 +653,22 @@ def festive_swap_inline(results: list[dict], newsletter_name: str,
 
 
 def _promote_historical_rows(page_ids: list[str], festive: bool = False) -> None:
-    """Flip each Notion page from 'approved - old' → 'Tier 2 Winner'.
-    When festive=True, also marks the row with Festive Promoted=True so the
-    UI can render it differently (grayed out / labeled).
+    """Flip each Notion page from 'approved - old' → 'pending'.
+    When festive=True, also marks `Festive Promoted=True` so the row is
+    traceable as a re-feature candidate. The user approves manually in the
+    review-app, which promotes it to Tier 1/2 Winner via the normal flow.
+    Setting to 'pending' instead of Tier 2 Winner avoids the grayed-out
+    appearance in the review UI — it shows as a regular candidate awaiting
+    decision rather than an auto-approved card.
     """
     for pid in page_ids:
         try:
-            props: dict = {"Status": {"select": {"name": "Tier 2 Winner"}}}
+            props: dict = {"Status": {"select": {"name": "pending"}}}
             if festive:
                 props["Festive Promoted"] = {"checkbox": True}
             update_page(pid, props)
             tag = " (festive)" if festive else ""
-            print(f"  ✓ Promoted historical row {pid[:8]}…{tag} to Tier 2 Winner")
+            print(f"  ✓ Promoted historical row {pid[:8]}…{tag} to pending")
         except Exception as e:
             print(f"  ⚠ Failed to promote {pid}: {e}")
 
