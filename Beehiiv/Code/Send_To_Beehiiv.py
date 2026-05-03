@@ -409,13 +409,15 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     # ---- Real Estate ----
     # Tier names from RE corner: "Starter Home", "Sweet Spot", "Showcase"
     re_listings = get_real_estate(newsletter_name)
+    # Notion stores Tier as "Starter" / "Sweet Spot" / "Showcase"
+    # (not "Starter Home"). Match the actual value in the DB.
     re_tier_to_alt = {
-        "Starter Home": "real_estate_image_starter",
+        "Starter":      "real_estate_image_starter",
         "Sweet Spot":   "real_estate_image_sweetspot",
         "Showcase":     "real_estate_image_showcase",
     }
     re_tier_to_link_key = {
-        "Starter Home": "real_estate_starter_link",
+        "Starter":      "real_estate_starter_link",
         "Sweet Spot":   "real_estate_sweetspot_link",
         "Showcase":     "real_estate_showcase_link",
     }

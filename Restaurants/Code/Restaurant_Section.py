@@ -28,8 +28,12 @@ CLAUDE_API_KEY          = os.environ["CLAUDE_API_KEY"]
 GOOGLE_PLACES_API_KEY   = os.environ["GOOGLE_PLACES_API_KEY"]
 SKILL_PROMPT_PATH       = Path(__file__).parent.parent.parent / "Skills" / "newsletter-restaurant-blurb-skill.md"
 SEARCH_RADIUS_METERS    = 8047  # 5 miles in meters (default starting radius)
-RADIUS_EXPANSIONS_METERS = [12070, 16093, 24140]  # 7.5 mi, 10 mi, 15 mi
-MIN_QUALIFIED_RESTAURANTS = 5     # if we have fewer than this, expand the radius
+# Expansion plan: 5 mi → 7.5 mi → 10 mi. Stops early if MIN_QUALIFIED reached.
+# If still short after 10 mi, the pipeline falls back to allowing high-rated
+# sit-down chains (Yard House, Olive Garden, etc.) as a final pool.
+RADIUS_EXPANSIONS_METERS = [12070, 16093]  # 7.5 mi, 10 mi
+MIN_QUALIFIED_RESTAURANTS = 5
+SIT_DOWN_CHAIN_MIN_RATING = 4.0  # threshold for the sit-down chain fallback
 MAX_CANDIDATES          = 30    # fetch before filtering
 TARGET_TOP_5            = 5
 MAX_SAME_CUISINE        = 2
@@ -43,23 +47,34 @@ NEWSLETTERS = [
 # ---------------------------------------------------------------------------
 # 2. KNOWN CHAINS TO EXCLUDE
 # ---------------------------------------------------------------------------
-KNOWN_CHAINS = {
+# Chains we ALWAYS exclude regardless of rating — fast food / quick-service.
+FAST_FOOD_CHAINS = {
     "mcdonald's", "starbucks", "chick-fil-a", "subway", "burger king",
-    "wendy's", "taco bell", "chipotle", "panera bread", "olive garden",
-    "applebee's", "chili's", "ihop", "denny's", "waffle house",
-    "cracker barrel", "buffalo wild wings", "red lobster", "outback steakhouse",
-    "texas roadhouse", "longhorn steakhouse", "cheesecake factory", "the cheesecake factory",
-    "pf chang's", "domino's", "pizza hut", "papa john's", "little caesars", "five guys",
-    "shake shack", "in-n-out", "sonic", "dairy queen", "dunkin",
-    "popeyes", "raising cane's", "wingstop", "zaxby's", "hardee's",
-    "arby's", "jersey mike's", "jimmy john's", "firehouse subs",
+    "wendy's", "taco bell", "chipotle", "panera bread",
+    "ihop", "dunkin", "popeyes", "raising cane's", "wingstop", "zaxby's",
+    "hardee's", "arby's", "jersey mike's", "jimmy john's", "firehouse subs",
     "moe's southwest grill", "qdoba", "panda express", "jason's deli",
-    "noodles & company", "first watch", "eggs up grill", "metro diner",
+    "noodles & company", "first watch", "eggs up grill",
+    "domino's", "pizza hut", "papa john's", "little caesars", "five guys",
+    "shake shack", "in-n-out", "sonic", "dairy queen",
+}
+
+# Chains we exclude BY DEFAULT but ALLOW as fallback if rating ≥ 4.0
+# (sit-down restaurants — sometimes worth featuring when the local pool is thin).
+SIT_DOWN_CHAINS = {
+    "olive garden", "applebee's", "chili's", "denny's", "waffle house",
+    "cracker barrel", "buffalo wild wings", "red lobster", "outback steakhouse",
+    "texas roadhouse", "longhorn steakhouse", "cheesecake factory",
+    "the cheesecake factory", "pf chang's", "metro diner",
     "dave & buster's", "dave & busters", "golden corral", "twin peaks",
     "bahama breeze", "fogo de chão", "fogo de chao", "main event",
     "puttshack", "inspire brands", "pappadeaux", "pappadeaux seafood kitchen",
-    "pappasito's", "pappasito's cantina", "pappasitos","main event", "fogo de chão"
+    "pappasito's", "pappasito's cantina", "pappasitos",
+    "yard house", "round1",
 }
+
+# Backwards-compat union for places that still reference the original set.
+KNOWN_CHAINS = FAST_FOOD_CHAINS | SIT_DOWN_CHAINS
 
 # ---------------------------------------------------------------------------
 # 3. FESTIVE CALENDAR
@@ -128,11 +143,15 @@ Keep it conversational, no em dashes, eighth-grade readability."""
 
 def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newsletter_name: str,
                       radius_meters: int = SEARCH_RADIUS_METERS,
-                      already_seen_place_ids: set | None = None) -> list[dict]:
+                      already_seen_place_ids: set | None = None,
+                      allow_sit_down_chains: bool = False) -> list[dict]:
     """Fetch + qualify restaurants within `radius_meters` of (lat,lng).
 
     `already_seen_place_ids` lets the caller pass IDs from a prior smaller
     search so we don't re-process the same restaurants when expanding radius.
+
+    `allow_sit_down_chains=True` makes high-rated sit-down chains (rating ≥
+    SIT_DOWN_CHAIN_MIN_RATING) eligible. Fast-food chains are still excluded.
     """
     print(f"\n--- Fetching restaurants near {lat},{lng} (radius {radius_meters/1609:.1f} mi) ---")
     already_seen_place_ids = already_seen_place_ids or set()
@@ -193,10 +212,24 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
             print(f"  ✗ Not a restaurant: {name}")
             continue
         
-        # Check if any chain name is contained within the restaurant name
-        if any(chain in name.lower() for chain in KNOWN_CHAINS):
-            print(f"  ✗ Chain excluded: {name}")
+        # Chain handling — fast food always rejected; sit-down chains allowed
+        # only when explicitly enabled (the radius-expansion fallback) AND
+        # they meet the rating threshold.
+        name_lower = name.lower()
+        rating = place.get("rating", 0)
+        reviews = place.get("userRatingCount", 0)
+        if any(chain in name_lower for chain in FAST_FOOD_CHAINS):
+            print(f"  ✗ Fast-food chain excluded: {name}")
             continue
+        is_sit_down_chain = any(chain in name_lower for chain in SIT_DOWN_CHAINS)
+        if is_sit_down_chain:
+            if not allow_sit_down_chains:
+                print(f"  ✗ Sit-down chain excluded: {name}")
+                continue
+            if rating < SIT_DOWN_CHAIN_MIN_RATING:
+                print(f"  ✗ Sit-down chain below {SIT_DOWN_CHAIN_MIN_RATING}★: {name} ({rating}★)")
+                continue
+            print(f"  ⚠ Sit-down chain ALLOWED (fallback): {name} ({rating}★)")
 
         # Skip previously featured
         if place_id in excluded_place_ids:
@@ -204,8 +237,6 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
             continue
 
         # Skip low rated
-        rating = place.get("rating", 0)
-        reviews = place.get("userRatingCount", 0)
         if rating < 4.0 or reviews < 50:
             print(f"  ✗ Low rating/reviews: {name} ({rating} stars, {reviews} reviews)")
             continue
