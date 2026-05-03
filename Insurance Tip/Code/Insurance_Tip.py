@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from brave_search import search_web
-from claude_json import call_with_json_output
+from claude_json import call_with_json_output, ClaudeJSONError
 from notion_helper import save_tips_to_notion, get_existing_tip_urls, get_existing_tip_subjects
 from url_validator import filter_valid_items
 
@@ -341,11 +341,16 @@ if __name__ == "__main__":
 
     print(f"\n  Sending {len(candidates)} candidates to Claude (one pick for both newsletters)...")
     user_prompt = build_claude_user_prompt(candidates, NEWSLETTERS, previously_covered)
-    results = call_with_json_output(
-        api_key=CLAUDE_API_KEY,
-        system=skill_prompt,
-        user_content=user_prompt,
-    )
+    try:
+        results = call_with_json_output(
+            api_key=CLAUDE_API_KEY,
+            system=skill_prompt,
+            user_content=user_prompt,
+        )
+    except ClaudeJSONError as e:
+        print(f"  ⚠ Claude returned unparseable output for Insurance Tip: {e}")
+        print("  Skipping Insurance Tip generation this run.")
+        sys.exit(0)
 
     if not results:
         print("Claude found no qualifying tips. Exiting.")
