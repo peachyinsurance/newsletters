@@ -220,6 +220,87 @@ URL_TYPED_KEYS = {
 }
 
 
+# Slots that should auto-prune when their primary content key is empty.
+# Each entry is (primary_key, anchor_token). The anchor_token is the
+# placeholder string we search for in the HTML to locate the slot's container.
+# Walking up to the nearest <tr> from the anchor identifies the slot's row/card.
+PRUNEABLE_SLOTS = [
+    # Restaurants — primary key is the name; if empty, drop the whole card
+    ("restaurant_radar_name",      "restaurant_radar_name"),
+    ("restaurant_radar_2_name",    "restaurant_radar_2_name"),
+    ("restaurant_radar_3_name",    "restaurant_radar_3_name"),
+    ("restaurant_radar_4_name",    "restaurant_radar_4_name"),
+    ("restaurant_radar_5_name",    "restaurant_radar_5_name"),
+    # Local Lowdown
+    ("local_lowdown1_title",       "local_lowdown1_title"),
+    ("local_lowdown2_title",       "local_lowdown2_title"),
+    ("local_lowdown3_title",       "local_lowdown3_title"),
+    ("local_lowdown4_title",       "local_lowdown4_title"),
+    ("local_lowdown5_title",       "local_lowdown5_title"),
+    # Local Events
+    ("local_event_date_1",         "local_event_date_1"),
+    ("local_event_date_2",         "local_event_date_2"),
+    ("local_event_date_3",         "local_event_date_3"),
+    ("local_event_date_4",         "local_event_date_4"),
+    ("local_event_date_5",         "local_event_date_5"),
+    # Free Event (only 1 today, future-proof more)
+    ("free_event_title_1",         "free_event_title_1"),
+    # Featured event — if no event approved, drop the whole featured-event card
+    ("event_of_the_week_headline", "event_of_the_week_headline"),
+    # Pet
+    ("PET_NAME",                   "PET_NAME"),
+]
+
+
+def prune_empty_slots(html: str, replacements: dict[str, str]) -> str:
+    """Remove repeating-slot containers whose primary content wasn't filled.
+
+    Strategy: for each slot whose primary_key has no value in replacements,
+    locate the anchor placeholder text (e.g., `{restaurant_radar_4_name}`) in
+    the HTML and remove the smallest enclosing structural element (preferring
+    <tr>, falling back to <table> or <div>). Beehiiv emails use deeply nested
+    table layouts, so a single <tr> typically wraps one card/row.
+
+    Falls back gracefully (no-op) if BeautifulSoup isn't installed.
+    """
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        print("  ⚠ beautifulsoup4 not installed; skipping slot pruning")
+        return html
+
+    soup = BeautifulSoup(html, "html.parser")
+    pruned = 0
+    for primary_key, anchor in PRUNEABLE_SLOTS:
+        if (replacements.get(primary_key) or "").strip():
+            continue  # slot has data — keep
+        # Try every encoded form Beehiiv might use
+        variants = _placeholder_variants(anchor)
+        for variant in variants:
+            # find_all with `string=` callable searches text node content
+            text_nodes = soup.find_all(string=lambda s, v=variant: bool(s) and v in str(s))
+            if not text_nodes:
+                continue
+            target = text_nodes[0]
+            # Walk up the DOM looking for the right container.
+            # Prefer <tr>; if not present, take the nearest <table>; else <div>.
+            container = (
+                target.find_parent("tr")
+                or target.find_parent("table")
+                or target.find_parent("div")
+            )
+            if container:
+                container.decompose()
+                pruned += 1
+                print(f"    ✓ pruned slot: {primary_key} (anchor='{anchor}', container=<{container.name}>)")
+                break
+        else:
+            # no variant found in HTML — slot wasn't in template, nothing to prune
+            pass
+    print(f"  Empty-slot pruning: removed {pruned} unused slots")
+    return str(soup)
+
+
 def replace_placeholders(html: str, replacements: dict[str, str]) -> str:
     """Replace `{placeholder}` tokens (in any HTML-encoded form) with values.
     For URL-typed keys, also replace `http://{key}` / `https://{key}` patterns
@@ -582,7 +663,12 @@ def main():
                                                                   NEWSLETTER)
 
     # Apply text placeholder replacements
-    new_body = replace_placeholders(body_html, repl)
+    # Prune unused repeating slots (restaurants 4-5, lowdown 4-5, etc.)
+    # BEFORE replacing placeholders so we can anchor on the literal {token}.
+    print("\n  Pruning empty slots…")
+    pruned_body = prune_empty_slots(body_html, repl)
+
+    new_body = replace_placeholders(pruned_body, repl)
     new_body = hide_unused_lowdown_slots(new_body, story_count)
 
     # Apply image URL string-swaps (covers cases where the template already
