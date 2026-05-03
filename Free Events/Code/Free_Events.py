@@ -139,7 +139,27 @@ AGGREGATOR_DOMAINS = {
     "finance.yahoo.com",
     "news.yahoo.com",
     "streetinsider.com",
+    # Travel guides / listicle aggregators
+    "tripster.com",
+    "tripadvisor.com",
+    "thrillist.com",
+    "timeout.com",
+    "yelp.com",
+    "discoveratlanta.com",
+    "atlantatrails.com",
+    "exploregeorgia.org",
 }
+
+# URL path / title hints that mean "listicle / guide page" — used after Claude
+# picks a winner to detect "still aggregator-shaped" URLs and trigger drill-down.
+LISTICLE_PATH_HINTS = (
+    "/travelguide/", "/guide/", "/things-to-do", "/top-", "/best-",
+    "/list/", "/listicle/", "/roundup/",
+)
+LISTICLE_TITLE_HINTS = (
+    "things to do", "top ", "best ", "free things", "free events", "guide to",
+    "what to do", "places to", "events in",
+)
 
 NEWSLETTERS = [
     {
@@ -595,7 +615,11 @@ Candidates:
         return result
 
     ev = winner["ev"]
-    ev["source_url"] = winner["source_url"]
+    raw_url = winner["source_url"]
+    # Try to drill down: if the winner's URL is a listicle/guide page, find the
+    # specific event link inside it and use that instead of the generic guide URL.
+    refined_url = drill_down_aggregator_url(raw_url, ev.get("name", ""))
+    ev["source_url"] = refined_url
     ev["source"]     = winner["source_host"]
     ev.pop("candidate_index", None)
     ev["time_sensitivity_score"] = winner["time_score"]
@@ -607,6 +631,123 @@ Candidates:
     print(f"  🏆 Winner: {ev.get('emoji', '')} {ev.get('name', '')} "
           f"({ev.get('audience', '?')})  total={winner['total']}")
     return result
+
+
+# ---------------------------------------------------------------------------
+# 4a. DRILL-DOWN INTO LISTICLES
+# ---------------------------------------------------------------------------
+def _looks_like_listicle(url: str, page_title: str = "") -> bool:
+    """Heuristic: is this URL a listicle / guide page (rather than a single event)?"""
+    ul = (url or "").lower()
+    tl = (page_title or "").lower()
+    if any(h in ul for h in LISTICLE_PATH_HINTS):
+        return True
+    if any(h in tl for h in LISTICLE_TITLE_HINTS):
+        return True
+    return False
+
+
+def _normalize_for_match(s: str) -> set[str]:
+    """Tokenize a string into a set of meaningful words for fuzzy matching."""
+    s = (s or "").lower()
+    s = _re.sub(r"[^\w\s]", " ", s)
+    stopwords = {"the", "a", "an", "and", "or", "of", "in", "at", "on", "for", "to",
+                 "with", "from", "by", "is", "are", "this", "that", "it", "its",
+                 "free", "event", "events", "things", "do"}
+    return {w for w in s.split() if len(w) > 2 and w not in stopwords}
+
+
+def drill_down_aggregator_url(source_url: str, event_name: str) -> str:
+    """If `source_url` is a listicle / guide page AND `event_name` is specific,
+    fetch the page and find a link whose anchor text most closely matches the
+    event name. Returns the better URL if found, else returns source_url unchanged.
+
+    This is the "double-click" behavior: instead of linking the reader to a
+    generic 'Free Things to Do in Atlanta' page, link them to the specific
+    event listed on that page.
+    """
+    if not source_url or not event_name:
+        return source_url
+    try:
+        from bs4 import BeautifulSoup
+    except Exception:
+        return source_url
+
+    try:
+        r = requests.get(
+            source_url, timeout=8, allow_redirects=True,
+            headers={"User-Agent": BROWSER_UA},
+        )
+        if r.status_code >= 400 or not r.text:
+            return source_url
+    except Exception:
+        return source_url
+
+    soup = BeautifulSoup(r.text, "html.parser")
+    page_title = (soup.title.string if soup.title else "") or ""
+
+    # Only drill down if this looks like a listicle. If it's a single-event page,
+    # the URL is already specific — leave it.
+    if not _looks_like_listicle(source_url, page_title):
+        return source_url
+
+    print(f"    🔍 Drill-down: '{source_url[:60]}…' looks like a listicle. "
+          f"Searching for '{event_name[:40]}'…")
+
+    event_tokens = _normalize_for_match(event_name)
+    if not event_tokens:
+        return source_url
+
+    aggregator_host = _hostname(source_url)
+    body = soup.find("article") or soup.find("main") or soup
+
+    best_url = source_url
+    best_overlap = 0
+    for a in body.find_all("a", href=True):
+        href = a["href"].strip()
+        if href.startswith("/"):
+            from urllib.parse import urljoin
+            href = urljoin(source_url, href)
+        if not href.startswith("http"):
+            continue
+        host = _hostname(href)
+        # Allow same-host (a deeper path on this site) OR external — both are fine.
+        # But skip social shares.
+        if _host_in(host, SOCIAL_DOMAINS) or _host_in(host, BLOCKED_DOMAINS):
+            continue
+        # Skip the listicle URL itself
+        if href.rstrip("/") == source_url.rstrip("/"):
+            continue
+
+        anchor_text = (a.get_text(strip=True) or "")[:200]
+        # Also consider the link's title attribute and surrounding heading
+        title_attr = a.get("title", "") or ""
+        # Walk up to find a nearest heading for context (h2/h3 typical in listicles)
+        nearby = ""
+        parent = a
+        for _ in range(4):
+            parent = parent.parent if parent else None
+            if not parent:
+                break
+            heading = parent.find(["h2", "h3", "h4"])
+            if heading:
+                nearby = heading.get_text(strip=True)
+                break
+
+        candidate_text = " ".join([anchor_text, title_attr, nearby])
+        candidate_tokens = _normalize_for_match(candidate_text)
+        if not candidate_tokens:
+            continue
+        overlap = len(event_tokens & candidate_tokens)
+        if overlap > best_overlap and overlap >= 2:
+            best_overlap = overlap
+            best_url = href
+
+    if best_url != source_url:
+        print(f"    ✓ Drill-down match (overlap={best_overlap}): {best_url[:80]}")
+        return best_url
+    print("    · No strong drill-down match — keeping original URL")
+    return source_url
 
 
 # ---------------------------------------------------------------------------

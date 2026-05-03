@@ -78,10 +78,11 @@ approved_urls = get_approved_pet_urls()
 # 5. FETCH PETS FROM PETFINDER VIA APIFY
 # ---------------------------------------------------------------------------
 
-def fetch_all_html_apify(urls: list[str], click_carousel: bool = False) -> dict[str, str]:
-    """Fetch ALL URLs in a single Apify web-scraper run. Returns {url: html} dict.
-    If click_carousel=True, clicks through photo carousels to load all images.
-    Retries up to 2 times on connection errors."""
+def fetch_all_html_apify(urls: list[str]) -> dict[str, str]:
+    """Fetch URLs in a single Apify web-scraper run. Returns {url: html} dict.
+    Retries up to 2 times on connection errors. Plain HTML grab — no carousel
+    clicking (Petfinder serves a stub to scrapers; clicking can't recover the data
+    and the extra waits caused timeouts)."""
     if not urls:
         return {}
     headers = {
@@ -89,58 +90,7 @@ def fetch_all_html_apify(urls: list[str], click_carousel: bool = False) -> dict[
         "Authorization": f"Bearer {APIFY_API_KEY}",
     }
 
-    if click_carousel:
-        page_function = """
-async function pageFunction(context) {
-    const { page, request, log } = context;
-
-    // Wait for page to load
-    await page.waitForTimeout(2000);
-
-    // Click carousel arrows to load photos (2 clicks = 3 photos total)
-    const photoUrls = new Set();
-
-    const collectPhotos = async () => {
-        // Cast a wide net: any <img> on the page whose src looks like a real photo.
-        // Different shelters host on different CDNs (cloudfront, dl5zpyw5k3jeb, petfinder
-        // media, custom CDNs), so don't gate on a specific domain. Skip logos/icons.
-        const imgs = await page.$$eval('img', els =>
-            els.map(el => el.src || el.dataset.src || '')
-               .filter(s => {
-                   if (!s) return false;
-                   const sl = s.toLowerCase();
-                   if (sl.includes('logo') || sl.includes('favicon') || sl.includes('sprite')
-                       || sl.includes('icon-') || sl.includes('avatar')) return false;
-                   return /\.(jpg|jpeg|png|webp)/.test(sl)
-                       || sl.includes('/photos/') || sl.includes('/media/') || sl.includes('/images/');
-               })
-        );
-        imgs.forEach(u => photoUrls.add(u));
-    };
-
-    await collectPhotos();
-
-    for (let i = 0; i < 2; i++) {
-        const nextBtn = await page.$('button[aria-label="Next"], [class*="next"], [class*="Next"], [data-testid="next"]');
-        if (!nextBtn) break;
-        try {
-            await nextBtn.click();
-            await page.waitForTimeout(800);
-            await collectPhotos();
-        } catch(e) { break; }
-    }
-
-    log.info(`Found ${photoUrls.size} photos after carousel clicks`);
-
-    return {
-        url: request.url,
-        html: document.documentElement.outerHTML,
-        carouselPhotos: [...photoUrls],
-    };
-}
-"""
-    else:
-        page_function = """
+    page_function = """
 async function pageFunction(context) {
     return {
         url: context.request.url,
@@ -176,12 +126,7 @@ async function pageFunction(context) {
                 h = item.get("html", "")
                 if u and h:
                     result[u] = h
-                # Store carousel photos separately if available
-                carousel = item.get("carouselPhotos", [])
-                if carousel and u:
-                    result[u + "__photos"] = carousel
-                    print(f"    {u[:60]}... → {len(carousel)} carousel photos")
-            print(f"  Apify returned {len([k for k in result if not k.endswith('__photos')])} pages")
+            print(f"  Apify returned {len(result)} pages")
             return result
         except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError) as e:
             print(f"  Apify connection error (attempt {attempt + 1}): {type(e).__name__}")
@@ -599,21 +544,14 @@ def fetch_petfinder_apify(species: str, excluded_urls: set, state: str, zip_code
         gender      = detail.get("gender") or item.get("gender", "")
         size        = detail.get("size") or item.get("size", "")
 
-        # Photos: combine three sources, in priority order:
-        #   1. Carousel photos collected by Apify's click-through (most reliable)
-        #   2. Photos parsed out of the detail HTML
-        #   3. Search-page item photo (1 thumbnail fallback)
-        # Dedupe + cap at 3 (gif_maker uses 3 frames).
-        carousel_photos = cache.get(source_url + "__photos", []) or []
+        # Photos: detail-page parse + search-page item fallback. Dedupe.
         photos = []
         seen = set()
-        for u in (carousel_photos + (detail.get("photos") or []) + (item.get("photos", []) or [])):
+        for u in ((detail.get("photos") or []) + (item.get("photos", []) or [])):
             if u and u not in seen:
                 seen.add(u)
                 photos.append(u)
         photos = photos[:3]
-        if carousel_photos:
-            print(f"      {name}: carousel={len(carousel_photos)}  detail={len(detail.get('photos') or [])}  → {len(photos)} unique used")
 
         org_name    = detail.get("org_name") or item.get("org_name", "")
         org_address = detail.get("org_address") or item.get("org_address", "")
@@ -1008,11 +946,12 @@ if __name__ == "__main__":
         for i in range(0, len(detail_urls), BATCH_SIZE):
             batch = detail_urls[i:i + BATCH_SIZE]
             print(f"\n  Batch {i // BATCH_SIZE + 1}: {len(batch)} URLs")
-            # click_carousel=True so the Apify scraper clicks through the
-            # photo carousel and captures all 3 photos (lazy-loaded). Without
-            # this, only the first photo is rendered in the HTML and we get
-            # 1 photo per pet (the og:image hero).
-            batch_cache = fetch_all_html_apify(batch, click_carousel=True)
+            # Reverted: carousel-click mode was timing out the Apify run.
+            # Petfinder is bot-detecting our scraper anyway — the page they
+            # serve doesn't contain carousel data even with clicks. Get the
+            # plain HTML (~1 photo via og:image) and accept the limitation
+            # until we move to Petfinder's official API.
+            batch_cache = fetch_all_html_apify(batch, click_carousel=False)
             html_cache.update(batch_cache)
     else:
         print("\n  No detail pages to scrape")
