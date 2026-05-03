@@ -27,7 +27,9 @@ import anthropic
 CLAUDE_API_KEY          = os.environ["CLAUDE_API_KEY"]
 GOOGLE_PLACES_API_KEY   = os.environ["GOOGLE_PLACES_API_KEY"]
 SKILL_PROMPT_PATH       = Path(__file__).parent.parent.parent / "Skills" / "newsletter-restaurant-blurb-skill.md"
-SEARCH_RADIUS_METERS    = 8047  # 5 miles in meters
+SEARCH_RADIUS_METERS    = 8047  # 5 miles in meters (default starting radius)
+RADIUS_EXPANSIONS_METERS = [12070, 16093, 24140]  # 7.5 mi, 10 mi, 15 mi
+MIN_QUALIFIED_RESTAURANTS = 5     # if we have fewer than this, expand the radius
 MAX_CANDIDATES          = 30    # fetch before filtering
 TARGET_TOP_5            = 5
 MAX_SAME_CUISINE        = 2
@@ -124,8 +126,16 @@ Keep it conversational, no em dashes, eighth-grade readability."""
 # 6. FETCH RESTAURANTS FROM GOOGLE PLACES API
 # ---------------------------------------------------------------------------
 
-def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newsletter_name: str) -> list[dict]:
-    print(f"\n--- Fetching restaurants near {lat},{lng} ---")
+def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newsletter_name: str,
+                      radius_meters: int = SEARCH_RADIUS_METERS,
+                      already_seen_place_ids: set | None = None) -> list[dict]:
+    """Fetch + qualify restaurants within `radius_meters` of (lat,lng).
+
+    `already_seen_place_ids` lets the caller pass IDs from a prior smaller
+    search so we don't re-process the same restaurants when expanding radius.
+    """
+    print(f"\n--- Fetching restaurants near {lat},{lng} (radius {radius_meters/1609:.1f} mi) ---")
+    already_seen_place_ids = already_seen_place_ids or set()
 
     url = "https://places.googleapis.com/v1/places:searchNearby"
     headers = {
@@ -142,7 +152,7 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
             "locationRestriction": {
                 "circle": {
                     "center": {"latitude": lat, "longitude": lng},
-                    "radius": SEARCH_RADIUS_METERS
+                    "radius": radius_meters
                 }
             },
             "rankPreference": rank_pref
@@ -159,12 +169,13 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
         except Exception as e:
             print(f"  Places API error ({rank_pref}): {e}")
 
-    # Deduplicate by place ID
-    seen = set()
+    # Deduplicate by place ID — skip any place we already evaluated at a
+    # smaller radius (passed in via already_seen_place_ids).
+    seen = set(already_seen_place_ids)
     unique_places = []
     for place in all_places:
         pid = place.get("id", "")
-        if pid not in seen:
+        if pid and pid not in seen:
             seen.add(pid)
             unique_places.append(place)
 
@@ -521,13 +532,34 @@ if __name__ == "__main__":
 
         excluded = get_featured_place_ids(newsletter["name"])
 
-        # Fetch restaurants
+        # Fetch restaurants. Start at the default radius. If we end up with
+        # fewer than MIN_QUALIFIED_RESTAURANTS, expand the radius progressively.
         restaurants = fetch_restaurants(
             lat=newsletter["lat"],
             lng=newsletter["lng"],
             excluded_place_ids=excluded,
-            newsletter_name=newsletter["name"]
+            newsletter_name=newsletter["name"],
+            radius_meters=SEARCH_RADIUS_METERS,
         )
+        evaluated_place_ids = {r.get("place_id") for r in restaurants if r.get("place_id")}
+
+        for expanded_radius in RADIUS_EXPANSIONS_METERS:
+            if len(restaurants) >= MIN_QUALIFIED_RESTAURANTS:
+                break
+            print(f"\n  ⓘ Only {len(restaurants)} qualified — expanding radius to "
+                  f"{expanded_radius/1609:.1f} mi to find more.")
+            extra = fetch_restaurants(
+                lat=newsletter["lat"],
+                lng=newsletter["lng"],
+                excluded_place_ids=excluded,
+                newsletter_name=newsletter["name"],
+                radius_meters=expanded_radius,
+                already_seen_place_ids=evaluated_place_ids,
+            )
+            restaurants.extend(extra)
+            evaluated_place_ids.update(r.get("place_id") for r in extra if r.get("place_id"))
+
+        print(f"\n  Final qualified pool: {len(restaurants)} restaurants")
 
         if not restaurants:
             print(f"No restaurants found for {newsletter['name']}. Skipping.")

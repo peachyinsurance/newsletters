@@ -250,6 +250,19 @@ def parse_search_html(html: str, species: str) -> list[dict]:
                     break
 
             print(f"  __NEXT_DATA__: found {len(animals)} animals")
+            # DIAGNOSTIC: when 0 animals, dump the JSON shape so we can see
+            # how Petfinder restructured pageProps. Petfinder updates their
+            # Next.js data shape periodically, breaking known paths.
+            if len(animals) == 0:
+                print(f"    [debug] pageProps top-level keys: {list(page_props.keys())[:30]}")
+                # Walk one level deeper for nested dicts to surface candidate paths
+                for k, v in list(page_props.items())[:30]:
+                    if isinstance(v, dict):
+                        sub_keys = list(v.keys())[:15]
+                        print(f"    [debug] pageProps['{k}'] (dict) keys: {sub_keys}")
+                    elif isinstance(v, list) and v and isinstance(v[0], dict):
+                        first_keys = list(v[0].keys())[:15]
+                        print(f"    [debug] pageProps['{k}'] (list of {len(v)} dicts), first item keys: {first_keys}")
             for a in animals:
                 pet_path = a.get("url", "")
                 pet_url = f"https://www.petfinder.com{pet_path}" if pet_path and not pet_path.startswith("http") else pet_path
@@ -389,6 +402,19 @@ def parse_detail_html(html: str) -> dict:
             nd = json.loads(next_tag.string)
             pp = nd.get("props", {}).get("pageProps", {})
             animal = pp.get("animal") or pp.get("pet") or {}
+            # DIAGNOSTIC: if no animal found at known paths, dump pageProps
+            # shape so we can see how Petfinder restructured the detail JSON.
+            if not animal:
+                print(f"      [debug detail] pageProps top-level keys: {list(pp.keys())[:30]}")
+                for k, v in list(pp.items())[:30]:
+                    if isinstance(v, dict):
+                        print(f"      [debug detail] pp['{k}'] (dict) keys: {list(v.keys())[:15]}")
+                    elif isinstance(v, list) and v and isinstance(v[0], dict):
+                        print(f"      [debug detail] pp['{k}'] (list of {len(v)}), first keys: {list(v[0].keys())[:15]}")
+                    elif isinstance(v, str):
+                        # if it's a JSON string, peek
+                        snippet = v[:120].replace("\n", " ")
+                        print(f"      [debug detail] pp['{k}'] (str): {snippet}")
             if animal:
                 detail["description"] = clean_text(animal.get("description", ""))
 
@@ -429,61 +455,81 @@ def parse_detail_html(html: str) -> dict:
         except Exception as e:
             print(f"    Detail parse error: {e}")
 
-    # Always check Swiper carousel for additional photos
-    if not detail.get("photos") or len(detail.get("photos", [])) < 2:
+    # Aggregate photos from EVERY reasonable source on the detail page.
+    # Petfinder restructures their HTML often, so we cast a wide net and merge.
+    if not detail.get("photos") or len(detail.get("photos", [])) < 3:
         import re as _re
         dom_photos = []
         seen = set()
 
-        def _looks_like_photo(u: str) -> bool:
-            """Accept any URL pointing at an image asset that isn't an obvious
-            logo/icon. Don't gate on a specific CDN — different shelters host
-            on different domains (cloudfront, petfinder media, custom CDNs)."""
-            if not u or u in seen:
-                return False
+        def _add(u: str):
+            if not u:
+                return
+            u = u.strip()
+            if u.startswith("//"):
+                u = "https:" + u
+            if u in seen:
+                return
             ul = u.lower()
-            if any(skip in ul for skip in ("logo", "icon", "favicon", "sprite", "avatar")):
-                return False
-            # Path or query must look image-like
-            return any(ext in ul for ext in (".jpg", ".jpeg", ".png", ".webp", "/photos/", "/media/", "/images/"))
+            # Reject obvious non-photos
+            if any(skip in ul for skip in (
+                "logo", "favicon", "sprite", "icon-", "/icons/", "avatar",
+                "placeholder", "blank.gif", "transparent.png", "spacer.gif",
+            )):
+                return
+            # Must look image-like (extension or known photo path segment)
+            if not any(marker in ul for marker in (
+                ".jpg", ".jpeg", ".png", ".webp", ".gif",
+                "/photos/", "/media/", "/images/", "rdcpix", "cloudfront", "petfinder",
+            )):
+                return
+            seen.add(u)
+            dom_photos.append(u)
 
-        # 1. Swiper slides: photos in img tags inside swiper-slide divs
-        for slide in soup.select(".swiper-slide img"):
-            src = slide.get("src") or slide.get("data-src") or ""
-            if _looks_like_photo(src):
-                seen.add(src)
-                dom_photos.append(src)
+        def _add_srcset(srcset: str):
+            """srcset = 'url1 1x, url2 2x' — pull every URL out."""
+            if not srcset:
+                return
+            for entry in srcset.split(","):
+                _add(entry.strip().split(" ")[0])
 
-        # 2. Background images in swiper slides (style="background-image:url(...)")
-        for div in soup.select(".swiper-slide div[style*='background-image']"):
-            style = div.get("style", "")
-            urls = _re.findall(r'url\(([^)]+)\)', style)
-            for u in urls:
-                u = u.strip("'\"")
-                if _looks_like_photo(u):
-                    seen.add(u)
-                    dom_photos.append(u)
+        # 1) <img> with src/data-src/data-lazy-src
+        for img in soup.select("img"):
+            for attr in ("src", "data-src", "data-lazy-src", "data-original"):
+                _add(img.get(attr) or "")
+            _add_srcset(img.get("srcset") or img.get("data-srcset") or "")
 
-        # 3. General img fallback — any image-looking <img> tag on the page
-        if not dom_photos:
-            for img in soup.select("img"):
-                src = img.get("src") or img.get("data-src") or ""
-                if _looks_like_photo(src):
-                    seen.add(src)
-                    dom_photos.append(src)
+        # 2) <picture><source srcset=...></picture>
+        for src_tag in soup.select("picture source, source"):
+            _add_srcset(src_tag.get("srcset") or "")
 
-        # 4. og:image / twitter:image meta tags — usually the hero photo
-        if not dom_photos:
-            for sel in ("meta[property='og:image']", "meta[name='twitter:image']"):
-                for m in soup.select(sel):
-                    src = m.get("content") or ""
-                    if _looks_like_photo(src):
-                        seen.add(src)
-                        dom_photos.append(src)
+        # 3) Inline background-image in any element (carousels, hero images)
+        for el in soup.select("[style*='background-image']"):
+            style = el.get("style", "")
+            for u in _re.findall(r'url\(([^)]+)\)', style):
+                _add(u.strip("'\""))
 
-        if len(dom_photos) > len(detail.get("photos", [])):
+        # 4) <link rel="preload" as="image"> — sites preload hero photos here
+        for link in soup.select("link[rel='preload'][as='image']"):
+            _add(link.get("href") or "")
+            _add_srcset(link.get("imagesrcset") or "")
+
+        # 5) Meta tags (og:image, twitter:image) — usually the hero
+        for sel in (
+            "meta[property='og:image']",
+            "meta[property='og:image:secure_url']",
+            "meta[name='twitter:image']",
+        ):
+            for m in soup.select(sel):
+                _add(m.get("content") or "")
+
+        # 6) <link rel="image_src">
+        for link in soup.select("link[rel='image_src']"):
+            _add(link.get("href") or "")
+
+        if dom_photos and len(dom_photos) > len(detail.get("photos", [])):
             detail["photos"] = dom_photos[:3]
-            print(f"      Swiper/DOM photos: {len(dom_photos)}")
+            print(f"      Photos collected from DOM: {len(dom_photos)} (using first 3)")
 
     desc_el = soup.select_one("[data-test='Pet_Story_Section'], [class*='description'], [class*='Description']")
     if desc_el:
