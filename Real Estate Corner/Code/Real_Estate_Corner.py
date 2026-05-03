@@ -64,8 +64,14 @@ def load_skill_prompt() -> str:
 # ---------------------------------------------------------------------------
 # 3. FETCH LISTINGS FROM REALTOR.COM API
 # ---------------------------------------------------------------------------
-def fetch_listings(location: str, limit: int = 20) -> list[dict]:
-    """Fetch listings from Realtor.com API. Returns raw results — filter by price in Python."""
+def fetch_listings(location: str, limit: int = 100) -> list[dict]:
+    """Fetch listings from Realtor.com API. Returns raw results — filter by price in Python.
+
+    `limit=100` gives us enough variety to populate all 3 price tiers consistently.
+    With limit=20, after excluding pending/coming-soon and previously-featured rows,
+    Sweet Spot ($400k-$700k) was often empty even when plenty of listings existed
+    on Realtor.com — the API's 20-row default just didn't include any in that band.
+    """
     headers = {
         "Content-Type": "application/json",
         "x-rapidapi-host": REALTOR_HOST,
@@ -500,7 +506,7 @@ if __name__ == "__main__":
         excluded_urls = get_used_listing_urls(newsletter["name"])
 
         # Fetch all listings once, then filter per tier
-        all_listings = fetch_listings(location=newsletter["location"], limit=20)
+        all_listings = fetch_listings(location=newsletter["location"], limit=100)
         if not all_listings:
             print(f"  No listings found for {newsletter['name']}. Skipping.")
             continue
