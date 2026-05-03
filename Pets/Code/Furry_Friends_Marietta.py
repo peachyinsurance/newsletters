@@ -175,7 +175,8 @@ def _rg_pet_to_pipeline_dict(animal: dict, included_index: dict, species: str,
     size        = attr.get("sizeGroup") or ""
     description = attr.get("descriptionText") or ""
 
-    # Photos via included resources
+    # Photos via included resources. Some picture fields can be nested dicts
+    # (e.g. {'url': '...', 'width': N}), so coerce to a plain string before adding.
     photos: list[str] = []
     seen: set[str] = set()
     for pr in rels.get("pictures", {}).get("data") or []:
@@ -183,7 +184,15 @@ def _rg_pet_to_pipeline_dict(animal: dict, included_index: dict, species: str,
         if not pic:
             continue
         pa = pic.get("attributes") or {}
-        u = pa.get("url") or pa.get("large") or pa.get("original") or pa.get("medium")
+        u = None
+        for key in ("url", "large", "original", "medium"):
+            v = pa.get(key)
+            if isinstance(v, str):
+                u = v
+                break
+            if isinstance(v, dict) and isinstance(v.get("url"), str):
+                u = v["url"]
+                break
         if u and u not in seen:
             seen.add(u)
             photos.append(u)
