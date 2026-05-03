@@ -139,8 +139,8 @@ def _fetch_image(url: str) -> Image.Image | None:
             r = requests.get(candidate, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
             if r.status_code == 200 and r.content:
                 img = Image.open(io.BytesIO(r.content)).convert("RGB")
-                if candidate != url:
-                    print(f"    ✓ Got higher-res photo ({img.size[0]}x{img.size[1]})")
+                tag = "upgraded" if candidate != url else "original"
+                print(f"      [photo {tag}] {img.size[0]}x{img.size[1]}, {len(r.content):,} bytes")
                 return img
             last_err = f"HTTP {r.status_code}"
         except Exception as e:
@@ -360,6 +360,12 @@ def generate_re_images(listings: list[dict], newsletter_name: str, output_dir: s
         photo_urls = listing.get("photos", [])
         if not photo_urls and listing.get("photo_url"):
             photo_urls = [listing["photo_url"]]
+
+        # Diagnostic: log the URLs we're about to fetch so we can see Realtor's
+        # actual URL shape and verify whether our hi-res upgrades fired.
+        print(f"    [debug {tier}] using {len(photo_urls)} photo URL(s):")
+        for u in photo_urls[:5]:
+            print(f"      → {u}")
 
         img_bytes = create_listing_image(
             photo_urls=photo_urls,

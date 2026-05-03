@@ -166,29 +166,39 @@ def parse_listing(raw: dict) -> dict:
     desc = raw.get("description", {})
     listing_url = build_listing_url(raw)
 
-    # Get full-size photos (API returns small thumbnails ending in 's.jpg')
+    # Get full-size photos (Realtor's API often returns thumbnails).
+    # Realtor CDN URLs end with a single-letter size code: s/m/n/l/p/x.jpg → tiny→large.
+    # `od.jpg` (or `od-w####_h####_x2.webp`) is the original/full-resolution variant.
+    # We rewrite any single-letter size suffix to `od.jpg` to force a hi-res fetch.
     import re as _re
 
     def _upgrade_photo(url):
         if not url:
             return ""
         url = url.replace("http://", "https://")
-        if "l-m" in url:
-            url = _re.sub(r's\.jpg$', 'od.jpg', url)
+        # Replace single-letter-suffix.jpg with od.jpg unconditionally
+        # Examples upgraded: .../s.jpg, .../m.jpg, .../n.jpg, .../l.jpg, .../p.jpg
+        # Already-large URLs (.../od.jpg, .../od-w1280_h960_x2.webp) match neither.
+        url = _re.sub(r"/([smnlpx])\.jpg(\?[^/]*)?$", r"/od.jpg\2", url)
+        # Also handle the parameterized form /od-w480_... → bump width to at least 1280
+        def _bump(m: _re.Match) -> str:
+            cur = int(m.group(1))
+            return f"w{max(cur, 1280)}"
+        url = _re.sub(r"w(\d{2,4})(?=[_./])", _bump, url)
         return url
 
     primary_photo = _upgrade_photo(raw.get("primary_photo", {}).get("href", ""))
 
-    # Get up to 3 photos for GIF creation. Accept any URL — `_upgrade_photo`
-    # handles the Realtor s.jpg → od.jpg upgrade where applicable; for other
-    # URL shapes we just take what the API gave us. The previous "l-m" filter
-    # silently dropped legitimate photo URLs, leaving some listings with only
-    # the primary photo and a static (grainy) single-image render.
+    # Get up to 3 valid photo URLs (scan up to 6 in case some are missing/empty).
     all_photos = []
-    for p in raw.get("photos", [])[:3]:
+    seen = set()
+    for p in raw.get("photos", [])[:6]:
         url = _upgrade_photo(p.get("href", ""))
-        if url:
+        if url and url not in seen:
             all_photos.append(url)
+            seen.add(url)
+        if len(all_photos) >= 3:
+            break
     if not all_photos and primary_photo:
         all_photos = [primary_photo]
 
