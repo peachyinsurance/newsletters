@@ -15,7 +15,10 @@ import time
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from notion_helper import get_featured_place_ids, save_restaurants_to_notion
+from notion_helper import (
+    get_featured_place_ids, save_restaurants_to_notion,
+    query_database, update_page, NOTION_RESTAURANTS_DB_ID,
+)
 from url_validator import filter_valid_items
 
 import requests
@@ -547,6 +550,111 @@ def flag_default_winner(results: list[dict]) -> list[dict]:
     return results
 
 # ---------------------------------------------------------------------------
+# 11b. FESTIVE SWAP (INLINE)
+# ---------------------------------------------------------------------------
+def _cuisine_matches_boost(cuisine: str, boost_cuisines: list[str]) -> bool:
+    """Fuzzy match — 'Mexican Restaurant' matches boost cuisine 'mexican'."""
+    cl = (cuisine or "").lower()
+    if not cl:
+        return False
+    return any(c in cl or cl in c for c in boost_cuisines)
+
+
+def festive_swap_inline(results: list[dict], newsletter_name: str,
+                        boosts: list[dict]) -> tuple[list[dict], list[str]]:
+    """If an active festive boost cuisine isn't in `results`, swap in the
+    highest-scored matching restaurant from Notion's 'approved - old' pool.
+
+    Mutations:
+      - Drops the lowest-scored entry from `results` per missing boost
+        (this restaurant is "thrown out" — never written to Notion).
+      - Returns a list of Notion page_ids to flip from 'approved - old'
+        → 'Tier 2 Winner' (caller does the flip after save).
+
+    Returns: (modified_results, page_ids_to_promote)
+    """
+    page_ids_to_promote: list[str] = []
+    if not boosts or not results:
+        return results, page_ids_to_promote
+
+    # Pull approved-old pool for this newsletter — historical pool to draw from
+    try:
+        all_rows = query_database(NOTION_RESTAURANTS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+    except Exception as e:
+        print(f"  ⚠ Festive swap: failed to query Notion: {e}")
+        return results, page_ids_to_promote
+
+    historical = [
+        r for r in all_rows
+        if ((r["properties"].get("Status", {}).get("select") or {}).get("name", "")
+            == "approved - old")
+    ]
+    if not historical:
+        return results, page_ids_to_promote
+
+    used_old_ids: set[str] = set()  # avoid double-promoting same row across multiple boosts
+
+    for boost in boosts:
+        bc = boost["cuisines"]
+        # Already represented in current results?
+        if any(_cuisine_matches_boost(r.get("cuisine", ""), bc) for r in results):
+            print(f"  ✓ Festive '{boost['name']}': already represented ({bc}).")
+            continue
+
+        # Find historical matches with this cuisine (skip ones we just promoted this run)
+        candidates = [
+            r for r in historical
+            if r["id"] not in used_old_ids
+            and _cuisine_matches_boost(
+                ((r["properties"].get("Cuisine", {}) or {}).get("select") or {}).get("name", ""),
+                bc,
+            )
+        ]
+        if not candidates:
+            print(f"  ⚠ Festive '{boost['name']}': no historical {bc} match in {newsletter_name}; skipping.")
+            continue
+
+        candidates.sort(
+            key=lambda r: (r["properties"].get("Total Score", {}).get("number") or 0),
+            reverse=True,
+        )
+        best_old = candidates[0]
+        old_name = (best_old["properties"].get("Name", {}).get("title", [{}])[0]
+                    .get("text", {}).get("content", ""))
+        old_score = best_old["properties"].get("Total Score", {}).get("number") or 0
+
+        # Drop lowest-scored CURRENT result (these are sorted high→low; pop last).
+        # Don't touch the default winner (results[0] post-flag, but we run BEFORE
+        # flag_default_winner — so just take the lowest-scored regardless).
+        if not results:
+            print(f"  ⚠ Festive '{boost['name']}': nothing in results to displace; skipping.")
+            continue
+        dropped = results.pop()  # last item = lowest score
+        print(f"  🔁 Festive '{boost['name']}' swap:")
+        print(f"     - Dropping current pick: {dropped.get('restaurant_name')} "
+              f"(score {dropped.get('total_score', '?')})")
+        print(f"     + Promoting historical : {old_name} "
+              f"(score {old_score}) → Tier 2 Winner")
+        page_ids_to_promote.append(best_old["id"])
+        used_old_ids.add(best_old["id"])
+
+    return results, page_ids_to_promote
+
+
+def _promote_historical_rows(page_ids: list[str]) -> None:
+    """Flip each Notion page from 'approved - old' → 'Tier 2 Winner'."""
+    for pid in page_ids:
+        try:
+            update_page(pid, {"Status": {"select": {"name": "Tier 2 Winner"}}})
+            print(f"  ✓ Promoted historical row {pid[:8]}… to Tier 2 Winner")
+        except Exception as e:
+            print(f"  ⚠ Failed to promote {pid}: {e}")
+
+
+# ---------------------------------------------------------------------------
 # 12. MAIN
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
@@ -641,7 +749,20 @@ if __name__ == "__main__":
         # Select top 5
         results = results[:TARGET_TOP_5]
 
-        # Flag default winner
+        # Festive swap (inline): if an active holiday cuisine isn't represented,
+        # drop the lowest-scored result and promote a matching historical row
+        # from 'approved - old' instead. The dropped pick is never saved to
+        # Notion — it's thrown out entirely.
+        festive_boosts = get_festive_boosts()
+        if festive_boosts:
+            print(f"\n  Active festive boosts: {[b['name'] for b in festive_boosts]}")
+            results, festive_promotions = festive_swap_inline(
+                results, newsletter["name"], festive_boosts,
+            )
+        else:
+            festive_promotions = []
+
+        # Flag default winner (now operates on possibly-shrunken list)
         results = flag_default_winner(results)
 
         # Generate GIFs for each restaurant (3 photos per restaurant)
@@ -682,6 +803,15 @@ if __name__ == "__main__":
 
         # Save
         save_restaurants_to_notion(results, newsletter["name"])
+
+        # Re-promote any historical rows displaced into the lineup by the
+        # festive swap. Done AFTER save so the new in-memory winners get
+        # written first; only then do we flip the historical rows back to
+        # Tier 2 Winner status (they already exist in Notion as approved-old).
+        if festive_promotions:
+            print(f"\n  Promoting {len(festive_promotions)} historical festive row(s)…")
+            _promote_historical_rows(festive_promotions)
+
         print(f"Done with {newsletter['name']}.")
 
     print(f"\nAll newsletters complete.")
