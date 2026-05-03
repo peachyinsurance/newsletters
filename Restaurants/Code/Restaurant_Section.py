@@ -73,8 +73,6 @@ SIT_DOWN_CHAINS = {
     "yard house", "round1",
 }
 
-# Backwards-compat union for places that still reference the original set.
-KNOWN_CHAINS = FAST_FOOD_CHAINS | SIT_DOWN_CHAINS
 
 # ---------------------------------------------------------------------------
 # 3. FESTIVE CALENDAR
@@ -586,6 +584,26 @@ if __name__ == "__main__":
                 newsletter_name=newsletter["name"],
                 radius_meters=expanded_radius,
                 already_seen_place_ids=evaluated_place_ids,
+            )
+            restaurants.extend(extra)
+            evaluated_place_ids.update(r.get("place_id") for r in extra if r.get("place_id"))
+
+        # Fallback: still under threshold after the largest radius? Run one
+        # more pass at the largest radius with sit-down chains allowed (rating
+        # ≥ SIT_DOWN_CHAIN_MIN_RATING). Yard House, Olive Garden, etc. become
+        # eligible. Fast-food chains stay blocked.
+        if len(restaurants) < MIN_QUALIFIED_RESTAURANTS:
+            largest_radius = RADIUS_EXPANSIONS_METERS[-1] if RADIUS_EXPANSIONS_METERS else SEARCH_RADIUS_METERS
+            print(f"\n  ⓘ Still only {len(restaurants)} qualified after radius expansion — "
+                  f"falling back to high-rated sit-down chains at {largest_radius/1609:.1f} mi.")
+            extra = fetch_restaurants(
+                lat=newsletter["lat"],
+                lng=newsletter["lng"],
+                excluded_place_ids=excluded,
+                newsletter_name=newsletter["name"],
+                radius_meters=largest_radius,
+                already_seen_place_ids=evaluated_place_ids,
+                allow_sit_down_chains=True,
             )
             restaurants.extend(extra)
             evaluated_place_ids.update(r.get("place_id") for r in extra if r.get("place_id"))
