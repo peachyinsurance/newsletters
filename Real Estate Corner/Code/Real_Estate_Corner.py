@@ -625,33 +625,69 @@ if __name__ == "__main__":
         else:
             print(f"    ✗ No listings in Sweet Spot range")
 
-        # --- SHOWCASE: shrink down until we find a hit ---
+        # --- SHOWCASE ---
+        # If Sweet Spot found a listing, anchor Showcase at 1.5× that price.
+        # Otherwise fall back to the configured floor (e.g., $1M from tier config).
+        # In both cases: if nothing meets the target, take the highest-priced
+        # listing remaining in the pool (still must satisfy beds/baths/type).
         showcase_result = None
         ptype = showcase_cfg.get('type_filter') or 'all types'
-        for attempt in range(4):
-            cur_min = showcase_min - (attempt * STEP)
-            if cur_min < sweet_max:
-                break
+
+        if sweet_result and sweet_result.get("price"):
+            showcase_target = int(sweet_result["price"] * 1.5)
+            print(f"\n  🏰 Showcase (target ≥ ${showcase_target:,} = 1.5× Sweet Spot)")
+            print(f"    Filter: {ptype}")
             tier_filtered = filter_by_tier(
-                all_listings, cur_min, None,
+                all_listings, showcase_target, None,
                 min_beds=showcase_cfg["min_beds"], min_baths=showcase_cfg["min_baths"],
                 type_filter=showcase_cfg.get("type_filter"),
             )
             tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
-            showcase_result = pick_best_listing(tier_filtered, target_price=cur_min)
-            if showcase_result:
-                if attempt > 0:
-                    print(f"\n  🏰 Showcase (adjusted to ${cur_min//1000}k+)")
-                else:
-                    print(f"\n  🏰 Showcase ($1M+)")
-                print(f"    Filter: {ptype}")
-                print(f"    ✓ ${showcase_result['price']:,} | {showcase_result['address']} | {showcase_result['beds']}bd/{showcase_result['baths']}ba")
-                showcase_result["tier"] = "Showcase"
-                showcase_result["tier_label"] = "🏰 Showcase"
-                tier_listings.append(showcase_result)
-                used_ids.add(showcase_result["property_id"])
-                break
+            showcase_result = pick_best_listing(tier_filtered, target_price=showcase_target)
+
         if not showcase_result:
+            # No Sweet Spot anchor (or no listings at 1.5×). Try the configured
+            # floor with the existing shrink-down behavior, then last-resort to
+            # the highest-priced listing in the whole pool.
+            if not sweet_result or not sweet_result.get("price"):
+                print(f"\n  🏰 Showcase (Sweet Spot empty — using configured floor)")
+                print(f"    Filter: {ptype}")
+            for attempt in range(4):
+                cur_min = showcase_min - (attempt * STEP)
+                if cur_min < sweet_max:
+                    break
+                tier_filtered = filter_by_tier(
+                    all_listings, cur_min, None,
+                    min_beds=showcase_cfg["min_beds"], min_baths=showcase_cfg["min_baths"],
+                    type_filter=showcase_cfg.get("type_filter"),
+                )
+                tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
+                showcase_result = pick_best_listing(tier_filtered, target_price=cur_min)
+                if showcase_result:
+                    print(f"    (fallback floor ${cur_min//1000}k+)")
+                    break
+
+        if not showcase_result:
+            # Last resort — pick the most expensive remaining listing that
+            # satisfies the type/beds/baths filter, regardless of price floor.
+            min_floor = (sweet_result["price"] + 1) if sweet_result and sweet_result.get("price") else 0
+            tier_filtered = filter_by_tier(
+                all_listings, min_floor, None,
+                min_beds=showcase_cfg["min_beds"], min_baths=showcase_cfg["min_baths"],
+                type_filter=showcase_cfg.get("type_filter"),
+            )
+            tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
+            if tier_filtered:
+                showcase_result = max(tier_filtered, key=lambda r: r.get("price", 0))
+                print(f"    (last-resort — highest-priced remaining listing: ${showcase_result['price']:,})")
+
+        if showcase_result:
+            print(f"    ✓ ${showcase_result['price']:,} | {showcase_result['address']} | {showcase_result['beds']}bd/{showcase_result['baths']}ba")
+            showcase_result["tier"] = "Showcase"
+            showcase_result["tier_label"] = "🏰 Showcase"
+            tier_listings.append(showcase_result)
+            used_ids.add(showcase_result["property_id"])
+        else:
             print(f"\n  🏰 Showcase — no listings found")
 
         if not tier_listings:
