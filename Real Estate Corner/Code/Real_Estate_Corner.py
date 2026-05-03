@@ -65,12 +65,13 @@ def load_skill_prompt() -> str:
 # 3. FETCH LISTINGS FROM REALTOR.COM API
 # ---------------------------------------------------------------------------
 def fetch_listings(location: str, limit: int = 100) -> list[dict]:
-    """Fetch listings from Realtor.com API. Returns raw results — filter by price in Python.
+    """Fetch listings from Realtor.com API, paginating to collect up to `limit` rows.
 
-    `limit=100` gives us enough variety to populate all 3 price tiers consistently.
-    With limit=20, after excluding pending/coming-soon and previously-featured rows,
-    Sweet Spot ($400k-$700k) was often empty even when plenty of listings existed
-    on Realtor.com — the API's 20-row default just didn't include any in that band.
+    The /properties/search-buy endpoint caps at 20 per request, so we issue
+    multiple calls with increasing `offset`. Stops early when:
+      - we've collected `limit` rows
+      - the API returns fewer than 20 (last page)
+      - we hit MAX_PAGES safety cap to avoid runaway cost
     """
     headers = {
         "Content-Type": "application/json",
@@ -78,41 +79,60 @@ def fetch_listings(location: str, limit: int = 100) -> list[dict]:
         "x-rapidapi-key": REALTOR_API_KEY,
     }
 
-    # Different RapidAPI Realtor wrappers use different param names for page size.
-    # Send all common variants — unknown params are ignored, but the right one wins.
-    params = {
-        "location":  location,
-        "limit":     str(limit),
-        "page_size": str(limit),
-        "pageSize":  str(limit),
-        "count":     str(limit),
-        "size":      str(limit),
-        "offset":    "0",
-    }
+    PAGE_SIZE = 20  # API hard cap per request
+    MAX_PAGES = 10  # safety: at most 10 calls = 200 listings
+    collected: list[dict] = []
+    seen_ids: set = set()
 
-    try:
-        res = requests.get(
-            f"https://{REALTOR_HOST}/properties/search-buy",
-            headers=headers,
-            params=params,
-            timeout=30,
-        )
+    for page in range(MAX_PAGES):
+        offset = page * PAGE_SIZE
+        params = {
+            "location": location,
+            "limit":    str(PAGE_SIZE),
+            "offset":   str(offset),
+        }
+        try:
+            res = requests.get(
+                f"https://{REALTOR_HOST}/properties/search-buy",
+                headers=headers,
+                params=params,
+                timeout=30,
+            )
+        except Exception as e:
+            print(f"    API error on page {page}: {e}")
+            break
+
         if res.status_code != 200:
-            print(f"    API error {res.status_code}: {res.text[:200]}")
-            return []
+            print(f"    API error {res.status_code} on page {page}: {res.text[:200]}")
+            break
 
-        # Diagnostic — surfaces whether the limit param is being honored
-        print(f"  Realtor URL: {res.url}")
         data = res.json().get("data", {})
-        results = data.get("results", [])
-        # Realtor's response may include total/count; print if available
-        total = data.get("total") or data.get("count") or "?"
-        print(f"  Got {len(results)} listings from API (api total={total}, requested limit={limit})")
-        return results
+        results = data.get("results", []) or []
+        if page == 0:
+            total = data.get("total") or data.get("count") or "?"
+            print(f"  Realtor URL (page 0): {res.url}")
+            print(f"  API reports total={total}; paginating in pages of {PAGE_SIZE}")
 
-    except Exception as e:
-        print(f"    API error: {e}")
-        return []
+        new_rows = 0
+        for r in results:
+            pid = r.get("property_id")
+            if pid and pid in seen_ids:
+                continue
+            if pid:
+                seen_ids.add(pid)
+            collected.append(r)
+            new_rows += 1
+
+        print(f"    page {page} (offset {offset}): +{new_rows} new rows  (total so far: {len(collected)})")
+
+        if len(collected) >= limit:
+            break
+        if len(results) < PAGE_SIZE:
+            # last page — no more data
+            break
+
+    print(f"  Got {len(collected)} listings from API across {page + 1} page(s)")
+    return collected[:limit]
 
 
 def has_valid_photo(listing: dict) -> bool:
@@ -662,7 +682,15 @@ if __name__ == "__main__":
                 )
                 tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
                 if tier_filtered:
-                    showcase_result = max(tier_filtered, key=lambda r: r.get("price", 0))
+                    # tier_filtered is RAW API rows (use list_price). Sort
+                    # highest-first then run through parse_listing so the
+                    # returned dict has the expected `price` / `address` keys.
+                    tier_filtered_sorted = sorted(
+                        tier_filtered,
+                        key=lambda r: (r.get("list_price") or 0),
+                        reverse=True,
+                    )
+                    showcase_result = parse_listing(tier_filtered_sorted[0])
                     print(f"    (none at 1.5× — using highest-priced above Sweet Spot: ${showcase_result['price']:,})")
         else:
             # No Sweet Spot anchor → original shrink-down from configured floor
@@ -691,7 +719,15 @@ if __name__ == "__main__":
                 )
                 tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
                 if tier_filtered:
-                    showcase_result = max(tier_filtered, key=lambda r: r.get("price", 0))
+                    # tier_filtered is RAW API rows (use list_price). Sort
+                    # highest-first then run through parse_listing so the
+                    # returned dict has the expected `price` / `address` keys.
+                    tier_filtered_sorted = sorted(
+                        tier_filtered,
+                        key=lambda r: (r.get("list_price") or 0),
+                        reverse=True,
+                    )
+                    showcase_result = parse_listing(tier_filtered_sorted[0])
                     print(f"    (last-resort highest-priced: ${showcase_result['price']:,})")
 
         if showcase_result:
