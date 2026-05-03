@@ -24,17 +24,6 @@ from notion_helper import get_approved_pet_urls, save_pets_to_notion
 from url_validator import filter_valid_items
 
 
-def normalize_pet_url(url: str) -> str:
-    """Normalize Petfinder URLs for reliable comparison.
-    Strips trailing slashes and the /details suffix so search-result URLs
-    and detail-page URLs for the same pet match."""
-    if not url:
-        return ""
-    u = url.strip().rstrip("/")
-    if u.endswith("/details"):
-        u = u[:-len("/details")]
-    return u
-
 NEWSLETTERS = [
     {
         "name":   "East_Cobb_Connect",
@@ -51,12 +40,14 @@ NEWSLETTERS = [
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT
 # ---------------------------------------------------------------------------
-CLAUDE_API_KEY    = os.environ["CLAUDE_API_KEY"]
-APIFY_API_KEY     = os.environ["APIFY_API_KEY"]
-SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-pet-adoption-skill_auto.md"
+CLAUDE_API_KEY      = os.environ["CLAUDE_API_KEY"]
+RESCUEGROUPS_API_KEY = os.environ.get("RESCUE_GROUP_API_KEY", "")
+SKILL_PROMPT_PATH    = Path(__file__).parent.parent.parent / "Skills" / "newsletter-pet-adoption-skill_auto.md"
 
-
-APIFY_SCRAPER_TIMEOUT = 300  # seconds for the single combined run
+RESCUEGROUPS_API_BASE = "https://api.rescuegroups.org/v5/public"
+RESCUEGROUPS_SEARCH_RADIUS_MILES = 25
+RESCUEGROUPS_PAGE_LIMIT = 8   # how many pages to fetch (8 × 25 = 200 candidates)
+RESCUEGROUPS_TIMEOUT = 30
 
 
 # ---------------------------------------------------------------------------
@@ -75,606 +66,248 @@ def load_skill_prompt() -> str:
 approved_urls = get_approved_pet_urls()
 
 # ---------------------------------------------------------------------------
-# 5. FETCH PETS FROM PETFINDER (via curl_cffi — Chrome TLS impersonation)
+# 5. FETCH PETS FROM RESCUEGROUPS API
 # ---------------------------------------------------------------------------
-# Petfinder fingerprints TLS handshakes (JA3) — Python's `requests` + Apify's
-# default Chromium both get a 403. curl_cffi uses libcurl with Chrome's exact
-# TLS signature, so Petfinder serves the full SSR'd HTML (real bio, photo URLs
-# in __NEXT_DATA__). Faster than Apify, no service costs, no rate limits at
-# our volume.
+# Petfinder migrated to client-side rendering + TLS fingerprinting that blocks
+# server-side scrapes. Replaced with RescueGroups public API (free, structured
+# data: real bios, multi-photo carousel, shelter contact). Only orgs that
+# syndicate to RescueGroups are accessible — Mostly Mutts and Barkville for now.
+# Custom scrapers for non-RescueGroups shelters (e.g. Fulton County) added
+# later as a separate fallback.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Module-level session so cookies persist across calls. Petfinder sets a
-# session cookie on the homepage that the detail pages expect.
-_petfinder_session = None
-_petfinder_session_warmed = False
+# Per-species priority list of orgs (and per-org settings).
+# Search proceeds in order until target is reached. URL strategy is shelter-specific.
+ORG_PLAN = {
+    "Cat": [
+        {"name_filter": "Mostly Mutts",
+         "url_template": "https://mostlymutts.org/adopt/adoptable-cats/{slug}"},
+    ],
+    "Dog": [
+        {"name_filter": "Mostly Mutts",
+         "url_template": "https://mostlymutts.org/adopt/adoptable-dogs/{slug}"},
+        {"name_filter": "Barkville",
+         "url_template": "https://www.barkvilledogrescue.org/adoptabledogs"},
+    ],
+}
+
+# How many valid candidates to collect per species (per newsletter)
+TARGET_PER_SPECIES = 3
+# Max API pages to scan per org before giving up (each page = 25)
+MAX_PAGES_PER_ORG = 6
 
 
-def _get_petfinder_session():
-    """Lazy-init a curl_cffi Session warmed with a homepage GET (for cookies)."""
-    global _petfinder_session, _petfinder_session_warmed
-    from curl_cffi import requests as cffi_requests
-    if _petfinder_session is None:
-        _petfinder_session = cffi_requests.Session()
-    if not _petfinder_session_warmed:
-        try:
-            r = _petfinder_session.get(
-                "https://www.petfinder.com/",
-                impersonate="chrome120",
-                timeout=15,
-            )
-            _petfinder_session_warmed = (r.status_code == 200)
-            print(f"  curl_cffi session warmed: status={r.status_code}, cookies={len(_petfinder_session.cookies)}")
-        except Exception as e:
-            print(f"  ⚠ Session warm failed: {e}")
-    return _petfinder_session
+def _slugify_name(name: str) -> str:
+    """Lowercase, replace non-alphanumerics with hyphens. 'Holly Hobby' → 'holly-hobby'."""
+    return re.sub(r"[^a-z0-9]+", "-", (name or "").lower().strip()).strip("-")
 
 
-def _fetch_one(url: str) -> tuple[str, str]:
-    """Fetch one URL, return (url, html). Empty html on failure."""
-    session = _get_petfinder_session()
-    for attempt in range(3):
-        try:
-            r = session.get(url, impersonate="chrome120", timeout=20)
-            if r.status_code == 200 and r.text:
-                return (url, r.text)
-            if r.status_code in (403, 429) and attempt < 2:
-                time.sleep(2 * (attempt + 1))
-                continue
-            return (url, "")
-        except Exception as e:
-            if attempt < 2:
-                time.sleep(2)
-                continue
-            print(f"  ⚠ fetch failed for {url[:60]}: {e}")
-            return (url, "")
-    return (url, "")
+def _species_from_slug(rg_slug: str) -> str:
+    """Infer species from RescueGroups' animal slug. e.g. 'adopt-jacquelyn-...-dog'."""
+    s = (rg_slug or "").lower()
+    if s.endswith("-cat") or "-cat-" in s:
+        return "Cat"
+    if s.endswith("-dog") or "-dog-" in s:
+        return "Dog"
+    return ""
 
 
-def fetch_all_html_apify(urls: list[str]) -> dict[str, str]:
-    """Fetch URLs in parallel via curl_cffi (Chrome TLS impersonation).
-    Returns {url: html} dict.
+def _build_pet_url(template: str, pet_name: str) -> str:
+    """Render the per-shelter URL template with the pet's name slug.
+    For listing-page templates (no `{slug}` placeholder), returns as-is."""
+    if not template:
+        return ""
+    if "{slug}" in template:
+        return template.format(slug=_slugify_name(pet_name))
+    return template
 
-    Function name kept for backwards compat with existing call sites — the
-    implementation no longer uses Apify."""
-    if not urls:
+
+def _validate_pet_url(url: str, pet_name: str, listing_only: bool = False) -> bool:
+    """Confirm the URL is reachable. For per-pet URLs we also check the page mentions
+    the pet's name (so we know it isn't a generic 404-but-200 page). For listing-page
+    URLs (no per-pet path), just check 200."""
+    if not url:
+        return False
+    try:
+        r = requests.get(url, timeout=8, allow_redirects=True,
+                         headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code != 200:
+            return False
+        if listing_only:
+            return True
+        return (pet_name or "").lower() in r.text.lower()
+    except Exception:
+        return False
+
+
+def _rescuegroups_post(body: dict, params: dict) -> dict:
+    """Wrap the API call. Returns parsed JSON, or {} on error."""
+    if not RESCUEGROUPS_API_KEY:
+        print("  ⚠ RESCUE_GROUP_API_KEY not set")
+        return {}
+    try:
+        r = requests.post(
+            f"{RESCUEGROUPS_API_BASE}/animals/search/available",
+            headers={"Authorization": RESCUEGROUPS_API_KEY,
+                     "Content-Type": "application/vnd.api+json"},
+            params=params, json=body, timeout=RESCUEGROUPS_TIMEOUT,
+        )
+        if r.status_code != 200:
+            print(f"  ⚠ RescueGroups API {r.status_code}: {r.text[:150]}")
+            return {}
+        return r.json()
+    except Exception as e:
+        print(f"  ⚠ RescueGroups API error: {e}")
         return {}
 
-    print(f"  Fetching {len(urls)} URLs via curl_cffi (concurrency=5)...")
-    result: dict[str, str] = {}
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        futures = [pool.submit(_fetch_one, u) for u in urls]
-        for f in as_completed(futures):
-            url, html = f.result()
-            if url and html:
-                result[url] = html
-    print(f"  curl_cffi returned {len(result)}/{len(urls)} pages")
-    return result
 
+def _rg_pet_to_pipeline_dict(animal: dict, included_index: dict, species: str,
+                              public_url: str) -> dict:
+    """Convert one RescueGroups animal record → our pipeline pet dict."""
+    attr = animal.get("attributes", {}) or {}
+    rels = animal.get("relationships", {}) or {}
 
-def fetch_html_apify(url: str, retries: int = 2) -> str | None:
-    """Fetch a single page via curl_cffi. Name kept for backwards compat."""
-    _, html = _fetch_one(url)
-    return html or None
+    name        = attr.get("name") or "Unknown"
+    breed       = attr.get("breedString") or attr.get("breedPrimary") or ""
+    age         = attr.get("ageGroup") or ""
+    gender      = attr.get("sex") or ""
+    size        = attr.get("sizeGroup") or ""
+    description = attr.get("descriptionText") or ""
 
-
-def parse_search_html(html: str, species: str) -> list[dict]:
-    """Parse Petfinder search results HTML into pet dicts."""
-    from bs4 import BeautifulSoup
-
-    soup = BeautifulSoup(html, "html.parser")
-    pets = []
-
-    # Try __NEXT_DATA__ first (Next.js embedded JSON with full pet data)
-    next_data_tag = soup.find("script", id="__NEXT_DATA__")
-    if next_data_tag:
-        try:
-            next_data = json.loads(next_data_tag.string)
-            # Navigate Next.js data structure
-            page_props = next_data.get("props", {}).get("pageProps", {})
-            # Try multiple possible paths for animal data
-            animals = []
-            for path in [
-                page_props.get("searchData", {}).get("animals", []),
-                page_props.get("animals", []),
-                page_props.get("initialState", {}).get("search", {}).get("animals", []),
-            ]:
-                if path:
-                    animals = path
-                    break
-
-            print(f"  __NEXT_DATA__: found {len(animals)} animals")
-            # DIAGNOSTIC: when 0 animals, dump the JSON shape so we can see
-            # how Petfinder restructured pageProps. Petfinder updates their
-            # Next.js data shape periodically, breaking known paths.
-            if len(animals) == 0:
-                print(f"    [debug] pageProps top-level keys: {list(page_props.keys())[:30]}")
-                # Walk one level deeper for nested dicts to surface candidate paths
-                for k, v in list(page_props.items())[:30]:
-                    if isinstance(v, dict):
-                        sub_keys = list(v.keys())[:15]
-                        print(f"    [debug] pageProps['{k}'] (dict) keys: {sub_keys}")
-                    elif isinstance(v, list) and v and isinstance(v[0], dict):
-                        first_keys = list(v[0].keys())[:15]
-                        print(f"    [debug] pageProps['{k}'] (list of {len(v)} dicts), first item keys: {first_keys}")
-            for a in animals:
-                pet_path = a.get("url", "")
-                pet_url = f"https://www.petfinder.com{pet_path}" if pet_path and not pet_path.startswith("http") else pet_path
-
-                photos = []
-                for p in (a.get("photos") or []):
-                    photo_url = p.get("large") or p.get("full") or p.get("medium") or p.get("small") or ""
-                    if photo_url:
-                        photos.append(photo_url)
-                if not photos:
-                    crop = a.get("primary_photo_cropped") or {}
-                    if isinstance(crop, dict):
-                        photo_url = crop.get("large") or crop.get("full") or crop.get("medium") or crop.get("small") or ""
-                        if photo_url:
-                            photos.append(photo_url)
-
-                contact = a.get("contact", {})
-                org_addr = contact.get("address", {})
-                address_parts = [org_addr.get("address1", ""), org_addr.get("city", ""),
-                                 org_addr.get("state", ""), org_addr.get("postcode", "")]
-                address_str = " ".join(p for p in address_parts if p).strip()
-
-                pets.append({
-                    "name":        a.get("name", ""),
-                    "url":         pet_url,
-                    "species":     a.get("species", species),
-                    "breed":       (a.get("breeds") or {}).get("primary", ""),
-                    "age":         a.get("age", ""),
-                    "gender":      a.get("gender", ""),
-                    "size":        a.get("size", ""),
-                    "description": a.get("description", ""),
-                    "photos":      photos,
-                    "org_name":    a.get("organization_id", ""),
-                    "org_address": address_str,
-                    "org_phone":   contact.get("phone", ""),
-                    "org_email":   contact.get("email", ""),
-                })
-            if pets:
-                return pets
-        except (json.JSONDecodeError, KeyError) as e:
-            print(f"  __NEXT_DATA__ parse error: {e}")
-
-    # Parse DOM: pet cards are in grandparent div.tw-h-[450px] > div > a[href]
-    print("  Parsing DOM for pet cards...")
-    seen_hrefs = set()
-    all_links = soup.select("a[href]")
-    for link in all_links:
-        href = link.get("href", "")
-        if not href or "/search/" in href:
+    # Photos via included resources
+    photos: list[str] = []
+    seen: set[str] = set()
+    for pr in rels.get("pictures", {}).get("data") or []:
+        pic = included_index.get((pr.get("type"), str(pr.get("id"))))
+        if not pic:
             continue
-        if "/cat/" not in href and "/dog/" not in href:
-            continue
-        if href in seen_hrefs:
-            continue
-        seen_hrefs.add(href)
+        pa = pic.get("attributes") or {}
+        u = pa.get("url") or pa.get("large") or pa.get("original") or pa.get("medium")
+        if u and u not in seen:
+            seen.add(u)
+            photos.append(u)
+    photos = photos[:3]
 
-        pet_url = f"https://www.petfinder.com{href}" if href.startswith("/") else href
-
-        # Card data lives in the grandparent container
-        card = link.parent.parent if link.parent else None
-        if not card:
-            continue
-
-        # Name: div.tw-font-extrabold
-        name_el = card.select_one("div.tw-font-extrabold")
-        name = name_el.get_text(strip=True) if name_el else ""
-
-        # Age + Gender: first span in the info area (e.g. "Young • Male")
-        age_gender = ""
-        info_div = card.select_one("div.tw-text-primary-600")
-        if info_div:
-            first_span = info_div.select_one("span")
-            if first_span:
-                age_gender = first_span.get_text(strip=True)
-
-        age, gender = "", ""
-        if "•" in age_gender:
-            parts = [p.strip() for p in age_gender.split("•")]
-            age = parts[0] if len(parts) > 0 else ""
-            gender = parts[1] if len(parts) > 1 else ""
-
-        # Breed: span.tw-truncate
-        breed_el = card.select_one("span.tw-truncate")
-        breed = breed_el.get_text(strip=True) if breed_el else ""
-
-        # Photo: img inside the link
-        img_el = link.select_one("img")
-        photo = ""
-        if img_el:
-            photo = img_el.get("src") or img_el.get("data-src") or ""
-
-        # Alt text has extra info (e.g. "Luke, ADOPTABLE, Young • Male, German Shepherd Dog")
-        alt_text = img_el.get("alt", "") if img_el else ""
-
-        if name:
-            pets.append({
-                "name": name, "url": pet_url, "species": species,
-                "breed": breed, "age": age, "gender": gender, "size": "",
-                "description": alt_text,  # use alt text as basic description from search page
-                "photos": [photo] if photo else [],
-                "org_name": "", "org_address": "", "org_phone": "", "org_email": "",
-            })
-
-    print(f"  DOM parsing found {len(pets)} pets")
-    return pets
-
-
-def clean_text(text: str) -> str:
-    """Fix double-encoded UTF-8 and clean up special characters."""
-    import html as html_module
-    if not text:
-        return ""
-    # Decode HTML entities (e.g. &amp; &#39;)
-    text = html_module.unescape(text)
-    # Fix double-encoded UTF-8 (e.g. Ã¢ÂÂ → ')
-    try:
-        text = text.encode("latin-1").decode("utf-8")
-    except (UnicodeDecodeError, UnicodeEncodeError):
-        pass
-    # Replace common problematic characters
-    text = text.replace("\u2019", "'").replace("\u2018", "'")
-    text = text.replace("\u201c", '"').replace("\u201d", '"')
-    text = text.replace("\u2013", "-").replace("\u2014", "-")
-    text = text.replace("\u00a0", " ")
-    return text.strip()
-
-
-def _extract_pet_uuid(pet_url: str) -> str:
-    """Pull the pet's animal UUID from the Petfinder URL slug.
-
-    URLs look like:
-        https://www.petfinder.com/cat/sebastian-<UUID>/ga/marietta/<shelter>/...
-    where <UUID> is a 32-hex-with-dashes value that ALSO appears as
-    `/animal/<UUID>/image/...` in cloudfront photo URLs. Matching on it lets
-    us filter out photos of unrelated pets (related-listings carousels, etc.).
-    """
-    if not pet_url:
-        return ""
-    import re as _re
-    m = _re.search(
-        r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})",
-        pet_url,
-        _re.IGNORECASE,
-    )
-    return m.group(1).lower() if m else ""
-
-
-def _photo_dedupe_key(url: str) -> str:
-    """Strip query-string variants (e.g. ?versionId=...) so the same image at
-    two URLs only counts once."""
-    return (url or "").split("?", 1)[0]
-
-
-def parse_detail_html(html: str, pet_url: str = "") -> dict:
-    """Parse a single pet detail page HTML into a detail dict.
-
-    `pet_url` (optional): if provided, photo URLs will be filtered to those
-    that share the pet's UUID — strips out related-pet photos that get into
-    the page via "you might also like" sections.
-    """
-    from bs4 import BeautifulSoup
-    soup = BeautifulSoup(html, "html.parser")
-    detail = {}
-    pet_uuid = _extract_pet_uuid(pet_url)
-
-    next_tag = soup.find("script", id="__NEXT_DATA__")
-    if next_tag:
-        try:
-            nd = json.loads(next_tag.string)
-            pp = nd.get("props", {}).get("pageProps", {})
-            animal = pp.get("animal") or pp.get("pet") or {}
-            # DIAGNOSTIC: if no animal found at known paths, dump pageProps
-            # shape so we can see how Petfinder restructured the detail JSON.
-            if not animal:
-                print(f"      [debug detail] pageProps top-level keys: {list(pp.keys())[:30]}")
-                for k, v in list(pp.items())[:30]:
-                    if isinstance(v, dict):
-                        print(f"      [debug detail] pp['{k}'] (dict) keys: {list(v.keys())[:15]}")
-                    elif isinstance(v, list) and v and isinstance(v[0], dict):
-                        print(f"      [debug detail] pp['{k}'] (list of {len(v)}), first keys: {list(v[0].keys())[:15]}")
-                    elif isinstance(v, str):
-                        # if it's a JSON string, peek
-                        snippet = v[:120].replace("\n", " ")
-                        print(f"      [debug detail] pp['{k}'] (str): {snippet}")
-            if animal:
-                detail["description"] = clean_text(animal.get("description", ""))
-
-                # Shelter info: check pageProps.organization first, then animal.contact
-                org = pp.get("organization", {})
-                loc = org.get("primaryLocation", {}) or {}
-                loc_addr = loc.get("address", {}) or {}
-
-                if org.get("organizationName"):
-                    detail["org_name"] = org.get("organizationName", "")
-                    addr_parts = [loc_addr.get("street", ""), loc_addr.get("city", ""),
-                                  loc_addr.get("state", ""), loc_addr.get("postalCode", loc_addr.get("postcode", ""))]
-                    detail["org_address"] = " ".join(p for p in addr_parts if p).strip()
-                    detail["org_phone"] = loc.get("phone", "")
-                    detail["org_email"] = loc.get("email", "")
-                else:
-                    # Fallback to animal.contact
-                    contact = animal.get("contact", {})
-                    org_addr = contact.get("address", {})
-                    addr_parts = [org_addr.get("address1", ""), org_addr.get("city", ""),
-                                  org_addr.get("state", ""), org_addr.get("postcode", "")]
-                    detail["org_address"] = " ".join(p for p in addr_parts if p).strip()
-                    detail["org_phone"] = contact.get("phone", "")
-                    detail["org_email"] = contact.get("email", "")
-                    detail["org_name"] = animal.get("organization_id", "")
-                photos = []
-                for p in (animal.get("photos") or []):
-                    url = p.get("large") or p.get("full") or p.get("medium") or ""
-                    if url:
-                        photos.append(url)
-                print(f"      __NEXT_DATA__ photos: {len(photos)}")
-                if photos:
-                    detail["photos"] = photos
-                detail["size"] = animal.get("size", "")
-                detail["age"] = animal.get("age", "")
-                detail["gender"] = animal.get("gender", "")
-                detail["breed"] = (animal.get("breeds") or {}).get("primary", "")
-        except Exception as e:
-            print(f"    Detail parse error: {e}")
-
-    # Aggregate photos from EVERY reasonable source on the detail page.
-    # Petfinder restructures their HTML often, so we cast a wide net and merge.
-    if not detail.get("photos") or len(detail.get("photos", [])) < 3:
-        import re as _re
-        dom_photos = []
-        seen = set()
-
-        def _add(u: str):
-            if not u:
-                return
-            u = u.strip()
-            if u.startswith("//"):
-                u = "https:" + u
-            # Dedupe by base URL (without query string) so "?versionId=..." variants
-            # of the same image don't both get counted.
-            base = _photo_dedupe_key(u)
-            if base in seen:
-                return
-            ul = u.lower()
-            # Reject obvious non-photos
-            if any(skip in ul for skip in (
-                "logo", "favicon", "sprite", "icon-", "/icons/", "avatar",
-                "placeholder", "blank.gif", "transparent.png", "spacer.gif",
-            )):
-                return
-            # Must look image-like (extension or known photo path segment)
-            if not any(marker in ul for marker in (
-                ".jpg", ".jpeg", ".png", ".webp", ".gif",
-                "/photos/", "/media/", "/images/", "rdcpix", "cloudfront", "petfinder",
-            )):
-                return
-            # If we know this pet's UUID, only accept photos whose URL contains it.
-            # This filters out related-pet photos that appear in "you might also like"
-            # carousels on the same detail page.
-            if pet_uuid and pet_uuid not in ul:
-                return
-            seen.add(base)
-            dom_photos.append(u)
-
-        def _add_srcset(srcset: str):
-            """srcset = 'url1 1x, url2 2x' — pull every URL out."""
-            if not srcset:
-                return
-            for entry in srcset.split(","):
-                _add(entry.strip().split(" ")[0])
-
-        # 1) <img> with src/data-src/data-lazy-src
-        for img in soup.select("img"):
-            for attr in ("src", "data-src", "data-lazy-src", "data-original"):
-                _add(img.get(attr) or "")
-            _add_srcset(img.get("srcset") or img.get("data-srcset") or "")
-
-        # 2) <picture><source srcset=...></picture>
-        for src_tag in soup.select("picture source, source"):
-            _add_srcset(src_tag.get("srcset") or "")
-
-        # 3) Inline background-image in any element (carousels, hero images)
-        for el in soup.select("[style*='background-image']"):
-            style = el.get("style", "")
-            for u in _re.findall(r'url\(([^)]+)\)', style):
-                _add(u.strip("'\""))
-
-        # 4) <link rel="preload" as="image"> — sites preload hero photos here
-        for link in soup.select("link[rel='preload'][as='image']"):
-            _add(link.get("href") or "")
-            _add_srcset(link.get("imagesrcset") or "")
-
-        # 5) Meta tags (og:image, twitter:image) — usually the hero
-        for sel in (
-            "meta[property='og:image']",
-            "meta[property='og:image:secure_url']",
-            "meta[name='twitter:image']",
-        ):
-            for m in soup.select(sel):
-                _add(m.get("content") or "")
-
-        # 6) <link rel="image_src">
-        for link in soup.select("link[rel='image_src']"):
-            _add(link.get("href") or "")
-
-        if dom_photos and len(dom_photos) > len(detail.get("photos", [])):
-            detail["photos"] = dom_photos[:3]
-            print(f"      Photos collected from DOM: {len(dom_photos)} (using first 3)")
-
-    # Description: try (in order) the current Petfinder story section by ID,
-    # legacy class-based selectors, JSON-LD ld+json blocks, og:description and
-    # twitter:description meta tags. Whichever is longest wins.
-    desc_candidates = []
-
-    # 0. Current Petfinder layout (verified May 2026): bio lives in
-    #    <section id="pet-details-story-section"> with the text in <p id="animalStory">
-    #    plus mobile + desktop variants. Take the deepest <p> whose text is
-    #    longest — that's the visible bio.
-    story_section = soup.select_one("#pet-details-story-section, #animalStory")
-    if story_section:
-        # Prefer #animalStory specifically if present
-        story_p = soup.select_one("#animalStory")
-        if story_p:
-            desc_candidates.append(clean_text(story_p.get_text(separator=" ", strip=True)))
-        # Also walk the section for any <p> with longer text (mobile/desktop variants)
-        for p in story_section.find_all("p"):
-            t = clean_text(p.get_text(separator=" ", strip=True))
-            if len(t) > 30:
-                desc_candidates.append(t)
-
-    # 1. Legacy / fallback selectors (older Petfinder layouts and other shelters)
-    desc_el = soup.select_one(
-        "[data-test='Pet_Story_Section'], "
-        "[class*='description'], [class*='Description'], "
-        "[class*='story'], [class*='Story'], "
-        "[class*='bio'], [class*='Bio']"
-    )
-    if desc_el:
-        desc_candidates.append(clean_text(desc_el.get_text(strip=True)))
-
-    # 2. JSON-LD structured data — sometimes carries the description
-    for script in soup.find_all("script", type="application/ld+json"):
-        try:
-            blob = json.loads(script.string or "{}")
-        except Exception:
-            continue
-        # Walk: blob may be a dict or a list of dicts
-        items_to_check = blob if isinstance(blob, list) else [blob]
-        for it in items_to_check:
-            if not isinstance(it, dict):
-                continue
-            for key in ("description", "about"):
-                v = it.get(key)
-                if isinstance(v, str) and len(v.strip()) > 30:
-                    desc_candidates.append(clean_text(v))
-
-    # 3. og:description / twitter:description meta tags
-    for sel in ("meta[property='og:description']", "meta[name='twitter:description']", "meta[name='description']"):
-        m = soup.select_one(sel)
-        if m and m.get("content"):
-            desc_candidates.append(clean_text(m["content"]))
-
-    # Pick the LONGEST candidate — meta tags are short summaries; the actual
-    # bio (when it exists) is much longer. This filters out meta-tag boilerplate
-    # like "Adopt Sebastian today" when the real story is present.
-    desc_candidates = [c for c in desc_candidates if c]
-    if desc_candidates:
-        best = max(desc_candidates, key=len)
-        if len(best) >= 30:
-            detail["description"] = best
-            print(f"      Description: {len(best)} chars from {len(desc_candidates)} candidate(s)")
-
-    return detail
-
-
-def fetch_petfinder_apify(species: str, excluded_urls: set, state: str, zip_code: str,
-                          target: int = 5, _html_cache: dict = None) -> list[dict]:
-    """Build pet profiles from pre-fetched HTML cache."""
-    print(f"\n--- Building {species} profiles from cache ---")
-
-    search_url = f"https://www.petfinder.com/search/{species.lower()}s-for-adoption/us/{state}/{zip_code}/"
-    cache = _html_cache or {}
-
-    search_html = cache.get(search_url, "")
-    if not search_html:
-        print(f"  No cached HTML for {search_url}")
-        return []
-
-    raw_items = parse_search_html(search_html, species.lower())
-
-    candidates = []
-    for item in raw_items:
-        pet_url = normalize_pet_url(item.get("url", ""))
-        if not pet_url:
-            continue
-        if pet_url in excluded_urls:
-            print(f"  ✗ Skipping previously approved: {item.get('name')}")
-            continue
-        candidates.append(item)
-    candidates = candidates[:target * 2]
-    print(f"  {len(candidates)} candidates (need {target})")
-
-    if not candidates:
-        return []
-
-    pets = []
-    for item in candidates:
-        if len(pets) >= target:
+    # Org info via included resources
+    org_attr = {}
+    for og in rels.get("orgs", {}).get("data") or []:
+        org = included_index.get((og.get("type"), str(og.get("id"))))
+        if org:
+            org_attr = org.get("attributes") or {}
             break
 
-        source_url = normalize_pet_url(item["url"])
-        name = item.get("name", "Unknown")
+    org_info = {
+        "name":    org_attr.get("name") or "",
+        "address": org_attr.get("addressLine1") or "",
+        "phone":   org_attr.get("phone") or "",
+        "email":   org_attr.get("email") or "",
+        "hours":   "",
+    }
 
-        detail_html = cache.get(source_url, "")
-        detail = parse_detail_html(detail_html, pet_url=source_url) if detail_html else {}
+    profile = (
+        f"Name: {name}\n"
+        f"Species: {species}\n"
+        f"Breed: {breed}\n"
+        f"Age: {age}\n"
+        f"Gender: {gender}\n"
+        f"Size: {size}\n"
+        f"Description: {description}\n"
+        f"Shelter: {org_info['name']}\n"
+        f"Address: {org_info['address']}\n"
+        f"Phone: {org_info['phone']}\n"
+        f"Email: {org_info['email']}"
+    )
 
-        # Prefer the longest available description — detail bio > og:description
-        # > search-page alt text. Real bios are 100+ chars; alt text is short.
-        candidates = [
-            detail.get("description", "") or "",
-            item.get("description", "") or "",
-        ]
-        description = max(candidates, key=lambda s: len(s.strip()))
-        if not description or len(description.strip()) < 30:
-            print(f"  ✗ No description for {name}, skipping")
-            continue
+    return {
+        "url":         public_url,
+        "listing_url": public_url,
+        "profile":     profile,
+        "photos":      photos,
+        "animal_type": species.lower(),
+        "org_info":    org_info,
+        "_rg_id":      animal.get("id"),
+        "_pet_name":   name,
+    }
 
-        breed       = detail.get("breed") or item.get("breed", "")
-        age         = detail.get("age") or item.get("age", "")
-        gender      = detail.get("gender") or item.get("gender", "")
-        size        = detail.get("size") or item.get("size", "")
 
-        # Photos: detail-page parse + search-page item fallback. Dedupe.
-        photos = []
-        seen = set()
-        for u in ((detail.get("photos") or []) + (item.get("photos", []) or [])):
-            if u and u not in seen:
-                seen.add(u)
-                photos.append(u)
-        photos = photos[:3]
+def fetch_pets_via_rescuegroups(species: str, excluded_urls: set,
+                                target: int = TARGET_PER_SPECIES) -> list[dict]:
+    """Fetch up to `target` validated pets of `species` from the configured ORG_PLAN.
+    Walks orgs in order, paginates the API, builds each pet's public URL using the
+    shelter's pattern, and validates each URL is reachable + mentions the pet's name
+    (or just reachable for listing-page templates)."""
+    print(f"\n--- Fetching {species}s from RescueGroups ---")
+    valid: list[dict] = []
+    species_suffix = f"-{species.lower()}"
 
-        org_name    = detail.get("org_name") or item.get("org_name", "")
-        org_address = detail.get("org_address") or item.get("org_address", "")
-        org_phone   = detail.get("org_phone") or item.get("org_phone", "")
-        org_email   = detail.get("org_email") or item.get("org_email", "")
+    for org_cfg in ORG_PLAN.get(species, []):
+        if len(valid) >= target:
+            break
+        org_filter = org_cfg["name_filter"]
+        url_template = org_cfg["url_template"]
+        listing_only = "{slug}" not in url_template
+        print(f"  → {org_filter}")
 
-        org_info = {
-            "name": org_name, "address": org_address,
-            "phone": org_phone, "email": org_email, "hours": "",
-        }
+        for page in range(1, MAX_PAGES_PER_ORG + 1):
+            if len(valid) >= target:
+                break
+            body = {"data": {"filters": [
+                {"fieldName": "orgs.name", "operation": "contains", "criteria": org_filter},
+            ]}}
+            params = {
+                "include": "pictures,orgs",
+                "fields[animals]":
+                    "name,slug,breedString,breedPrimary,ageGroup,sex,sizeGroup,"
+                    "descriptionText,pictureCount,url",
+                "fields[orgs]": "name,city,state,addressLine1,phone,email,url",
+                "page": str(page),
+            }
+            data = _rescuegroups_post(body, params)
+            animals = data.get("data") or []
+            included = data.get("included") or []
+            inc = {(i.get("type"), str(i.get("id"))): i for i in included}
+            meta = data.get("meta") or {}
 
-        profile = f"""
-Name: {name}
-Species: {species}
-Breed: {breed}
-Age: {age}
-Gender: {gender}
-Size: {size}
-Description: {description}
-Shelter: {org_name}
-Address: {org_address}
-Phone: {org_phone}
-Email: {org_email}
-""".strip()
+            for a in animals:
+                if len(valid) >= target:
+                    break
+                attr = a.get("attributes") or {}
+                slug = (attr.get("slug") or "").lower()
+                # Filter by species via slug suffix
+                if not (slug.endswith(species_suffix) or f"{species_suffix}-" in slug):
+                    continue
+                name = attr.get("name") or ""
+                if not name:
+                    continue
 
-        pets.append({
-            "url":         source_url,
-            "listing_url": source_url,
-            "profile":     profile,
-            "photos":      [p for p in photos if p],
-            "animal_type": species.lower(),
-            "org_info":    org_info,
-        })
+                # Build the public URL for this pet
+                public_url = _build_pet_url(url_template, name)
+                # Skip duplicates / previously approved
+                if public_url and public_url.rstrip("/") in excluded_urls:
+                    continue
 
-        print(f"  ✓ {name} | {org_name} | {len(photos)} photos")
+                # Validate URL is reachable
+                if not _validate_pet_url(public_url, name, listing_only=listing_only):
+                    print(f"    ✗ {name} | dead URL: {public_url}")
+                    continue
 
-    print(f"Petfinder {species}s: {len(pets)} with descriptions")
-    return pets
+                pet = _rg_pet_to_pipeline_dict(a, inc, species, public_url)
+                # Drop pets with too-short bios (Claude can't write a real blurb)
+                if len(pet["profile"]) < 80 or len(attr.get("descriptionText") or "") < 30:
+                    print(f"    ✗ {name} | bio too short ({len(attr.get('descriptionText') or '')} chars)")
+                    continue
+
+                valid.append(pet)
+                print(f"    ✓ {name} | {pet['org_info']['name']} | {len(pet['photos'])} photos")
+
+            # Stop if we've exhausted available pages
+            if len(animals) < (meta.get("limit") or 25):
+                break
+
+    print(f"  → {len(valid)} valid {species} candidates")
+    return valid
+
 
 # ---------------------------------------------------------------------------
 # 6. BUILD COMBINED PROFILES
@@ -979,73 +612,19 @@ if __name__ == "__main__":
     skill_prompt  = load_skill_prompt()
     approved_urls = get_approved_pet_urls()
 
-    # ── PHASE 1: Scrape all search pages in ONE Apify call ─────────────
-    search_urls = []
-    for nl in NEWSLETTERS:
-        for species in ["cats", "dogs"]:
-            search_urls.append(f"https://www.petfinder.com/search/{species}-for-adoption/us/{nl['state']}/{nl['zip']}/")
-
-    print(f"\n{'='*60}")
-    print(f"Phase 1: Scraping {len(search_urls)} search pages")
-    print(f"{'='*60}")
-    html_cache = fetch_all_html_apify(search_urls)
-
-    # ── PHASE 2: Parse search pages, collect detail URLs ───────────────
-    print(f"\nPhase 2: Parsing search pages and collecting detail URLs")
-    detail_urls = []
-    search_results = {}  # key = (newsletter_name, species) -> list of pet dicts
-
-    for nl in NEWSLETTERS:
-        for species in ["Cat", "Dog"]:
-            search_url = f"https://www.petfinder.com/search/{species.lower()}s-for-adoption/us/{nl['state']}/{nl['zip']}/"
-            search_html = html_cache.get(search_url, "")
-            if not search_html:
-                print(f"  No HTML for {search_url}")
-                search_results[(nl["name"], species)] = []
-                continue
-
-            pets = parse_search_html(search_html, species.lower())
-            # Filter excluded and take candidates
-            candidates = []
-            for p in pets:
-                url = p.get("url", "").rstrip("/")
-                if url and url not in approved_urls:
-                    candidates.append(p)
-            candidates = candidates[:5]  # take up to 5 per species/newsletter (need 3, buffer for missing descriptions)
-            search_results[(nl["name"], species)] = candidates
-            for c in candidates:
-                detail_urls.append(c["url"].rstrip("/"))
-            print(f"  {nl['name']} {species}: {len(candidates)} candidates")
-
-    # Deduplicate and remove already-approved URLs before scraping
-    detail_urls = list(dict.fromkeys(detail_urls))
-    detail_urls = [u for u in detail_urls if u not in approved_urls]
-    print(f"\n  Total detail pages to scrape: {len(detail_urls)} (excluded {len(approved_urls)} approved)")
-
-    # ── PHASE 3: Scrape detail pages in batches of 10 ────────────────
-    BATCH_SIZE = 10
-    if detail_urls:
-        print(f"\n{'='*60}")
-        print(f"Phase 3: Scraping {len(detail_urls)} detail pages in batches of {BATCH_SIZE}")
-        print(f"{'='*60}")
-        for i in range(0, len(detail_urls), BATCH_SIZE):
-            batch = detail_urls[i:i + BATCH_SIZE]
-            print(f"\n  Batch {i // BATCH_SIZE + 1}: {len(batch)} URLs")
-            batch_cache = fetch_all_html_apify(batch)
-            html_cache.update(batch_cache)
-    else:
-        print("\n  No detail pages to scrape")
-
-    # ── PHASE 4: Process each newsletter ───────────────────────────────
+    # ── PHASE 1: Per-newsletter, fetch validated cat + dog candidates from
+    #            RescueGroups API. URL validation is built into the fetch
+    #            (each pet's public-facing page is GET'd and confirmed reachable +
+    #            mentions the pet's name). No separate scrape phase needed.
     for newsletter in NEWSLETTERS:
         print(f"\n{'='*60}")
         print(f"Processing: {newsletter['name']}")
         print(f"{'='*60}")
 
-        all_cats = fetch_petfinder_apify("Cat", approved_urls, newsletter["state"], newsletter["zip"],
-                                         target=3, _html_cache=html_cache)
-        all_dogs = fetch_petfinder_apify("Dog", approved_urls, newsletter["state"], newsletter["zip"],
-                                         target=3, _html_cache=html_cache)
+        all_cats = fetch_pets_via_rescuegroups("Cat", approved_urls,
+                                               target=TARGET_PER_SPECIES)
+        all_dogs = fetch_pets_via_rescuegroups("Dog", approved_urls,
+                                               target=TARGET_PER_SPECIES)
 
         print(f"\nTotal cats: {len(all_cats)}")
         print(f"Total dogs: {len(all_dogs)}")

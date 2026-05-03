@@ -24,16 +24,15 @@ jobs:
         run: pip install -r NewsletterCreation/Code/requirements.txt
 
       - name: Install dependencies
-        run: pip install anthropic requests notion-client Pillow curl_cffi beautifulsoup4
+        run: pip install anthropic requests notion-client Pillow
  
       - name: Run newsletter script
         env:
-          CLAUDE_API_KEY:          ${{ secrets.CLAUDE_API_KEY }}
-          APIFY_API_KEY:           ${{ secrets.APIFY_API_KEY }}
+          CLAUDE_API_KEY:           ${{ secrets.CLAUDE_API_KEY }}
+          RESCUE_GROUP_API_KEY:     ${{ secrets.RESCUE_GROUP_API_KEY }}
           NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
           NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
-          RESCUE_GROUP_API_KEY:    ${{ secrets.RESCUE_GROUP_API_KEY }}
         run: python Pets/Code/Furry_Friends_Marietta.py
 
       - name: Publish GIFs to gh-pages
