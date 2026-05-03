@@ -393,7 +393,8 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             if hosted:
                 image_swaps[img_url] = hosted
             alt_swaps["restaurant_radar_image"] = hosted or img_url
-    for i, r in enumerate(others[:2], start=2):
+    # Fill up to 4 additional tiers (slots 2..5) — template has 5 slots total
+    for i, r in enumerate(others[:4], start=2):
         repl[f"restaurant_radar_{i}_name"]    = r.get("name", "")
         repl[f"restaurant_radar_{i}_message"] = r.get("blurb", "")
         repl[f"restaurant_radar_{i}_url"]     = r.get("maps_url") or r.get("website") or ""
@@ -440,14 +441,27 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             lines = section.splitlines()
             heading = lines[0].lstrip("# ").strip() if lines else ""
             body_lines = [ln for ln in lines[1:] if ln.strip()]
-            # Pull the trailing markdown link `[label](url)` if present (story permalink)
+            # Pull the trailing markdown link `More: [label](url)` if present.
+            # The URL becomes {local_lowdown{i}_link} (used by the button/hyperlink),
+            # so strip the line from the body to avoid the same link appearing twice.
             story_url = ""
-            for ln in reversed(body_lines):
+            cleaned_body_lines = []
+            for ln in body_lines:
                 m = re.search(r"\((https?://[^\)]+)\)", ln)
-                if m:
-                    story_url = m.group(1)
-                    break
-            body = "\n".join(body_lines).strip()
+                # Treat the line as the "More: ..." trailer if it has a markdown link
+                # AND begins with More/Source/Read/Link (case-insensitive) OR is just `[label](url)`
+                trailer = (
+                    m and (
+                        re.match(r"^\s*(more|source|read more|link|via|see more)\b", ln, re.IGNORECASE)
+                        or re.match(r"^\s*\[[^\]]+\]\(https?://[^\)]+\)\s*$", ln)
+                    )
+                )
+                if trailer:
+                    if not story_url:
+                        story_url = m.group(1)
+                    continue  # drop the line from body
+                cleaned_body_lines.append(ln)
+            body = "\n".join(cleaned_body_lines).strip()
             repl[f"local_lowdown{i}_title"]   = heading
             repl[f"local_lowdown{i}_message"] = body
             repl[f"local_lowdown{i}_link"]    = story_url
