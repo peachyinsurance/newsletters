@@ -371,11 +371,43 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def parse_detail_html(html: str) -> dict:
-    """Parse a single pet detail page HTML into a detail dict."""
+def _extract_pet_uuid(pet_url: str) -> str:
+    """Pull the pet's animal UUID from the Petfinder URL slug.
+
+    URLs look like:
+        https://www.petfinder.com/cat/sebastian-<UUID>/ga/marietta/<shelter>/...
+    where <UUID> is a 32-hex-with-dashes value that ALSO appears as
+    `/animal/<UUID>/image/...` in cloudfront photo URLs. Matching on it lets
+    us filter out photos of unrelated pets (related-listings carousels, etc.).
+    """
+    if not pet_url:
+        return ""
+    import re as _re
+    m = _re.search(
+        r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})",
+        pet_url,
+        _re.IGNORECASE,
+    )
+    return m.group(1).lower() if m else ""
+
+
+def _photo_dedupe_key(url: str) -> str:
+    """Strip query-string variants (e.g. ?versionId=...) so the same image at
+    two URLs only counts once."""
+    return (url or "").split("?", 1)[0]
+
+
+def parse_detail_html(html: str, pet_url: str = "") -> dict:
+    """Parse a single pet detail page HTML into a detail dict.
+
+    `pet_url` (optional): if provided, photo URLs will be filtered to those
+    that share the pet's UUID — strips out related-pet photos that get into
+    the page via "you might also like" sections.
+    """
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html, "html.parser")
     detail = {}
+    pet_uuid = _extract_pet_uuid(pet_url)
 
     next_tag = soup.find("script", id="__NEXT_DATA__")
     if next_tag:
@@ -449,7 +481,10 @@ def parse_detail_html(html: str) -> dict:
             u = u.strip()
             if u.startswith("//"):
                 u = "https:" + u
-            if u in seen:
+            # Dedupe by base URL (without query string) so "?versionId=..." variants
+            # of the same image don't both get counted.
+            base = _photo_dedupe_key(u)
+            if base in seen:
                 return
             ul = u.lower()
             # Reject obvious non-photos
@@ -464,7 +499,12 @@ def parse_detail_html(html: str) -> dict:
                 "/photos/", "/media/", "/images/", "rdcpix", "cloudfront", "petfinder",
             )):
                 return
-            seen.add(u)
+            # If we know this pet's UUID, only accept photos whose URL contains it.
+            # This filters out related-pet photos that appear in "you might also like"
+            # carousels on the same detail page.
+            if pet_uuid and pet_uuid not in ul:
+                return
+            seen.add(base)
             dom_photos.append(u)
 
         def _add_srcset(srcset: str):
@@ -617,7 +657,7 @@ def fetch_petfinder_apify(species: str, excluded_urls: set, state: str, zip_code
         name = item.get("name", "Unknown")
 
         detail_html = cache.get(source_url, "")
-        detail = parse_detail_html(detail_html) if detail_html else {}
+        detail = parse_detail_html(detail_html, pet_url=source_url) if detail_html else {}
 
         # Prefer the longest available description — detail bio > og:description
         # > search-page alt text. Real bios are 100+ chars; alt text is short.
