@@ -435,10 +435,22 @@ def parse_detail_html(html: str) -> dict:
         dom_photos = []
         seen = set()
 
+        def _looks_like_photo(u: str) -> bool:
+            """Accept any URL pointing at an image asset that isn't an obvious
+            logo/icon. Don't gate on a specific CDN — different shelters host
+            on different domains (cloudfront, petfinder media, custom CDNs)."""
+            if not u or u in seen:
+                return False
+            ul = u.lower()
+            if any(skip in ul for skip in ("logo", "icon", "favicon", "sprite", "avatar")):
+                return False
+            # Path or query must look image-like
+            return any(ext in ul for ext in (".jpg", ".jpeg", ".png", ".webp", "/photos/", "/media/", "/images/"))
+
         # 1. Swiper slides: photos in img tags inside swiper-slide divs
         for slide in soup.select(".swiper-slide img"):
             src = slide.get("src") or slide.get("data-src") or ""
-            if src and "cloudfront" in src and src not in seen:
+            if _looks_like_photo(src):
                 seen.add(src)
                 dom_photos.append(src)
 
@@ -448,17 +460,26 @@ def parse_detail_html(html: str) -> dict:
             urls = _re.findall(r'url\(([^)]+)\)', style)
             for u in urls:
                 u = u.strip("'\"")
-                if "cloudfront" in u and u not in seen:
+                if _looks_like_photo(u):
                     seen.add(u)
                     dom_photos.append(u)
 
-        # 3. General img fallback
+        # 3. General img fallback — any image-looking <img> tag on the page
         if not dom_photos:
-            for img in soup.select("img[src*='cloudfront'], img[src*='dl5zpyw5k3jeb']"):
+            for img in soup.select("img"):
                 src = img.get("src") or img.get("data-src") or ""
-                if src and src not in seen and "logo" not in src.lower():
+                if _looks_like_photo(src):
                     seen.add(src)
                     dom_photos.append(src)
+
+        # 4. og:image / twitter:image meta tags — usually the hero photo
+        if not dom_photos:
+            for sel in ("meta[property='og:image']", "meta[name='twitter:image']"):
+                for m in soup.select(sel):
+                    src = m.get("content") or ""
+                    if _looks_like_photo(src):
+                        seen.add(src)
+                        dom_photos.append(src)
 
         if len(dom_photos) > len(detail.get("photos", [])):
             detail["photos"] = dom_photos[:3]
