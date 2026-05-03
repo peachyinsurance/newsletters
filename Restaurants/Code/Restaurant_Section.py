@@ -652,14 +652,57 @@ def festive_swap_inline(results: list[dict], newsletter_name: str,
     return results, page_ids_to_promote
 
 
-def _promote_historical_rows(page_ids: list[str]) -> None:
-    """Flip each Notion page from 'approved - old' → 'Tier 2 Winner'."""
+def _promote_historical_rows(page_ids: list[str], festive: bool = False) -> None:
+    """Flip each Notion page from 'approved - old' → 'Tier 2 Winner'.
+    When festive=True, also marks the row with Festive Promoted=True so the
+    UI can render it differently (grayed out / labeled).
+    """
     for pid in page_ids:
         try:
-            update_page(pid, {"Status": {"select": {"name": "Tier 2 Winner"}}})
-            print(f"  ✓ Promoted historical row {pid[:8]}… to Tier 2 Winner")
+            props: dict = {"Status": {"select": {"name": "Tier 2 Winner"}}}
+            if festive:
+                props["Festive Promoted"] = {"checkbox": True}
+            update_page(pid, props)
+            tag = " (festive)" if festive else ""
+            print(f"  ✓ Promoted historical row {pid[:8]}…{tag} to Tier 2 Winner")
         except Exception as e:
             print(f"  ⚠ Failed to promote {pid}: {e}")
+
+
+def demote_current_winners(newsletter_name: str) -> int:
+    """Flip every CURRENT Tier 1/Tier 2 Winner for this newsletter back to
+    'approved - old'. Run at the START of each pipeline so accumulated winners
+    from prior runs (esp. festive promotions) don't pile up across weeks.
+
+    Returns the number of rows demoted.
+    """
+    try:
+        rows = query_database(NOTION_RESTAURANTS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+    except Exception as e:
+        print(f"  ⚠ demote_current_winners: query failed: {e}")
+        return 0
+
+    demoted = 0
+    for r in rows:
+        status = ((r["properties"].get("Status", {}) or {}).get("select") or {}).get("name", "")
+        if status not in ("Tier 1 Winner", "Tier 2 Winner"):
+            continue
+        try:
+            update_page(r["id"], {
+                "Status": {"select": {"name": "approved - old"}},
+                # Reset the festive flag (a previously-festive row going back to
+                # the historical pool is just a regular past pick again).
+                "Festive Promoted": {"checkbox": False},
+            })
+            demoted += 1
+        except Exception as e:
+            print(f"  ⚠ Failed to demote {r['id']}: {e}")
+    if demoted:
+        print(f"  🧹 Demoted {demoted} prior Tier 1/2 Winner(s) for {newsletter_name} → approved - old")
+    return demoted
 
 
 # ---------------------------------------------------------------------------
@@ -674,6 +717,11 @@ if __name__ == "__main__":
         print(f"\n{'='*60}")
         print(f"Processing: {newsletter['name']}")
         print(f"{'='*60}")
+
+        # Clean slate: demote any leftover Tier 1/2 Winners from prior runs
+        # to 'approved - old' before saving this week's batch. Prevents
+        # festive-promoted (or normal) winners from accumulating across weeks.
+        demote_current_winners(newsletter["name"])
 
         excluded = get_featured_place_ids(newsletter["name"])
 
@@ -818,7 +866,7 @@ if __name__ == "__main__":
         # Tier 2 Winner status (they already exist in Notion as approved-old).
         if festive_promotions:
             print(f"\n  Promoting {len(festive_promotions)} historical festive row(s)…")
-            _promote_historical_rows(festive_promotions)
+            _promote_historical_rows(festive_promotions, festive=True)
 
         print(f"Done with {newsletter['name']}.")
 

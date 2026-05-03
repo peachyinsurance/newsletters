@@ -108,6 +108,7 @@ def export_restaurants():
             "festive_score":          str(extract_text(props.get("Festive Score", {}))),
             "scoring_notes":          extract_text(props.get("Scoring Notes", {})),
             "default_winner":         "yes" if extract_text(props.get("Default Winner", {})) else "",
+            "festive_promoted":       "yes" if extract_text(props.get("Festive Promoted", {})) else "",
         })
 
     with open("restaurants.json", "w") as f:

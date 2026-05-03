@@ -5,9 +5,17 @@ export default function RestaurantTile({ restaurant, onApprove, approving, appro
   const bullets     = parseBullets(restaurant.scoring_notes);
   const total       = restaurant.total_score ? parseInt(restaurant.total_score) : null;
 
+  const isFestive = restaurant.festive_promoted === "yes";
+  const tileClasses = [
+    "tile",
+    localStatus === "approved" ? "approved" : localStatus === "rejected" ? "rejected" : "",
+    isFestive ? "festive-promoted" : "",
+  ].filter(Boolean).join(" ");
+
   return (
-    <div className={`tile ${localStatus === "approved" ? "approved" : localStatus === "rejected" ? "rejected" : ""}`}>
+    <div className={tileClasses}>
       {localStatus === "approved" && <div className="tile-badge">✓ Approved</div>}
+      {isFestive && <div className="tile-badge tile-badge-festive">🎉 Festive Pick (re-featured)</div>}
       <div className="tile-photo">
         {restaurant.photo_url ? <img src={restaurant.photo_url} alt={restaurant.restaurant_name} /> : <span>No photo available</span>}
       </div>

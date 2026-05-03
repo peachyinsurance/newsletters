@@ -166,6 +166,9 @@ def setup_notion_databases():
         "Scoring Notes":          {"rich_text": {}},
         "Default Winner":         {"checkbox": {}},
         "Manually Edited":        {"checkbox": {}},
+        # Set when a row is brought back from approved-old via the festive
+        # cuisine swap. UI uses this to render the row differently (grayed).
+        "Festive Promoted":       {"checkbox": {}},
     }
 
     # Update Pets database schema

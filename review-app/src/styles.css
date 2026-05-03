@@ -141,7 +141,12 @@ body { background: var(--cream); font-family: 'DM Sans', sans-serif; color: var(
 .tile:hover { transform: translateY(-4px); box-shadow: 0 12px 40px var(--shadow); }
 .tile.approved { outline: 3px solid var(--sage); outline-offset: -3px; }
 .tile.rejected { opacity: 0.6; }
+/* Festive-promoted: a past restaurant brought back this week to fill a holiday
+   theme. Visually subdued so it's clear it's a re-feature, not a fresh pick. */
+.tile.festive-promoted { opacity: 0.7; filter: grayscale(0.35); outline: 2px dashed #C8A86A; outline-offset: -2px; }
+.tile.festive-promoted:hover { opacity: 1; filter: none; }
 .tile-badge { position: absolute; top: 16px; right: 16px; background: var(--sage); color: white; font-size: 11px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; padding: 4px 12px; border-radius: 99px; z-index: 2; }
+.tile-badge-festive { background: #C8A86A; right: auto; left: 16px; }
 .tile-photo { width: 100%; height: 240px; background: var(--sand); display: flex; align-items: center; justify-content: center; color: #A89080; font-size: 13px; flex-shrink: 0; }
 .tile-photo img { width: 100%; height: 100%; object-fit: cover; }
 .tile-body { padding: 28px; flex: 1; display: flex; flex-direction: column; }
