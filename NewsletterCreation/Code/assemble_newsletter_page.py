@@ -525,47 +525,8 @@ def query_database(db_id: str, filters: dict = None) -> list:
     return results
 
 
-def get_approved_pet(newsletter_name: str) -> dict | None:
-    """Get the approved pet for a newsletter."""
-    try:
-        # Try "status" type filter first, fall back to "select" type
-        pages = None
-        for filter_type in ["status", "select"]:
-            try:
-                pages = query_database(NOTION_PETS_DB_ID, filters={
-                    "property": "Status",
-                    filter_type: {"equals": "approved"}
-                })
-                print(f"  Pet query worked with '{filter_type}' filter, returned {len(pages)} results")
-                break
-            except Exception:
-                print(f"  Pet '{filter_type}' filter failed, trying next...")
-                continue
-        if pages is None:
-            # Last resort: no filter, check status in Python
-            print(f"  Trying unfiltered query...")
-            pages = query_database(NOTION_PETS_DB_ID)
-            print(f"  Unfiltered query returned {len(pages)} total pets")
-
-        # Filter to approved pets for this newsletter in Python
-        filtered = []
-        for p in pages:
-            props = p["properties"]
-            status_prop = props.get("Status", {})
-            status_name = (status_prop.get("select") or status_prop.get("status") or {}).get("name", "")
-            nl_prop = props.get("Newsletter", {})
-            nl_name = (nl_prop.get("select") or {}).get("name", "")
-            if status_name == "approved" and nl_name == newsletter_name:
-                filtered.append(p)
-        pages = filtered
-        print(f"  {len(pages)} approved pets for {newsletter_name}")
-    except Exception as e:
-        print(f"  Pet query FAILED: {e}")
-        return None
-    if not pages:
-        print(f"  No approved pet found for {newsletter_name}")
-        return None
-    props = pages[0]["properties"]
+def _pet_row_to_dict(props: dict) -> dict:
+    """Convert a Notion pet page's `properties` dict → newsletter pet dict."""
     def _rt(key):
         rt = props.get(key, {}).get("rich_text", [])
         return rt[0].get("text", {}).get("content", "") if rt else ""
@@ -583,53 +544,162 @@ def get_approved_pet(newsletter_name: str) -> dict | None:
     }
 
 
+def get_approved_pet(newsletter_name: str) -> dict | None:
+    """Get the approved pet for a newsletter. Falls back to the most recent
+    'default winner' (auto-flagged by the pet pipeline) if no manual approval
+    exists — so Send-to-Beehiiv always has a pet to feature."""
+    try:
+        pages = query_database(NOTION_PETS_DB_ID)
+    except Exception as e:
+        print(f"  Pet query FAILED: {e}")
+        return None
+
+    # Filter to this newsletter only
+    nl_pages = []
+    for p in pages:
+        nl_prop = p["properties"].get("Newsletter", {})
+        if (nl_prop.get("select") or {}).get("name") == newsletter_name:
+            nl_pages.append(p)
+
+    # Tier 1: explicitly approved
+    approved = []
+    for p in nl_pages:
+        status_prop = p["properties"].get("Status", {})
+        status_name = (status_prop.get("select") or status_prop.get("status") or {}).get("name", "")
+        if status_name == "approved":
+            approved.append(p)
+    if approved:
+        print(f"  {len(approved)} approved pet(s) for {newsletter_name}")
+        return _pet_row_to_dict(approved[0]["properties"])
+
+    # Tier 2 fallback: default winner (most recent batch). default_winner is a
+    # checkbox set by the pet pipeline when scoring picks a fresh winner.
+    defaults = []
+    for p in nl_pages:
+        if (p["properties"].get("Default Winner", {}).get("checkbox") or False):
+            defaults.append(p)
+    if defaults:
+        # Sort by Date Generated desc — pick the most recent default winner
+        defaults.sort(
+            key=lambda p: (p["properties"].get("Date Generated", {}).get("date") or {}).get("start", ""),
+            reverse=True,
+        )
+        print(f"  No approved pet for {newsletter_name} — using default winner: "
+              f"{defaults[0]['properties'].get('Name', {}).get('title', [{}])[0].get('text', {}).get('content', '')}")
+        return _pet_row_to_dict(defaults[0]["properties"])
+
+    print(f"  No approved pet AND no default winner found for {newsletter_name}")
+    return None
+
+
+def _restaurant_row_to_dict(props: dict, status: str) -> dict:
+    def _rt(key):
+        rt = props.get(key, {}).get("rich_text", [])
+        return rt[0].get("text", {}).get("content", "") if rt else ""
+    return {
+        "name":     props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", ""),
+        "blurb":    _rt("Blurb"),
+        "address":  _rt("Address"),
+        "phone":    _rt("Phone"),
+        "hours":    _rt("Hours"),
+        "cuisine":  (props.get("Cuisine", {}).get("select") or {}).get("name", ""),
+        "tier":     status,
+        "score":    props.get("Total Score", {}).get("number", 0),
+        "rating":   props.get("Rating", {}).get("number", 0),
+        "photo":    props.get("Photo URL", {}).get("url", ""),
+        "gif":      props.get("GIF URL", {}).get("url", ""),
+        "website":  props.get("Website", {}).get("url", ""),
+        "maps_url": props.get("Google Maps URL", {}).get("url", ""),
+        "date":     (props.get("Date Generated", {}).get("date") or {}).get("start", ""),
+    }
+
+
 def get_restaurants(newsletter_name: str) -> list[dict]:
-    """Get Tier 1 and Tier 2 restaurants for a newsletter."""
+    """Get this week's restaurants for a newsletter.
+
+    Priority order:
+      1. Tier 1/Tier 2 Winners — explicitly approved by the user
+      2. Default-winner fallback — when no winners exist, pick the row with
+         Default Winner=True (auto-flagged by the pipeline) plus the next
+         couple highest-scored rows from the most recent batch as Tier 2 stand-ins
+
+    The fallback ensures Send-to-Beehiiv always has restaurants to feature
+    even when no one approved manually this week.
+    """
     try:
         pages = query_database(NOTION_RESTAURANTS_DB_ID)
-        # Filter in Python to avoid compound filter issues
         pages = [p for p in pages if
                  (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
     except Exception:
         return []
-    results = []
+
+    # Tier 1: explicitly tiered winners
+    winners = []
     for page in pages:
         props = page["properties"]
-        status_prop = props.get("Status", {})
-        status = (status_prop.get("select") or status_prop.get("status") or {}).get("name", "")
-        # Only show current week's tiered winners — 'approved - old' is exclusion-only
-        if status not in ("Tier 1 Winner", "Tier 2 Winner"):
-            continue
-        def _rt(key):
-            rt = props.get(key, {}).get("rich_text", [])
-            return rt[0].get("text", {}).get("content", "") if rt else ""
-        results.append({
-            "name":     props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", ""),
-            "blurb":    _rt("Blurb"),
-            "address":  _rt("Address"),
-            "phone":    _rt("Phone"),
-            "hours":    _rt("Hours"),
-            "cuisine":  (props.get("Cuisine", {}).get("select") or {}).get("name", ""),
-            "tier":     status,
-            "score":    props.get("Total Score", {}).get("number", 0),
-            "rating":   props.get("Rating", {}).get("number", 0),
-            "photo":    props.get("Photo URL", {}).get("url", ""),
-            "gif":      props.get("GIF URL", {}).get("url", ""),
-            "website":  props.get("Website", {}).get("url", ""),
-            "maps_url": props.get("Google Maps URL", {}).get("url", ""),
-            "date":     (props.get("Date Generated", {}).get("date") or {}).get("start", ""),
-        })
+        status = ((props.get("Status", {}).get("select") or props.get("Status", {}).get("status") or {})
+                  .get("name", ""))
+        if status in ("Tier 1 Winner", "Tier 2 Winner"):
+            winners.append(_restaurant_row_to_dict(props, status))
 
-    # Only keep the most recent batch (by date) to prevent duplicates
-    if results:
-        dates = [r["date"] for r in results if r.get("date")]
+    if winners:
+        # Keep only the most recent batch
+        dates = [r["date"] for r in winners if r.get("date")]
         if dates:
             latest_date = max(dates)
-            results = [r for r in results if r.get("date") == latest_date]
+            winners = [r for r in winners if r.get("date") == latest_date]
+        winners.sort(key=lambda x: (0 if x["tier"] == "Tier 1 Winner" else 1, -(x["score"] or 0)))
+        return winners
 
-    # Sort: Tier 1 first, then by score
-    results.sort(key=lambda x: (0 if x["tier"] == "Tier 1 Winner" else 1, -(x["score"] or 0)))
-    return results
+    # Fallback: no Tier 1/2 Winners exist. Use Default Winner + top scorers
+    # from the most recent batch.
+    candidates = []
+    for page in pages:
+        props = page["properties"]
+        status = ((props.get("Status", {}).get("select") or props.get("Status", {}).get("status") or {})
+                  .get("name", ""))
+        # Skip archived/historical rows
+        if status == "approved - old":
+            continue
+        candidates.append((page, props, status))
+
+    if not candidates:
+        return []
+
+    # Filter to most recent batch by date
+    dated = [(p, pr, s, ((pr.get("Date Generated", {}).get("date") or {}).get("start", "")))
+             for (p, pr, s) in candidates]
+    dates = [d for *_, d in dated if d]
+    if dates:
+        latest = max(dates)
+        dated = [t for t in dated if t[3] == latest]
+
+    # Promote default winner to Tier 1 stand-in; next 2 by score → Tier 2 stand-ins
+    default_winner = None
+    others = []
+    for page, props, status, _ in dated:
+        is_default = props.get("Default Winner", {}).get("checkbox") or False
+        if is_default and default_winner is None:
+            default_winner = props
+        else:
+            others.append(props)
+
+    fallback_results = []
+    if default_winner:
+        fb = _restaurant_row_to_dict(default_winner, "Tier 1 Winner")
+        fb["_is_fallback"] = True
+        fallback_results.append(fb)
+        print(f"  ⓘ Restaurants for {newsletter_name}: no winners, using default-winner fallback: {fb['name']}")
+    # Add up to 2 more high-scoring as Tier 2 stand-ins
+    others.sort(key=lambda p: -(p.get("Total Score", {}).get("number") or 0))
+    for o in others[:2]:
+        fb = _restaurant_row_to_dict(o, "Tier 2 Winner")
+        fb["_is_fallback"] = True
+        fallback_results.append(fb)
+
+    if fallback_results:
+        print(f"  ⓘ Restaurants fallback total: {len(fallback_results)} (default + top-scored)")
+    return fallback_results
 
 
 def get_latest_lowdown(newsletter_name: str) -> str | None:
@@ -848,50 +918,85 @@ def get_real_estate(newsletter_name: str) -> list[dict]:
     return results
 
 
+def _event_row_to_dict(props: dict) -> dict:
+    def _rt(key):
+        rt = props.get(key, {}).get("rich_text", [])
+        return rt[0].get("text", {}).get("content", "") if rt else ""
+    return {
+        "event_name":  _rt("Event Name"),
+        "date":        _rt("Date"),
+        "time":        _rt("Time"),
+        "venue":       _rt("Venue"),
+        "price":       _rt("Price"),
+        "blurb":       _rt("Blurb"),
+        "source_url":  props.get("Source URL", {}).get("url", ""),
+        "ticket_url":  props.get("Ticket URL", {}).get("url", ""),
+        "score":       props.get("Total Score", {}).get("number", 0),
+    }
+
+
 def get_featured_event(newsletter_name: str) -> dict | None:
-    """Get the approved featured event for a newsletter."""
+    """Get the featured event. Falls back to highest-scored pending row from
+    the most recent batch when no manual approval exists."""
     if not NOTION_EVENTS_DB_ID:
         print(f"  ⚠ NOTION_EVENTS_DB_ID is empty — Featured Event section will not render")
         return None
     print(f"  Looking up Featured Event for {newsletter_name} (db {NOTION_EVENTS_DB_ID[:8]}…)")
     try:
         pages = query_database(NOTION_EVENTS_DB_ID)
-        # Filter to approved events for this newsletter
-        filtered = []
-        for p in pages:
-            props = p["properties"]
-            status_prop = props.get("Status", {})
-            status_name = (status_prop.get("select") or status_prop.get("status") or {}).get("name", "")
-            nl_prop = props.get("Newsletter", {})
-            nl_name = (nl_prop.get("select") or {}).get("name", "")
-            if status_name == "approved" and nl_name == newsletter_name:
-                filtered.append(p)
-        if not filtered:
-            print(f"  No approved featured event for {newsletter_name}")
-            return None
-        # Sort by date generated descending, pick latest
-        filtered.sort(
-            key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
-            reverse=True
-        )
-        props = filtered[0]["properties"]
-        def _rt(key):
-            rt = props.get(key, {}).get("rich_text", [])
-            return rt[0].get("text", {}).get("content", "") if rt else ""
-        return {
-            "event_name":  _rt("Event Name"),
-            "date":        _rt("Date"),
-            "time":        _rt("Time"),
-            "venue":       _rt("Venue"),
-            "price":       _rt("Price"),
-            "blurb":       _rt("Blurb"),
-            "source_url":  props.get("Source URL", {}).get("url", ""),
-            "ticket_url":  props.get("Ticket URL", {}).get("url", ""),
-            "score":       props.get("Total Score", {}).get("number", 0),
-        }
     except Exception as e:
         print(f"  Featured event query failed: {e}")
         return None
+
+    # Filter to this newsletter
+    nl_pages = []
+    for p in pages:
+        if (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name:
+            nl_pages.append(p)
+
+    # Tier 1: explicitly approved
+    approved = []
+    for p in nl_pages:
+        status = ((p["properties"].get("Status", {}).get("select")
+                   or p["properties"].get("Status", {}).get("status") or {}).get("name", ""))
+        if status == "approved":
+            approved.append(p)
+    if approved:
+        approved.sort(
+            key=lambda p: (p["properties"].get("Date Generated", {}).get("date") or {}).get("start", ""),
+            reverse=True,
+        )
+        return _event_row_to_dict(approved[0]["properties"])
+
+    # Fallback: highest-scored row from the most recent batch (any status
+    # except 'approved - old' / 'rejected') — the auto-default for this week.
+    candidates = []
+    for p in nl_pages:
+        status = ((p["properties"].get("Status", {}).get("select")
+                   or p["properties"].get("Status", {}).get("status") or {}).get("name", ""))
+        if status in ("approved - old", "rejected"):
+            continue
+        candidates.append(p)
+
+    if not candidates:
+        print(f"  No approved featured event AND no fallback candidates for {newsletter_name}")
+        return None
+
+    # Pick most recent batch
+    dates = [(p["properties"].get("Date Generated", {}).get("date") or {}).get("start", "") for p in candidates]
+    dates = [d for d in dates if d]
+    if dates:
+        latest = max(dates)
+        candidates = [p for p in candidates
+                      if (p["properties"].get("Date Generated", {}).get("date") or {}).get("start", "") == latest]
+
+    # Highest score wins
+    candidates.sort(
+        key=lambda p: -(p["properties"].get("Total Score", {}).get("number") or 0),
+    )
+    pick = _event_row_to_dict(candidates[0]["properties"])
+    print(f"  ⓘ No approved featured event for {newsletter_name} — using highest-scored fallback: {pick.get('event_name')}")
+    return pick
 
 
 # ---------------------------------------------------------------------------

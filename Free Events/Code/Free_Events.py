@@ -22,12 +22,56 @@ from url_validator import validate_url
 import re as _re
 
 
-def fetch_event_image(source_url: str) -> str:
-    """Pull a hero image URL from the source page via og:image / twitter:image
-    meta tags. Returns empty string if the page can't be fetched, has no meta
-    image, or the image URL is obviously a logo/sprite/icon.
+def _image_looks_real(url: str) -> bool:
+    """HEAD/GET-validate that a URL actually returns an image (not a 404 page,
+    redirect-to-login, or 1px tracker pixel). Returns True if content-type is
+    image/* AND payload is reasonably sized (> 5 KB)."""
+    if not url:
+        return False
+    try:
+        r = requests.get(
+            url, timeout=8, allow_redirects=True, stream=True,
+            headers={"User-Agent": "Mozilla/5.0 (newsletter-automation)"},
+        )
+        if r.status_code != 200:
+            return False
+        ct = (r.headers.get("Content-Type") or "").lower()
+        if not ct.startswith("image/"):
+            return False
+        # Size hint: use Content-Length if present, else read the first chunk
+        size = int(r.headers.get("Content-Length") or 0)
+        if size == 0:
+            chunk = next(r.iter_content(8192), b"")
+            size = len(chunk)
+        return size >= 5_000
+    except Exception:
+        return False
 
-    Best-effort; failure is silent so it never blocks publishing the event.
+
+def _absolutize(url: str, base_url: str) -> str:
+    """Resolve //, relative, and absolute URLs against the page's base URL."""
+    if not url:
+        return ""
+    if url.startswith("//"):
+        return "https:" + url
+    if url.startswith("http"):
+        return url
+    if url.startswith("/"):
+        from urllib.parse import urlparse
+        p = urlparse(base_url)
+        return f"{p.scheme}://{p.netloc}{url}"
+    return url  # leave alone if we can't resolve
+
+
+def fetch_event_image(source_url: str) -> str:
+    """Pull a reliable hero image URL from the source page. Tries (in order):
+       1. og:image / twitter:image / image_src meta tags
+       2. JSON-LD structured data (schema.org Event.image)
+       3. First reasonably-large <img> in the page body (>= 400px width)
+
+    Each candidate is HEAD-validated to confirm it actually serves an image
+    >5 KB before returning. Skips obvious logos, favicons, trackers, etc.
+    Best-effort; returns empty string if nothing reliable is found.
     """
     if not source_url:
         return ""
@@ -40,38 +84,95 @@ def fetch_event_image(source_url: str) -> str:
         )
         if r.status_code != 200 or not r.text:
             return ""
-        html = r.text[:200_000]  # cap for safety; meta tags are in <head>
+        html = r.text
     except Exception:
         return ""
 
-    # Try og:image first, then twitter:image, then explicit image_src link
-    patterns = [
+    SKIP_TOKENS = ("logo", "favicon", "sprite", "icon-", "/icons/",
+                   "placeholder", "spacer", "tracker", "pixel.gif",
+                   "1x1", "blank.gif", "transparent.png")
+
+    candidates: list[str] = []
+
+    # 1. Meta tags (og:image, twitter:image, image_src)
+    head = html[:200_000]  # meta tags live in <head> — cap for speed
+    meta_patterns = [
         r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']',
         r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::secure_url)?["\']',
         r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
         r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
         r'<link[^>]+rel=["\']image_src["\'][^>]+href=["\']([^"\']+)["\']',
     ]
-    for pat in patterns:
-        m = _re.search(pat, html, _re.IGNORECASE)
-        if not m:
+    for pat in meta_patterns:
+        m = _re.search(pat, head, _re.IGNORECASE)
+        if m:
+            candidates.append(m.group(1).strip())
+
+    # 2. JSON-LD: schema.org Event objects often carry an `image` field
+    for ld_match in _re.finditer(
+        r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.+?)</script>',
+        html, _re.IGNORECASE | _re.DOTALL,
+    ):
+        try:
+            blob = json.loads(ld_match.group(1).strip())
+        except Exception:
             continue
-        url = m.group(1).strip()
-        if not url:
+        items = blob if isinstance(blob, list) else [blob]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            img = item.get("image")
+            if isinstance(img, str):
+                candidates.append(img)
+            elif isinstance(img, list):
+                for x in img:
+                    if isinstance(x, str):
+                        candidates.append(x)
+                    elif isinstance(x, dict) and isinstance(x.get("url"), str):
+                        candidates.append(x["url"])
+            elif isinstance(img, dict) and isinstance(img.get("url"), str):
+                candidates.append(img["url"])
+
+    # 3. First reasonably-large <img> in the page body — last-resort fallback
+    #    when meta tags are absent. Match <img ... width="N" ... src="...">
+    #    where N >= 400 (large enough to be a hero photo, not an icon).
+    body_img_patterns = [
+        r'<img[^>]+width=["\']?(\d+)["\']?[^>]+src=["\']([^"\']+)["\']',
+        r'<img[^>]+src=["\']([^"\']+)["\'][^>]+width=["\']?(\d+)["\']?',
+    ]
+    for pat in body_img_patterns:
+        for m in _re.finditer(pat, html, _re.IGNORECASE):
+            groups = m.groups()
+            # Different group order in the two patterns
+            if pat.startswith(r'<img[^>]+width'):
+                w_str, url_str = groups[0], groups[1]
+            else:
+                url_str, w_str = groups[0], groups[1]
+            try:
+                w = int(w_str)
+            except ValueError:
+                continue
+            if w >= 400:
+                candidates.append(url_str)
+
+    # Validate each candidate (in priority order) until one passes
+    seen: set = set()
+    for url in candidates:
+        url = (url or "").strip()
+        if not url or url in seen:
             continue
-        ul = url.lower()
-        # Filter out obvious non-photo assets
-        if any(skip in ul for skip in ("logo", "favicon", "sprite", "icon-", "/icons/", "placeholder")):
-            continue
-        # Make protocol-relative absolute
-        if url.startswith("//"):
-            url = "https:" + url
-        # Skip data URIs
+        seen.add(url)
         if url.startswith("data:"):
             continue
-        print(f"      ✓ free-event image: {url[:80]}…")
-        return url
+        url = _absolutize(url, source_url)
+        ul = url.lower()
+        if any(skip in ul for skip in SKIP_TOKENS):
+            continue
+        if _image_looks_real(url):
+            print(f"      ✓ free-event image: {url[:80]}…")
+            return url
 
+    print(f"      · no reliable free-event image found ({len(candidates)} candidates rejected)")
     return ""
 
 # ---------------------------------------------------------------------------
