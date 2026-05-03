@@ -8,6 +8,7 @@ import os
 import sys
 import json
 import time
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -260,6 +261,7 @@ Photo: {listing['photo_url']}
 
 """
 
+    listing_count = len(listings)
     response = None
     for attempt in range(3):
         try:
@@ -271,9 +273,9 @@ Photo: {listing['photo_url']}
                     "role": "user",
                     "content": f"""
 Write a Real Estate Corner section for the {newsletter_display} area newsletter.
-There are 3 listings, one per price tier. Write a short, neighbor-style blurb for each.
+There are {listing_count} listing(s) below. Write a short, neighbor-style blurb for each.
 
-Return ONLY a JSON array with exactly 3 objects, no preamble or markdown.
+Return ONLY a JSON array with exactly {listing_count} object(s), no preamble or markdown.
 Exact format:
 [
   {{
@@ -303,10 +305,42 @@ Listings:
             else:
                 raise
 
-    raw = next(block.text for block in response.content if block.type == "text")
+    # Extract Claude's text. Be defensive: response may have no text blocks at all.
+    raw = ""
+    if response and response.content:
+        for block in response.content:
+            if getattr(block, "type", "") == "text":
+                raw = block.text
+                break
+
+    if not raw.strip():
+        print("  ⚠ Claude returned no text; skipping blurb generation for this batch")
+        print(f"    Response stop_reason: {getattr(response, 'stop_reason', 'unknown')}")
+        return []
+
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
-    results = json.loads(clean)
-    print(f"  Generated {len(results)} real estate blurbs")
+    # Tolerant JSON extraction: pull the first JSON array out of the response,
+    # whether or not Claude wrapped it in prose or fences.
+    try:
+        results = json.loads(clean)
+    except json.JSONDecodeError:
+        m = re.search(r"\[[\s\S]*\]", raw)
+        if not m:
+            print("  ⚠ Could not parse Claude's response as JSON. Raw output (first 500 chars):")
+            print(f"    {raw[:500]}")
+            return []
+        try:
+            results = json.loads(m.group(0))
+        except json.JSONDecodeError as e:
+            print(f"  ⚠ JSON salvage failed: {e}. Raw (first 500 chars):")
+            print(f"    {raw[:500]}")
+            return []
+
+    if not isinstance(results, list):
+        print(f"  ⚠ Claude returned non-array result: {type(results).__name__}. Skipping.")
+        return []
+
+    print(f"  Generated {len(results)} real estate blurbs (expected {listing_count})")
     return results
 
 
