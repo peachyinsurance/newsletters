@@ -487,9 +487,54 @@ def parse_detail_html(html: str) -> dict:
             detail["photos"] = dom_photos[:3]
             print(f"      Photos collected from DOM: {len(dom_photos)} (using first 3)")
 
-    desc_el = soup.select_one("[data-test='Pet_Story_Section'], [class*='description'], [class*='Description']")
+    # Description: try (in order) the proper Pet_Story selector, generic
+    # description-class divs, JSON-LD ld+json blocks, og:description and
+    # twitter:description meta tags. Whichever is longest wins — we want
+    # real bio text, not meta-tag boilerplate.
+    desc_candidates = []
+
+    # 1. Petfinder's preferred selectors
+    desc_el = soup.select_one(
+        "[data-test='Pet_Story_Section'], "
+        "[class*='description'], [class*='Description'], "
+        "[class*='story'], [class*='Story'], "
+        "[class*='bio'], [class*='Bio']"
+    )
     if desc_el:
-        detail["description"] = clean_text(desc_el.get_text(strip=True))
+        desc_candidates.append(clean_text(desc_el.get_text(strip=True)))
+
+    # 2. JSON-LD structured data — sometimes carries the description
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            blob = json.loads(script.string or "{}")
+        except Exception:
+            continue
+        # Walk: blob may be a dict or a list of dicts
+        items_to_check = blob if isinstance(blob, list) else [blob]
+        for it in items_to_check:
+            if not isinstance(it, dict):
+                continue
+            for key in ("description", "about"):
+                v = it.get(key)
+                if isinstance(v, str) and len(v.strip()) > 30:
+                    desc_candidates.append(clean_text(v))
+
+    # 3. og:description / twitter:description meta tags
+    for sel in ("meta[property='og:description']", "meta[name='twitter:description']", "meta[name='description']"):
+        m = soup.select_one(sel)
+        if m and m.get("content"):
+            desc_candidates.append(clean_text(m["content"]))
+
+    # Pick the LONGEST candidate — meta tags are short summaries; the actual
+    # bio (when it exists) is much longer. This filters out meta-tag boilerplate
+    # like "Adopt Sebastian today" when the real story is present.
+    desc_candidates = [c for c in desc_candidates if c]
+    if desc_candidates:
+        best = max(desc_candidates, key=len)
+        if len(best) >= 30:
+            detail["description"] = best
+            print(f"      Description: {len(best)} chars from {len(desc_candidates)} candidate(s)")
+
     return detail
 
 
@@ -534,7 +579,13 @@ def fetch_petfinder_apify(species: str, excluded_urls: set, state: str, zip_code
         detail_html = cache.get(source_url, "")
         detail = parse_detail_html(detail_html) if detail_html else {}
 
-        description = detail.get("description") or item.get("description") or ""
+        # Prefer the longest available description — detail bio > og:description
+        # > search-page alt text. Real bios are 100+ chars; alt text is short.
+        candidates = [
+            detail.get("description", "") or "",
+            item.get("description", "") or "",
+        ]
+        description = max(candidates, key=lambda s: len(s.strip()))
         if not description or len(description.strip()) < 30:
             print(f"  ✗ No description for {name}, skipping")
             continue
