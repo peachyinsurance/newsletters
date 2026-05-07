@@ -27,7 +27,6 @@ from notion_helper import (
     save_weekend_events_to_notion,
     get_existing_weekend_event_urls,
 )
-from url_validator import filter_valid_items
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -44,7 +43,6 @@ PAUSE_BETWEEN_BRAVE = 0.5    # rate-limit buffer
 
 # Adaptive-retry thresholds
 MIN_EVENTS_BEFORE_RETRY = 3       # fewer than this on first pass -> retry
-HIGH_DROP_RATIO_THRESHOLD = 0.5   # >50% URL-validation 404s on first pass -> retry
 RETRY_RESULTS_PER_QUERY = 20      # broader pass pulls more candidates per query
 
 AGGREGATOR_BLOCKLIST = {
@@ -282,10 +280,20 @@ def fetch_and_filter_candidates(
     max_per_query: int,
     excluded_urls: set,
     label: str,
-) -> tuple[list[dict], float]:
-    """One pass: Brave -> aggregator filter -> dedup -> URL validate.
-    Returns (candidates, drop_ratio). drop_ratio = fraction of pre-validation
-    candidates rejected as dead URLs (used as one of the retry triggers)."""
+) -> list[dict]:
+    """One pass: Brave -> aggregator filter -> dedup. NO URL validation.
+
+    Why no validation: HEAD-request validation gives false positives on
+    bot-protected event-calendar pages (visitlewisville.com/events/,
+    llela.org/visit/llela-events-calendar, playlewisville.com/programs/
+    activities-calendar, etc.). Those are real, human-reachable pages that
+    return 403/404 to non-browser User-Agents. Killing them pre-Claude
+    starves the candidate pool of the best primary sources we have.
+
+    Trade-off: Claude may occasionally see a candidate whose page is
+    actually dead. The skill's primary-source rule is the quality gate —
+    Claude rejects news-article URLs and stale roundups by content, not
+    by URL reachability."""
     query_specs = [{"q": q} for q in queries]
     candidates = search_web(
         query_specs=query_specs,
@@ -296,7 +304,7 @@ def fetch_and_filter_candidates(
     )
     if not candidates:
         print(f"    [{label}] No Brave results")
-        return [], 0.0
+        return []
 
     before = len(candidates)
     candidates = filter_aggregators(candidates)
@@ -309,20 +317,8 @@ def fetch_and_filter_candidates(
         if before - len(candidates):
             print(f"    [{label}] dropped {before - len(candidates)} already-seen URLs")
 
-    if not candidates:
-        return [], 0.0
-
-    pre_validate = len(candidates)
-    candidates, rejected = filter_valid_items(
-        candidates,
-        critical_fields=["url"],
-        optional_fields=[],
-        label_field="title",
-    )
-    drop_ratio = (len(rejected) / pre_validate) if pre_validate else 0.0
-    print(f"    [{label}] {len(candidates)} valid URLs, {len(rejected)} dead ({drop_ratio:.0%} 404 ratio)")
-
-    return candidates[:30], drop_ratio
+    print(f"    [{label}] {len(candidates)} candidates ready for Claude")
+    return candidates[:30]
 
 
 def call_claude_for_bucket(
@@ -380,13 +376,13 @@ def process_bucket(
     skill_prompt: str,
     existing_urls: set,
 ) -> list[dict]:
-    """Run one bucket with adaptive retry: if first pass yields too few events
-    OR has a high 404 ratio, run a second broader pass and merge."""
+    """Run one bucket with adaptive retry: if first pass yields too few
+    events, run a second broader pass and merge."""
     print(f"\n  [{audience} / {day} / {target_date_iso}]")
 
     # Pass 1 — primary queries, normal result count
     primary_queries = build_queries(newsletter, audience, day, target_date_iso)
-    candidates_p1, drop_ratio_p1 = fetch_and_filter_candidates(
+    candidates_p1 = fetch_and_filter_candidates(
         primary_queries, MAX_RESULTS_PER_QUERY, existing_urls, label="primary"
     )
     results = call_claude_for_bucket(
@@ -394,25 +390,15 @@ def process_bucket(
     )
     print(f"    Primary pass: {len(results)} events accepted")
 
-    # Should we retry?
-    needs_retry = (
-        len(results) < MIN_EVENTS_BEFORE_RETRY
-        or drop_ratio_p1 > HIGH_DROP_RATIO_THRESHOLD
-    )
-
-    if needs_retry:
-        why = []
-        if len(results) < MIN_EVENTS_BEFORE_RETRY:
-            why.append(f"only {len(results)} events")
-        if drop_ratio_p1 > HIGH_DROP_RATIO_THRESHOLD:
-            why.append(f"{drop_ratio_p1:.0%} 404 ratio")
-        print(f"    Retrying broader (reason: {', '.join(why)}) — {RETRY_RESULTS_PER_QUERY} results/query")
+    # Retry if Claude found too few qualifying events
+    if len(results) < MIN_EVENTS_BEFORE_RETRY:
+        print(f"    Retrying broader (reason: only {len(results)} events) — {RETRY_RESULTS_PER_QUERY} results/query")
 
         # Exclude URLs already in pass 1 so the retry pool is fresh
         retry_excluded = set(existing_urls) | {c["url"] for c in candidates_p1}
 
         fallback_queries = build_fallback_queries(newsletter, audience, day, target_date_iso)
-        candidates_p2, _ = fetch_and_filter_candidates(
+        candidates_p2 = fetch_and_filter_candidates(
             fallback_queries, RETRY_RESULTS_PER_QUERY, retry_excluded, label="retry"
         )
         more_results = call_claude_for_bucket(
