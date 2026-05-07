@@ -29,6 +29,7 @@ NOTION_EVENTS_DB_ID      = os.environ.get("NOTION_EVENTS_DB_ID", "")
 NOTION_INTRO_DB_ID       = os.environ.get("NOTION_INTRO_DB_ID", "")
 NOTION_FREE_EVENTS_DB_ID = os.environ.get("NOTION_FREE_EVENTS_DB_ID", "")
 NOTION_POLLS_DB_ID       = os.environ.get("NOTION_POLLS_DB_ID", "")
+NOTION_LOCAL_EVENTS_DB_ID = os.environ.get("NOTION_LOCAL_EVENTS_DB_ID", "")
 NOTION_PARENT_PAGE_ID    = os.environ["NOTION_PARENT_PAGE_ID"]
 
 HEADERS = {
@@ -999,6 +1000,130 @@ def get_featured_event(newsletter_name: str) -> dict | None:
     return pick
 
 
+def _weekend_event_row_to_dict(props: dict) -> dict:
+    """Parse a Local Events DB row."""
+    def _rt(key):
+        rt = props.get(key, {}).get("rich_text", [])
+        return rt[0].get("text", {}).get("content", "") if rt else ""
+    return {
+        "audience":     (props.get("Audience", {}).get("select") or {}).get("name", ""),
+        "day":          (props.get("Day", {}).get("select") or {}).get("name", ""),
+        "date":         (props.get("Date", {}).get("date") or {}).get("start", ""),
+        "emoji":        _rt("Emoji"),
+        "event_name":   _rt("Event Name"),
+        "venue":        _rt("Venue"),
+        "address":      _rt("Address"),
+        "time":         _rt("Time"),
+        "price":        _rt("Price"),
+        "source_url":   props.get("Source URL", {}).get("url", "") or "",
+        "description":  _rt("Description"),
+        "status":       (props.get("Status", {}).get("select") or {}).get("name", ""),
+    }
+
+
+def get_weekend_events(newsletter_name: str) -> list[dict]:
+    """Fetch upcoming-weekend events for this newsletter, grouped/sorted later.
+    Filters: Newsletter == newsletter_name, Status not in (rejected, approved-old),
+    Date >= today (drops stale rows from prior weeks)."""
+    if not NOTION_LOCAL_EVENTS_DB_ID:
+        print(f"  ⚠ NOTION_LOCAL_EVENTS_DB_ID is empty — Local Events section will not render")
+        return []
+    print(f"  Looking up Weekend Planner events for {newsletter_name} (db {NOTION_LOCAL_EVENTS_DB_ID[:8]}…)")
+    try:
+        pages = query_database(NOTION_LOCAL_EVENTS_DB_ID)
+    except Exception as e:
+        print(f"  Local Events query failed: {e}")
+        return []
+
+    today_iso = datetime.today().date().isoformat()
+    events = []
+    for p in pages:
+        props = p["properties"]
+        if (props.get("Newsletter", {}).get("select") or {}).get("name") != newsletter_name:
+            continue
+        status = (props.get("Status", {}).get("select") or {}).get("name", "")
+        if status in ("rejected", "approved - old"):
+            continue
+        row = _weekend_event_row_to_dict(props)
+        if row["date"] and row["date"] < today_iso:
+            continue  # stale (from a past weekend)
+        events.append(row)
+    print(f"  Found {len(events)} upcoming Weekend Planner events for {newsletter_name}")
+    return events
+
+
+# ---------------------------------------------------------------------------
+# WEEKEND PLANNER FORMATTERS
+# ---------------------------------------------------------------------------
+
+def display_domain(url: str) -> str:
+    """Strip protocol, strip path/params/fragment, KEEP `www.` if present.
+    Used for the visible anchor text in Weekend Planner event links."""
+    if not url:
+        return ""
+    no_proto = url.split("://", 1)[-1]
+    host = no_proto.split("/", 1)[0]
+    return host.lower()
+
+
+def weekend_event_paragraph(event: dict) -> dict:
+    """One paragraph block in the inline pipe-separated format:
+       emoji **Event Name** - Venue | Address | Time | Price | More: [www.domain.com](url)
+    Bold annotation on event name only; link span uses display_domain as visible
+    text and the full source_url as href."""
+    emoji   = event.get("emoji", "") or ""
+    name    = event.get("event_name", "") or ""
+    venue   = event.get("venue", "") or ""
+    address = event.get("address", "") or ""
+    time    = event.get("time", "") or ""
+    price   = event.get("price", "") or ""
+    url     = event.get("source_url", "") or ""
+
+    spans = []
+
+    if emoji:
+        spans.append({
+            "type": "text",
+            "text": {"content": f"{emoji} "},
+            "annotations": {},
+        })
+
+    if name:
+        spans.append({
+            "type": "text",
+            "text": {"content": name},
+            "annotations": {"bold": True},
+        })
+
+    metadata_parts = [p for p in (venue, address, time, price) if p]
+    metadata = " | ".join(metadata_parts)
+
+    plain_chunk = ""
+    if metadata:
+        plain_chunk += f" - {metadata}"
+    if url:
+        plain_chunk += " | More: "
+    if plain_chunk:
+        spans.append({
+            "type": "text",
+            "text": {"content": plain_chunk},
+            "annotations": {},
+        })
+
+    if url:
+        spans.append({
+            "type": "text",
+            "text": {"content": display_domain(url), "link": {"url": url}},
+            "annotations": {"color": "blue"},
+        })
+
+    return {
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {"rich_text": spans},
+    }
+
+
 # ---------------------------------------------------------------------------
 # PAGE ASSEMBLER
 # ---------------------------------------------------------------------------
@@ -1169,12 +1294,53 @@ def _build_pets(newsletter_name: str) -> list[dict]:
 
 
 def _build_local_events(newsletter_name: str) -> list[dict]:
-    return [
-        paragraph_block("Family Fun", bold=True),
-        _placeholder("Not yet automated."),
-        paragraph_block("Adults Only", bold=True),
-        _placeholder("Not yet automated."),
-    ]
+    """Render the Weekend Planner section: Family Events + Adult Events,
+    each with Friday/Saturday/Sunday subsections, each event as one inline
+    paragraph + one description paragraph."""
+    events = get_weekend_events(newsletter_name)
+    if not events:
+        return [_placeholder("No Weekend Planner events generated yet. Run the Local Events pipeline.")]
+
+    # Group: audience -> day -> [events]
+    grouped: dict = {"Family": {"Friday": [], "Saturday": [], "Sunday": []},
+                     "Adult":  {"Friday": [], "Saturday": [], "Sunday": []}}
+    for ev in events:
+        audience = ev.get("audience", "")
+        day = ev.get("day", "")
+        if audience in grouped and day in grouped[audience]:
+            grouped[audience][day].append(ev)
+
+    # Pick a date label per day from any event in that bucket (they should all share)
+    def _day_header(day: str, bucket_events: list[dict]) -> str:
+        if not bucket_events:
+            return day
+        iso = bucket_events[0].get("date", "")
+        if not iso:
+            return day
+        try:
+            dt = datetime.fromisoformat(iso)
+            return f"{day}, {dt.strftime('%B')} {dt.day}"
+        except Exception:
+            return day
+
+    blocks: list[dict] = []
+    for audience_label, audience_key in (("Family Events", "Family"), ("Adult Events", "Adult")):
+        # Skip the entire pane if it has no events at all
+        pane_total = sum(len(grouped[audience_key][d]) for d in ("Friday", "Saturday", "Sunday"))
+        if pane_total == 0:
+            continue
+        blocks.append(heading_block(audience_label, level=3))
+        for day in ("Friday", "Saturday", "Sunday"):
+            day_events = grouped[audience_key][day]
+            if not day_events:
+                continue
+            blocks.append(paragraph_block(_day_header(day, day_events), bold=True))
+            for ev in day_events:
+                blocks.append(weekend_event_paragraph(ev))
+                desc = ev.get("description", "")
+                if desc:
+                    blocks.append(paragraph_block(desc))
+    return blocks
 
 
 def _build_free_events(newsletter_name: str) -> list[dict]:

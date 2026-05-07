@@ -19,6 +19,7 @@ NOTION_INTRO_DB_ID       = os.environ.get("NOTION_INTRO_DB_ID", "")
 NOTION_TIPS_DB_ID        = os.environ.get("NOTION_TIPS_DB_ID", "")
 NOTION_FREE_EVENTS_DB_ID = os.environ.get("NOTION_FREE_EVENTS_DB_ID", "")
 NOTION_POLLS_DB_ID       = os.environ.get("NOTION_POLLS_DB_ID", "")
+NOTION_LOCAL_EVENTS_DB_ID = os.environ.get("NOTION_LOCAL_EVENTS_DB_ID", "")
 
 HEADERS = {
     "Authorization":  f"Bearer {NOTION_API_KEY}",
@@ -399,6 +400,54 @@ def setup_notion_databases():
             print("✓ Reader Poll database schema created")
         else:
             print(f"✗ Reader Poll schema error: {r.text[:300]}")
+
+    # Local Events (Weekend Planner) database properties
+    if NOTION_LOCAL_EVENTS_DB_ID:
+        local_events_properties = {
+            "Name":             {"title": {}},
+            "Newsletter":       {"select": {"options": [
+                {"name": "East_Cobb_Connect",     "color": "purple"},
+                {"name": "Perimeter_Post",        "color": "pink"},
+                {"name": "Lewisville_Lake_Lookout", "color": "blue"},
+            ]}},
+            "Audience":         {"select": {"options": [
+                {"name": "Family", "color": "green"},
+                {"name": "Adult",  "color": "orange"},
+            ]}},
+            "Day":              {"select": {"options": [
+                {"name": "Friday",   "color": "yellow"},
+                {"name": "Saturday", "color": "red"},
+                {"name": "Sunday",   "color": "blue"},
+            ]}},
+            "Date":             {"date": {}},
+            "Emoji":            {"rich_text": {}},
+            "Event Name":       {"rich_text": {}},
+            "Venue":            {"rich_text": {}},
+            "Address":          {"rich_text": {}},
+            "Time":             {"rich_text": {}},
+            "Price":            {"rich_text": {}},
+            "Source URL":       {"url": {}},
+            "Description":      {"rich_text": {}},
+            "Status":           {"select": {"options": [
+                {"name": "pending",        "color": "yellow"},
+                {"name": "approved",       "color": "green"},
+                {"name": "rejected",       "color": "red"},
+                {"name": "approved - old", "color": "gray"},
+            ]}},
+            "Date Generated":   {"date": {}},
+            "Scoring Notes":    {"rich_text": {}},
+            "Manually Edited":  {"checkbox": {}},
+        }
+        r = requests.patch(
+            f"https://api.notion.com/v1/databases/{NOTION_LOCAL_EVENTS_DB_ID}",
+            headers=HEADERS,
+            json={"properties": local_events_properties},
+            timeout=30
+        )
+        if r.ok:
+            print("✓ Local Events (Weekend Planner) database schema created")
+        else:
+            print(f"✗ Local Events schema error: {r.text[:300]}")
 
 # ---------------------------------------------------------------------------
 # PETS HELPERS
@@ -1627,3 +1676,76 @@ def get_used_poll_categories(newsletter_name: str, lookback_weeks: int = 8) -> s
             if c:
                 used.add(c)
     return used
+
+
+# ---------------------------------------------------------------------------
+# LOCAL EVENTS (WEEKEND PLANNER) HELPERS
+# ---------------------------------------------------------------------------
+
+def get_existing_weekend_event_urls(newsletter_name: str) -> set:
+    """Get source URLs of existing weekend events for this newsletter to avoid duplicates."""
+    if not NOTION_LOCAL_EVENTS_DB_ID:
+        return set()
+    try:
+        pages = query_database(NOTION_LOCAL_EVENTS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+        urls = set()
+        for page in pages:
+            url = page["properties"].get("Source URL", {}).get("url", "")
+            if url:
+                urls.add(url)
+        return urls
+    except Exception:
+        return set()
+
+
+def save_weekend_events_to_notion(results: list, newsletter_name: str) -> None:
+    """Save weekend event candidates to Notion. Each row is one event.
+    Expected fields per item: audience, day, date, emoji, event_name, venue,
+    address, time, price, source_url, description, scoring_notes."""
+    if not NOTION_LOCAL_EVENTS_DB_ID:
+        print("  No NOTION_LOCAL_EVENTS_DB_ID set, skipping Notion save")
+        return
+
+    print(f"  Saving {len(results)} weekend events to Notion for {newsletter_name}...")
+    existing_urls = get_existing_weekend_event_urls(newsletter_name)
+    print(f"  Found {len(existing_urls)} existing entries to skip")
+
+    saved = 0
+    for data in results:
+        source_url = data.get("source_url", "")
+        if source_url and source_url in existing_urls:
+            print(f"  ✗ Skipping duplicate: {data.get('event_name')}")
+            continue
+
+        nl_display = newsletter_name.replace("_", " ")
+        title = f"{nl_display} - {data.get('audience', '')} {data.get('day', '')} - {data.get('event_name', '')}"
+
+        properties = {
+            "Name":             {"title":     [{"text": {"content": title}}]},
+            "Newsletter":       {"select":    {"name": newsletter_name}},
+            "Audience":         {"select":    {"name": safe_str(data.get("audience"))}},
+            "Day":              {"select":    {"name": safe_str(data.get("day"))}},
+            "Emoji":            {"rich_text": [{"text": {"content": safe_str(data.get("emoji"))}}]},
+            "Event Name":       {"rich_text": [{"text": {"content": safe_str(data.get("event_name"))}}]},
+            "Venue":            {"rich_text": [{"text": {"content": safe_str(data.get("venue"))}}]},
+            "Address":          {"rich_text": [{"text": {"content": safe_str(data.get("address"))}}]},
+            "Time":             {"rich_text": [{"text": {"content": safe_str(data.get("time"))}}]},
+            "Price":            {"rich_text": [{"text": {"content": safe_str(data.get("price"))}}]},
+            "Source URL":       {"url":       data.get("source_url") or None},
+            "Description":      {"rich_text": [{"text": {"content": safe_str(data.get("description"))[:2000]}}]},
+            "Status":           {"select":    {"name": "pending"}},
+            "Date Generated":   {"date":      {"start": datetime.today().strftime("%Y-%m-%d")}},
+            "Scoring Notes":    {"rich_text": [{"text": {"content": safe_str(data.get("scoring_notes"))}}]},
+            "Manually Edited":  {"checkbox":  False},
+        }
+        # Only attach Date if we got a valid ISO date — Notion rejects empty start
+        date_val = safe_str(data.get("date"))
+        if date_val:
+            properties["Date"] = {"date": {"start": date_val}}
+
+        create_page(NOTION_LOCAL_EVENTS_DB_ID, properties)
+        saved += 1
+    print(f"  Saved {saved} new weekend events to Notion for {newsletter_name}")
