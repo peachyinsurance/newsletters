@@ -42,6 +42,11 @@ QUERIES_PER_BUCKET = 4       # Brave queries per (audience, day) combo
 MAX_RESULTS_PER_QUERY = 10
 PAUSE_BETWEEN_BRAVE = 0.5    # rate-limit buffer
 
+# Adaptive-retry thresholds
+MIN_EVENTS_BEFORE_RETRY = 3       # fewer than this on first pass -> retry
+HIGH_DROP_RATIO_THRESHOLD = 0.5   # >50% URL-validation 404s on first pass -> retry
+RETRY_RESULTS_PER_QUERY = 20      # broader pass pulls more candidates per query
+
 AGGREGATOR_BLOCKLIST = {
     "eventbrite.com",
     "allevents.in",
@@ -166,6 +171,29 @@ def build_queries(newsletter: dict, audience: str, day: str, target_date_iso: st
         ]
 
 
+def build_fallback_queries(newsletter: dict, audience: str, day: str, target_date_iso: str) -> list[str]:
+    """Broader fallback queries for the retry pass — same geography, less specific
+    angle, to surface candidates the primary queries missed."""
+    primary = newsletter["display_area"]
+    target_dt = datetime.fromisoformat(target_date_iso)
+    month_year = target_dt.strftime("%B %Y")
+
+    if audience == "Family":
+        return [
+            f"{primary} weekend events {month_year}",
+            f"things to do with kids near {primary}",
+            f"{primary} community events {month_year}",
+            f"{primary} family weekend activities",
+        ]
+    else:  # Adult
+        return [
+            f"{primary} nightlife {day} {month_year}",
+            f"{primary} bars venues weekend",
+            f"what's happening {primary} {day}",
+            f"{primary} weekend activities for adults {month_year}",
+        ]
+
+
 # ---------------------------------------------------------------------------
 # 5. AGGREGATOR FILTER
 # ---------------------------------------------------------------------------
@@ -227,65 +255,69 @@ Candidates:
 
 
 # ---------------------------------------------------------------------------
-# 7. PROCESS ONE BUCKET (audience × day)
+# 7. PROCESS ONE BUCKET (audience × day) — with adaptive retry
 # ---------------------------------------------------------------------------
-def process_bucket(
-    newsletter: dict,
-    audience: str,
-    day: str,
-    target_date_iso: str,
-    skill_prompt: str,
-    existing_urls: set,
-) -> list[dict]:
-    """Run search + Claude for one bucket. Returns list of event dicts ready for save."""
-    print(f"\n  [{audience} / {day} / {target_date_iso}]")
-
-    queries = build_queries(newsletter, audience, day, target_date_iso)
+def fetch_and_filter_candidates(
+    queries: list[str],
+    max_per_query: int,
+    excluded_urls: set,
+    label: str,
+) -> tuple[list[dict], float]:
+    """One pass: Brave -> aggregator filter -> dedup -> URL validate.
+    Returns (candidates, drop_ratio). drop_ratio = fraction of pre-validation
+    candidates rejected as dead URLs (used as one of the retry triggers)."""
     query_specs = [{"q": q} for q in queries]
-
-    # Brave search — no allowlist filter, we apply blocklist after
     candidates = search_web(
         query_specs=query_specs,
         api_key=BRAVE_NEWS_API_KEY,
         trusted_domains=None,
-        max_per_query=MAX_RESULTS_PER_QUERY,
+        max_per_query=max_per_query,
         pause_between=PAUSE_BETWEEN_BRAVE,
     )
     if not candidates:
-        print(f"    No Brave results")
-        return []
+        print(f"    [{label}] No Brave results")
+        return [], 0.0
 
-    # Drop aggregator hostnames
     before = len(candidates)
     candidates = filter_aggregators(candidates)
-    print(f"    {len(candidates)} candidates after aggregator filter (dropped {before - len(candidates)})")
-    if not candidates:
-        return []
+    if before - len(candidates):
+        print(f"    [{label}] dropped {before - len(candidates)} aggregators")
 
-    # Drop URLs we've already published in any prior run for this newsletter
-    if existing_urls:
+    if excluded_urls:
         before = len(candidates)
-        candidates = [c for c in candidates if c["url"] not in existing_urls]
-        print(f"    {len(candidates)} candidates after prior-run dedup (dropped {before - len(candidates)})")
-    if not candidates:
-        return []
+        candidates = [c for c in candidates if c["url"] not in excluded_urls]
+        if before - len(candidates):
+            print(f"    [{label}] dropped {before - len(candidates)} already-seen URLs")
 
-    # Validate URLs (drop dead links before spending Claude tokens)
+    if not candidates:
+        return [], 0.0
+
+    pre_validate = len(candidates)
     candidates, rejected = filter_valid_items(
         candidates,
         critical_fields=["url"],
         optional_fields=[],
         label_field="title",
     )
-    if rejected:
-        print(f"    Dropped {len(rejected)} candidates with dead URLs")
+    drop_ratio = (len(rejected) / pre_validate) if pre_validate else 0.0
+    print(f"    [{label}] {len(candidates)} valid URLs, {len(rejected)} dead ({drop_ratio:.0%} 404 ratio)")
+
+    return candidates[:30], drop_ratio
+
+
+def call_claude_for_bucket(
+    candidates: list[dict],
+    newsletter: dict,
+    audience: str,
+    day: str,
+    target_date_iso: str,
+    skill_prompt: str,
+) -> list[dict]:
+    """Send candidates to Claude. Returns validated event dicts (URLs reattached
+    from candidate_index, audience/day/date forced)."""
     if not candidates:
         return []
 
-    # Cap candidates to keep prompts reasonable (Claude doesn't need 100 candidates)
-    candidates = candidates[:30]
-
-    # Claude
     user_prompt = build_claude_user_prompt(newsletter, audience, day, target_date_iso, candidates)
     try:
         results = call_with_json_output(
@@ -296,12 +328,9 @@ def process_bucket(
     except Exception as e:
         print(f"    ✗ Claude error: {e}")
         return []
-
     if not results:
-        print(f"    Claude found no qualifying events")
         return []
 
-    # Attach real URLs from candidate_index
     candidates_by_index = {i: c for i, c in enumerate(candidates, 1)}
     validated = []
     for r in results:
@@ -316,17 +345,74 @@ def process_bucket(
             continue
         r["source_url"] = source.get("url", "")
         r.pop("candidate_index", None)
-
-        # Force audience/day/date in case Claude drifted
         r["audience"] = audience
         r["day"] = day
         r["date"] = target_date_iso
         validated.append(r)
-
-    print(f"    ✓ {len(validated)} events accepted")
-    for r in validated:
-        print(f"      - {r.get('emoji', '')} {r.get('event_name', '?')}")
     return validated
+
+
+def process_bucket(
+    newsletter: dict,
+    audience: str,
+    day: str,
+    target_date_iso: str,
+    skill_prompt: str,
+    existing_urls: set,
+) -> list[dict]:
+    """Run one bucket with adaptive retry: if first pass yields too few events
+    OR has a high 404 ratio, run a second broader pass and merge."""
+    print(f"\n  [{audience} / {day} / {target_date_iso}]")
+
+    # Pass 1 — primary queries, normal result count
+    primary_queries = build_queries(newsletter, audience, day, target_date_iso)
+    candidates_p1, drop_ratio_p1 = fetch_and_filter_candidates(
+        primary_queries, MAX_RESULTS_PER_QUERY, existing_urls, label="primary"
+    )
+    results = call_claude_for_bucket(
+        candidates_p1, newsletter, audience, day, target_date_iso, skill_prompt
+    )
+    print(f"    Primary pass: {len(results)} events accepted")
+
+    # Should we retry?
+    needs_retry = (
+        len(results) < MIN_EVENTS_BEFORE_RETRY
+        or drop_ratio_p1 > HIGH_DROP_RATIO_THRESHOLD
+    )
+
+    if needs_retry:
+        why = []
+        if len(results) < MIN_EVENTS_BEFORE_RETRY:
+            why.append(f"only {len(results)} events")
+        if drop_ratio_p1 > HIGH_DROP_RATIO_THRESHOLD:
+            why.append(f"{drop_ratio_p1:.0%} 404 ratio")
+        print(f"    Retrying broader (reason: {', '.join(why)}) — {RETRY_RESULTS_PER_QUERY} results/query")
+
+        # Exclude URLs already in pass 1 so the retry pool is fresh
+        retry_excluded = set(existing_urls) | {c["url"] for c in candidates_p1}
+
+        fallback_queries = build_fallback_queries(newsletter, audience, day, target_date_iso)
+        candidates_p2, _ = fetch_and_filter_candidates(
+            fallback_queries, RETRY_RESULTS_PER_QUERY, retry_excluded, label="retry"
+        )
+        more_results = call_claude_for_bucket(
+            candidates_p2, newsletter, audience, day, target_date_iso, skill_prompt
+        )
+
+        # Merge, dedup by URL
+        seen_urls = {r["source_url"] for r in results}
+        added = 0
+        for r in more_results:
+            if r["source_url"] and r["source_url"] not in seen_urls:
+                results.append(r)
+                seen_urls.add(r["source_url"])
+                added += 1
+        print(f"    Retry pass added {added} events (bucket total: {len(results)})")
+
+    print(f"    ✓ {len(results)} events accepted")
+    for r in results:
+        print(f"      - {r.get('emoji', '')} {r.get('event_name', '?')}")
+    return results
 
 
 # ---------------------------------------------------------------------------
