@@ -102,8 +102,12 @@ NEWSLETTERS = [
     {
         "name":         "Lewisville_Lake_Lookout",
         "display_area": "Lewisville Lake",
+        # Order matters: the first ~half are used in primary queries, the back
+        # half feeds retry queries for geographic variety.
         "search_areas": ["Lewisville TX", "Flower Mound TX", "The Colony TX",
-                         "Little Elm TX", "Highland Village TX", "Lake Dallas TX"],
+                         "Little Elm TX", "Highland Village TX", "Hickory Creek TX",
+                         "Lake Dallas TX", "Corinth TX", "Shady Shores TX",
+                         "Lakewood Village TX"],
         "demographics": {
             "median_income":    "$95,000",
             "median_age":       "36",
@@ -149,48 +153,64 @@ def target_weekend_dates(today: datetime | None = None) -> dict:
 # 4. SEARCH QUERY BUILDERS
 # ---------------------------------------------------------------------------
 def build_queries(newsletter: dict, audience: str, day: str, target_date_iso: str) -> list[str]:
-    """Build ~4 Brave search queries for one (newsletter, audience, day) combo."""
-    primary = newsletter["display_area"]
+    """Build 4 Brave search queries for one (newsletter, audience, day) combo.
+
+    Queries rotate across the newsletter's `search_areas` (concrete town names)
+    rather than using the generic `display_area`. Display areas like "Perimeter"
+    or "Lewisville Lake" are too ambiguous as search keywords (Brave returns
+    Perimeter Institute physics seminars, dictionary definitions, etc.)."""
     target_dt = datetime.fromisoformat(target_date_iso)
     date_label = target_dt.strftime("%B %d %Y")
     month_year = target_dt.strftime("%B %Y")
 
+    areas = newsletter["search_areas"]
+
+    def area(i: int) -> str:
+        return areas[i % len(areas)]
+
     if audience == "Family":
         return [
-            f"{primary} family events {day} {date_label}",
-            f"{primary} kids activities {day} {month_year}",
-            f"{primary} family things to do weekend {month_year}",
-            f"{primary} library museum park {day}",
+            f"{area(0)} family events {day} {date_label}",
+            f"{area(1)} kids activities {day} {month_year}",
+            f"{area(2)} family things to do weekend {month_year}",
+            f"{area(3)} library museum park {day}",
         ]
     else:  # Adult
         return [
-            f"{primary} live music {day} {month_year}",
-            f"{primary} brewery distillery winery {day}",
-            f"{primary} concerts shows nightlife {day} {month_year}",
-            f"{primary} adult things to do {day} {date_label}",
+            f"{area(0)} live music {day} {month_year}",
+            f"{area(1)} brewery distillery winery {day}",
+            f"{area(2)} concerts shows nightlife {day} {month_year}",
+            f"{area(3)} adult things to do {day} {date_label}",
         ]
 
 
 def build_fallback_queries(newsletter: dict, audience: str, day: str, target_date_iso: str) -> list[str]:
-    """Broader fallback queries for the retry pass — same geography, less specific
-    angle, to surface candidates the primary queries missed."""
-    primary = newsletter["display_area"]
+    """Broader fallback queries for the retry pass — same towns list, but the
+    rotation starts at the back half of `search_areas` so the retry pool covers
+    different geography than the primary pass (e.g., Hickory Creek / Corinth
+    on retry instead of Lewisville / Flower Mound on primary)."""
     target_dt = datetime.fromisoformat(target_date_iso)
     month_year = target_dt.strftime("%B %Y")
 
+    areas = newsletter["search_areas"]
+    offset = len(areas) // 2  # start fallback rotation at the midpoint
+
+    def area(i: int) -> str:
+        return areas[(i + offset) % len(areas)]
+
     if audience == "Family":
         return [
-            f"{primary} weekend events {month_year}",
-            f"things to do with kids near {primary}",
-            f"{primary} community events {month_year}",
-            f"{primary} family weekend activities",
+            f"{area(0)} weekend events {month_year}",
+            f"things to do with kids near {area(1)}",
+            f"{area(2)} community events {month_year}",
+            f"{area(3)} family weekend activities",
         ]
     else:  # Adult
         return [
-            f"{primary} nightlife {day} {month_year}",
-            f"{primary} bars venues weekend",
-            f"what's happening {primary} {day}",
-            f"{primary} weekend activities for adults {month_year}",
+            f"{area(0)} nightlife {day} {month_year}",
+            f"{area(1)} bars venues weekend",
+            f"what's happening {area(2)} {day}",
+            f"{area(3)} weekend activities for adults {month_year}",
         ]
 
 
