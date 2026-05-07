@@ -29,7 +29,7 @@ NOTION_EVENTS_DB_ID      = os.environ.get("NOTION_EVENTS_DB_ID", "")
 NOTION_INTRO_DB_ID       = os.environ.get("NOTION_INTRO_DB_ID", "")
 NOTION_FREE_EVENTS_DB_ID = os.environ.get("NOTION_FREE_EVENTS_DB_ID", "")
 NOTION_POLLS_DB_ID       = os.environ.get("NOTION_POLLS_DB_ID", "")
-NOTION_LOCAL_EVENTS_DB_ID = os.environ.get("NOTION_LOCAL_EVENTS_DB_ID", "")
+NOTION_WEEKEND_PLANNER_DB_ID = os.environ.get("NOTION_WEEKEND_PLANNER_DB_ID", "")
 NOTION_PARENT_PAGE_ID    = os.environ["NOTION_PARENT_PAGE_ID"]
 
 HEADERS = {
@@ -1001,7 +1001,7 @@ def get_featured_event(newsletter_name: str) -> dict | None:
 
 
 def _weekend_event_row_to_dict(props: dict) -> dict:
-    """Parse a Local Events DB row."""
+    """Parse a Weekend Planner DB row."""
     def _rt(key):
         rt = props.get(key, {}).get("rich_text", [])
         return rt[0].get("text", {}).get("content", "") if rt else ""
@@ -1025,14 +1025,14 @@ def get_weekend_events(newsletter_name: str) -> list[dict]:
     """Fetch upcoming-weekend events for this newsletter, grouped/sorted later.
     Filters: Newsletter == newsletter_name, Status not in (rejected, approved-old),
     Date >= today (drops stale rows from prior weeks)."""
-    if not NOTION_LOCAL_EVENTS_DB_ID:
-        print(f"  ⚠ NOTION_LOCAL_EVENTS_DB_ID is empty — Local Events section will not render")
+    if not NOTION_WEEKEND_PLANNER_DB_ID:
+        print(f"  ⚠ NOTION_WEEKEND_PLANNER_DB_ID is empty — Weekend Planner section will not render")
         return []
-    print(f"  Looking up Weekend Planner events for {newsletter_name} (db {NOTION_LOCAL_EVENTS_DB_ID[:8]}…)")
+    print(f"  Looking up Weekend Planner events for {newsletter_name} (db {NOTION_WEEKEND_PLANNER_DB_ID[:8]}…)")
     try:
-        pages = query_database(NOTION_LOCAL_EVENTS_DB_ID)
+        pages = query_database(NOTION_WEEKEND_PLANNER_DB_ID)
     except Exception as e:
-        print(f"  Local Events query failed: {e}")
+        print(f"  Weekend Planner query failed: {e}")
         return []
 
     today_iso = datetime.today().date().isoformat()
@@ -1293,13 +1293,13 @@ def _build_pets(newsletter_name: str) -> list[dict]:
     return out
 
 
-def _build_local_events(newsletter_name: str) -> list[dict]:
+def _build_weekend_planner(newsletter_name: str) -> list[dict]:
     """Render the Weekend Planner section: Family Events + Adult Events,
     each with Friday/Saturday/Sunday subsections, each event as one inline
     paragraph + one description paragraph."""
     events = get_weekend_events(newsletter_name)
     if not events:
-        return [_placeholder("No Weekend Planner events generated yet. Run the Local Events pipeline.")]
+        return [_placeholder("No Weekend Planner events generated yet. Run the Weekend Planner pipeline.")]
 
     # Group: audience -> day -> [events]
     grouped: dict = {"Family": {"Friday": [], "Saturday": [], "Sunday": []},
@@ -1378,7 +1378,7 @@ SECTIONS = {
     "real_estate":    {"heading": "🏠 Real Estate Corner",     "builder": _build_real_estate},
     "lowdown":        {"heading": "🗞️ Local Lowdown",          "builder": _build_lowdown},
     "pets":           {"heading": "🐾 Furry Friends",          "builder": _build_pets},
-    "local_events":   {"heading": "📅 Local Events",           "builder": _build_local_events},
+    "weekend_planner": {"heading": "📅 Weekend Planner",        "builder": _build_weekend_planner},
     "free_events":    {"heading": "🆓 Free Event of the Week", "builder": _build_free_events},
     "tip":            {"heading": "🛡️ Insurance Tip",          "builder": _build_static_placeholder},
     "in_search_of":   {"heading": "🔍 In Search Of",           "builder": _build_static_placeholder},
@@ -1387,7 +1387,7 @@ SECTIONS = {
 
 SECTION_ORDER = [
     "intro", "summary", "poll", "sponsor", "featured_event", "restaurants",
-    "business_brief", "real_estate", "lowdown", "pets", "local_events",
+    "business_brief", "real_estate", "lowdown", "pets", "weekend_planner",
     "free_events", "tip", "in_search_of", "meme",
 ]
 

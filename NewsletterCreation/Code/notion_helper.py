@@ -19,7 +19,7 @@ NOTION_INTRO_DB_ID       = os.environ.get("NOTION_INTRO_DB_ID", "")
 NOTION_TIPS_DB_ID        = os.environ.get("NOTION_TIPS_DB_ID", "")
 NOTION_FREE_EVENTS_DB_ID = os.environ.get("NOTION_FREE_EVENTS_DB_ID", "")
 NOTION_POLLS_DB_ID       = os.environ.get("NOTION_POLLS_DB_ID", "")
-NOTION_LOCAL_EVENTS_DB_ID = os.environ.get("NOTION_LOCAL_EVENTS_DB_ID", "")
+NOTION_WEEKEND_PLANNER_DB_ID = os.environ.get("NOTION_WEEKEND_PLANNER_DB_ID", "")
 
 HEADERS = {
     "Authorization":  f"Bearer {NOTION_API_KEY}",
@@ -401,9 +401,9 @@ def setup_notion_databases():
         else:
             print(f"✗ Reader Poll schema error: {r.text[:300]}")
 
-    # Local Events (Weekend Planner) database properties
-    if NOTION_LOCAL_EVENTS_DB_ID:
-        local_events_properties = {
+    # Weekend Planner database properties
+    if NOTION_WEEKEND_PLANNER_DB_ID:
+        weekend_planner_properties = {
             "Name":             {"title": {}},
             "Newsletter":       {"select": {"options": [
                 {"name": "East_Cobb_Connect",     "color": "purple"},
@@ -439,15 +439,15 @@ def setup_notion_databases():
             "Manually Edited":  {"checkbox": {}},
         }
         r = requests.patch(
-            f"https://api.notion.com/v1/databases/{NOTION_LOCAL_EVENTS_DB_ID}",
+            f"https://api.notion.com/v1/databases/{NOTION_WEEKEND_PLANNER_DB_ID}",
             headers=HEADERS,
-            json={"properties": local_events_properties},
+            json={"properties": weekend_planner_properties},
             timeout=30
         )
         if r.ok:
-            print("✓ Local Events (Weekend Planner) database schema created")
+            print("✓ Weekend Planner database schema created")
         else:
-            print(f"✗ Local Events schema error: {r.text[:300]}")
+            print(f"✗ Weekend Planner schema error: {r.text[:300]}")
 
 # ---------------------------------------------------------------------------
 # PETS HELPERS
@@ -1679,15 +1679,15 @@ def get_used_poll_categories(newsletter_name: str, lookback_weeks: int = 8) -> s
 
 
 # ---------------------------------------------------------------------------
-# LOCAL EVENTS (WEEKEND PLANNER) HELPERS
+# WEEKEND PLANNER HELPERS
 # ---------------------------------------------------------------------------
 
 def get_existing_weekend_event_urls(newsletter_name: str) -> set:
     """Get source URLs of existing weekend events for this newsletter to avoid duplicates."""
-    if not NOTION_LOCAL_EVENTS_DB_ID:
+    if not NOTION_WEEKEND_PLANNER_DB_ID:
         return set()
     try:
-        pages = query_database(NOTION_LOCAL_EVENTS_DB_ID, filters={
+        pages = query_database(NOTION_WEEKEND_PLANNER_DB_ID, filters={
             "property": "Newsletter",
             "select":   {"equals": newsletter_name}
         })
@@ -1705,8 +1705,8 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str) -> None:
     """Save weekend event candidates to Notion. Each row is one event.
     Expected fields per item: audience, day, date, emoji, event_name, venue,
     address, time, price, source_url, description, scoring_notes."""
-    if not NOTION_LOCAL_EVENTS_DB_ID:
-        print("  No NOTION_LOCAL_EVENTS_DB_ID set, skipping Notion save")
+    if not NOTION_WEEKEND_PLANNER_DB_ID:
+        print("  No NOTION_WEEKEND_PLANNER_DB_ID set, skipping Notion save")
         return
 
     print(f"  Saving {len(results)} weekend events to Notion for {newsletter_name}...")
@@ -1746,6 +1746,6 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str) -> None:
         if date_val:
             properties["Date"] = {"date": {"start": date_val}}
 
-        create_page(NOTION_LOCAL_EVENTS_DB_ID, properties)
+        create_page(NOTION_WEEKEND_PLANNER_DB_ID, properties)
         saved += 1
     print(f"  Saved {saved} new weekend events to Notion for {newsletter_name}")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Newsletter Automation - Local Events (Weekend Planner) Section
+Newsletter Automation - Weekend Planner Section
 
 Builds the Weekend Planner section for each newsletter:
   - 3 newsletters (East Cobb Connect, Perimeter Post, Lewisville Lake Lookout)
@@ -333,7 +333,7 @@ def process_bucket(
 # 8. MAIN
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    print(f"Starting Local Events (Weekend Planner) automation — {datetime.today().strftime('%Y-%m-%d')}")
+    print(f"Starting Weekend Planner automation — {datetime.today().strftime('%Y-%m-%d')}")
     skill_prompt = load_skill_prompt()
 
     weekend = target_weekend_dates()
