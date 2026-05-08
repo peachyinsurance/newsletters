@@ -5,6 +5,8 @@ description: Design reader polls for local newsletters (East Cobb Connect, Perim
 
 # Newsletter Poll Designer
 
+> **HARD RULE: NO EM DASHES.** Never output an em dash character (`—`, U+2014) anywhere in your response. Use commas, periods, parens, semicolons, or "and" instead. This is a non-negotiable house style rule across every section of every newsletter. Em dashes are a strong AI-generated tell, and Andrew has explicitly banned them. (En dashes `–` for ranges like "10am–4pm" are fine.)
+
 Designs reader polls that feel like casual community engagement but generate actionable data on which business categories readers are most likely to spend money with. Every poll answer should map to a sponsorable business category.
 
 ---

@@ -5,6 +5,8 @@ description: Pick the best insurance tip for a local newsletter based on the aud
 
 # Newsletter Insurance Tip Picker
 
+> **HARD RULE: NO EM DASHES.** Never output an em dash character (`—`, U+2014) anywhere in your response. Use commas, periods, parens, semicolons, or "and" instead. This is a non-negotiable house style rule across every section of every newsletter. Em dashes are a strong AI-generated tell, and Andrew has explicitly banned them. (En dashes `–` for ranges like "10am–4pm" are fine.)
+
 ## What This Skill Does
 
 1. Takes a newsletter name, a target audience profile, and a candidate topic

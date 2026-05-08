@@ -5,6 +5,8 @@ description: Automated restaurant blurb writer for East Cobb Connect and Perimet
 
 # Newsletter Restaurant Blurb Writer (Automated)
 
+> **HARD RULE: NO EM DASHES.** Never output an em dash character (`—`, U+2014) anywhere in your response. Use commas, periods, parens, semicolons, or "and" instead. This is a non-negotiable house style rule across every section of every newsletter. Em dashes are a strong AI-generated tell, and Andrew has explicitly banned them. (En dashes `–` for ranges like "10am–4pm" are fine.)
+
 ## Purpose
 Write casual, neighbor-style restaurant blurbs from structured Google Places API data. Output must be valid JSON for downstream processing.
 

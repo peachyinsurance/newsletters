@@ -448,7 +448,20 @@ def sync_edits_back(page_id: str, newsletter_name: str) -> None:
 # BLOCK BUILDERS
 # ---------------------------------------------------------------------------
 
+# Defense-in-depth safety net: strip em dashes from anything we render to Notion.
+# House style bans em dashes (U+2014) — the skill banners enforce this in the
+# LLM, but if one slips through we replace it with ", " here. En dashes (U+2013,
+# used for ranges like "10am–4pm") are intentionally left alone.
+_EM_DASH_RE = re.compile(r"\s*—\s*")
+
+def _strip_em_dashes(text: str) -> str:
+    if not text or "—" not in text:
+        return text
+    return _EM_DASH_RE.sub(", ", text)
+
+
 def heading_block(text: str, level: int = 2) -> dict:
+    text = _strip_em_dashes(text)
     key = f"heading_{level}"
     return {
         "object": "block",
@@ -458,6 +471,7 @@ def heading_block(text: str, level: int = 2) -> dict:
 
 
 def paragraph_block(text: str, bold: bool = False) -> dict:
+    text = _strip_em_dashes(text)
     annotations = {"bold": bold} if bold else {}
     return {
         "object": "block",
@@ -477,6 +491,7 @@ def parse_inline_markdown(text: str) -> list[dict]:
     """Convert inline Markdown to a list of Notion rich_text spans.
     Supports `**bold**` and `[label](url)`. Plain text outside these is
     emitted as plain spans. Overlapping matches resolve to the earliest."""
+    text = _strip_em_dashes(text)
     matches = []
     for m in _BOLD_PATTERN.finditer(text):
         matches.append(("bold", m.start(), m.end(), m.group(1), None))
@@ -525,6 +540,7 @@ def paragraph_block_with_markdown(text: str) -> dict:
 
 def link_block(label: str, url: str) -> dict:
     """A paragraph with clickable hyperlinked text."""
+    label = _strip_em_dashes(label)
     return {
         "object": "block",
         "type": "paragraph",
@@ -555,6 +571,7 @@ def divider_block() -> dict:
 
 
 def callout_block(text: str, emoji: str = "📝") -> dict:
+    text = _strip_em_dashes(text)
     return {
         "object": "block",
         "type": "callout",

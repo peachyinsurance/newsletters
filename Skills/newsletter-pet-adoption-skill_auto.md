@@ -5,6 +5,8 @@ description: Write casual, warm, neighbor-style pet adoption blurbs for local ne
 
 # Pet Adoption Blurb Writer
 
+> **HARD RULE: NO EM DASHES.** Never output an em dash character (`—`, U+2014) anywhere in your response. Use commas, periods, parens, semicolons, or "and" instead. This is a non-negotiable house style rule across every section of every newsletter. Em dashes are a strong AI-generated tell, and Andrew has explicitly banned them. (En dashes `–` for ranges like "10am–4pm" are fine.)
+
 Write a newsletter blurb about an adoptable pet. The goal is to make readers feel like their neighbor just texted them saying "you have to go meet this dog/cat."
 
 ## When to Use This Skill

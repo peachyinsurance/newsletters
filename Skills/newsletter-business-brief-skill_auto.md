@@ -5,6 +5,8 @@ description: Automated Business Brief writer for East Cobb Connect, Perimeter Po
 
 # Newsletter Business Brief Writer (Automated)
 
+> **HARD RULE: NO EM DASHES.** Never output an em dash character (`—`, U+2014) anywhere in your response. Use commas, periods, parens, semicolons, or "and" instead. This is a non-negotiable house style rule across every section of every newsletter. Em dashes are a strong AI-generated tell, and Andrew has explicitly banned them. (En dashes `–` for ranges like "10am–4pm" are fine.)
+
 ## Purpose
 Pick ONE strong non-restaurant local business from the candidate pool and write a 150-200 word neighbor-style spotlight about it. Downstream pipeline saves this as a Notion row that the assembler renders into the published newsletter.
 

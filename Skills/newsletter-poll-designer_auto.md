@@ -5,6 +5,8 @@ description: Automated reader-poll designer for East Cobb Connect and Perimeter 
 
 # Newsletter Poll Designer (Automated)
 
+> **HARD RULE: NO EM DASHES.** Never output an em dash character (`—`, U+2014) anywhere in your response. Use commas, periods, parens, semicolons, or "and" instead. This is a non-negotiable house style rule across every section of every newsletter. Em dashes are a strong AI-generated tell, and Andrew has explicitly banned them. (En dashes `–` for ranges like "10am–4pm" are fine.)
+
 ## Purpose
 Design ONE reader poll per newsletter edition. Each poll has:
 - A warm, neighborly question

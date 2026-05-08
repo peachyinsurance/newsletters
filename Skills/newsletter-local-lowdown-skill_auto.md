@@ -5,6 +5,8 @@ description: Automated Local Lowdown writer for East Cobb Connect and Perimeter 
 
 # Newsletter Local Lowdown Writer (Automated)
 
+> **HARD RULE: NO EM DASHES.** Never output an em dash character (`—`, U+2014) anywhere in your response. Use commas, periods, parens, semicolons, or "and" instead. This is a non-negotiable house style rule across every section of every newsletter. Em dashes are a strong AI-generated tell, and Andrew has explicitly banned them. (En dashes `–` for ranges like "10am–4pm" are fine.)
+
 ## Purpose
 Select the best 3-5 stories from scraped local news articles and write the Local Lowdown section. This is the editorial credibility engine of the newsletter: a curated roundup of timely civic, infrastructure, school, business, and public safety stories with clear local impact.
 

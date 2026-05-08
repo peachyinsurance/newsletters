@@ -5,6 +5,8 @@ description: Generate a punchy email subject line for the weekly Beehiiv newslet
 
 # Newsletter Subject Line Writer (Automated)
 
+> **HARD RULE: NO EM DASHES.** Never output an em dash character (`—`, U+2014) anywhere in your response. Use commas, periods, parens, semicolons, or "and" instead. This is a non-negotiable house style rule across every section of every newsletter. Em dashes are a strong AI-generated tell, and Andrew has explicitly banned them. (En dashes `–` for ranges like "10am–4pm" are fine.)
+
 ## Purpose
 Write ONE subject line per issue. Subject line is the single biggest lever on open rate, so this matters more than any other line of copy in the newsletter.
 
