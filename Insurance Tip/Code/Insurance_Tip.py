@@ -16,7 +16,6 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterC
 from brave_search import search_web
 from claude_json import call_with_json_output, ClaudeJSONError
 from notion_helper import save_tips_to_notion, get_existing_tip_urls, get_existing_tip_subjects
-from url_validator import filter_valid_items
 from newsletters_config import NEWSLETTERS, filter_by_env
 
 # ---------------------------------------------------------------------------
@@ -306,18 +305,13 @@ if __name__ == "__main__":
             previously_covered.append(s)
     print(f"  {len(previously_covered)} prior tip subjects loaded for Claude dedup context")
 
-    print(f"\n  Validating {len(candidates)} candidate URLs...")
-    candidates, rejected = filter_valid_items(
-        candidates,
-        critical_fields=["url"],
-        optional_fields=[],
-        label_field="title",
-    )
-    if rejected:
-        print(f"  Dropped {len(rejected)} candidates with dead URLs")
-    if not candidates:
-        print("No candidates with valid URLs. Exiting.")
-        sys.exit(0)
+    # Pre-Claude URL validation removed — same lesson learned in Weekend Planner.
+    # The trusted-domain allowlist (TRUSTED_DOMAINS) already enforces source
+    # quality; URL validation on top of it kills legitimate bot-protected pages
+    # on FEMA / Forbes / NerdWallet that pass the allowlist but return 403/404
+    # to plain HEAD requests. Net effect: the allowlist's already-narrow funnel
+    # gets cut to ~1 candidate, Claude has nothing to pick. Trust Claude's
+    # primary-source rule from the skill instead.
 
     scope_label = "both newsletters" if len(to_process) > 1 else to_process[0]["name"]
     print(f"\n  Sending {len(candidates)} candidates to Claude (one pick for {scope_label})...")
