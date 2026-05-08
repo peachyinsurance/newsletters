@@ -16,7 +16,7 @@ import anthropic
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import save_poll_to_notion, get_used_poll_categories
-from newsletters_config import NEWSLETTERS
+from newsletters_config import NEWSLETTERS, filter_by_env
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ if __name__ == "__main__":
     skill_prompt = load_skill_prompt()
     pub_date = datetime.today().strftime("%Y-%m-%d")
 
-    for newsletter in NEWSLETTERS:
+    for newsletter in filter_by_env():
         print(f"\n{'='*60}")
         print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
         print(f"{'='*60}")

@@ -23,7 +23,7 @@ from notion_helper import (
     query_database,
     save_intro_to_notion,
 )
-from newsletters_config import NEWSLETTERS
+from newsletters_config import NEWSLETTERS, filter_by_env
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -358,7 +358,7 @@ if __name__ == "__main__":
         "You are an editor reviewing a newsletter blurb for voice and quality."
     )
 
-    for newsletter in NEWSLETTERS:
+    for newsletter in filter_by_env():
         print(f"\n{'='*60}")
         print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
         print(f"{'='*60}")

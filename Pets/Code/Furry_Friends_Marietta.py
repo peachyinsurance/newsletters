@@ -22,7 +22,7 @@ import requests
 import anthropic
 from notion_helper import get_approved_pet_urls, save_pets_to_notion
 from url_validator import filter_valid_items
-from newsletters_config import NEWSLETTERS
+from newsletters_config import NEWSLETTERS, filter_by_env
 
 
 # ---------------------------------------------------------------------------
@@ -613,7 +613,7 @@ if __name__ == "__main__":
     #            RescueGroups API. URL validation is built into the fetch
     #            (each pet's public-facing page is GET'd and confirmed reachable +
     #            mentions the pet's name). No separate scrape phase needed.
-    for newsletter in NEWSLETTERS:
+    for newsletter in filter_by_env():
         print(f"\n{'='*60}")
         print(f"Processing: {newsletter['name']}")
         print(f"{'='*60}")

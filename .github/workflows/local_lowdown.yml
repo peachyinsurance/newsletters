@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '0 13 * * 3'  # Every Wednesday at 8am EST (1pm UTC)
   workflow_dispatch:
+    inputs:
+      newsletter:
+        description: 'Which newsletter to generate for. "all" = every newsletter. (East_Cobb_Connect / Perimeter_Post / Lewisville_Lake_Lookout / all)'
+        required: false
+        default: 'all'
 
 jobs:
   generate:
@@ -22,6 +27,7 @@ jobs:
           NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
           NOTION_LOWDOWN_DB_ID:     ${{ secrets.NOTION_LOWDOWN_DB_ID }}
+          NEWSLETTER:               ${{ github.event.inputs.newsletter || 'all' }}
         run: python "Local Lowdown/Code/Local_Lowdown.py"
       - name: Trigger newsletter page rebuild
         env:

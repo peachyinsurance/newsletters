@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '0 9 * * 1'   # Every Monday at 9am UTC
   workflow_dispatch:        # Allows manual trigger from GitHub UI
+    inputs:
+      newsletter:
+        description: 'Which newsletter to generate for. "all" = every newsletter. (East_Cobb_Connect / Perimeter_Post / Lewisville_Lake_Lookout / all)'
+        required: false
+        default: 'all'
  
 jobs:
   generate:
@@ -33,6 +38,7 @@ jobs:
           NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
           NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+          NEWSLETTER:               ${{ github.event.inputs.newsletter || 'all' }}
         run: python Pets/Code/Furry_Friends_Marietta.py
 
       - name: Publish GIFs to gh-pages

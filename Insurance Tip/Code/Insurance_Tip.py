@@ -17,7 +17,7 @@ from brave_search import search_web
 from claude_json import call_with_json_output, ClaudeJSONError
 from notion_helper import save_tips_to_notion, get_existing_tip_urls, get_existing_tip_subjects
 from url_validator import filter_valid_items
-from newsletters_config import NEWSLETTERS
+from newsletters_config import NEWSLETTERS, filter_by_env
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -274,24 +274,30 @@ if __name__ == "__main__":
         print("No tip candidates found. Exiting.")
         sys.exit(0)
 
-    # Union of existing URLs across all newsletters — no source reused anywhere
+    # Honor optional NEWSLETTER env var. Default = all newsletters (the shared
+    # "one Claude call, save twice" pattern). When filtered to a single newsletter,
+    # the architecture collapses to a single-newsletter run (still works correctly).
+    to_process = filter_by_env()
+
+    # Union of existing URLs across the selected newsletter(s) — no source reused
     existing_urls = set()
-    for nl in NEWSLETTERS:
+    for nl in to_process:
         existing_urls |= get_existing_tip_urls(nl["name"])
     if existing_urls:
         before = len(candidates)
         candidates = [c for c in candidates if c["url"] not in existing_urls]
-        print(f"  Filtered {before - len(candidates)} previously-used URLs (union across both newsletters)")
+        scope = "across both newsletters" if len(to_process) > 1 else f"for {to_process[0]['name']}"
+        print(f"  Filtered {before - len(candidates)} previously-used URLs ({scope})")
     if not candidates:
         print("All candidates were previously used. Exiting.")
         sys.exit(0)
 
-    # Previously-covered subjects (last 6 months, union across both newsletters).
+    # Previously-covered subjects (last 6 months, union across selected newsletters).
     # Deduped by (topic, tip_title) so an identical tip saved twice (one row per
     # newsletter) shows up once in the prompt.
     seen_keys = set()
     previously_covered = []
-    for nl in NEWSLETTERS:
+    for nl in to_process:
         for s in get_existing_tip_subjects(nl["name"], months_back=6):
             key = (s.get("topic", ""), s.get("tip_title", ""))
             if key in seen_keys:
@@ -313,8 +319,9 @@ if __name__ == "__main__":
         print("No candidates with valid URLs. Exiting.")
         sys.exit(0)
 
-    print(f"\n  Sending {len(candidates)} candidates to Claude (one pick for both newsletters)...")
-    user_prompt = build_claude_user_prompt(candidates, NEWSLETTERS, previously_covered)
+    scope_label = "both newsletters" if len(to_process) > 1 else to_process[0]["name"]
+    print(f"\n  Sending {len(candidates)} candidates to Claude (one pick for {scope_label})...")
+    user_prompt = build_claude_user_prompt(candidates, to_process, previously_covered)
     try:
         results = call_with_json_output(
             api_key=CLAUDE_API_KEY,
@@ -333,11 +340,11 @@ if __name__ == "__main__":
     results = score_and_sort(results)
     results = flag_default_winner(results)
 
-    # Save the same picks once per newsletter (two identical-content rows).
-    # Only the first newsletter's rows carry default_winner=yes — the tip is
+    # Save the same picks once per newsletter. When generating for both,
+    # only the first newsletter's rows carry default_winner=yes — the tip is
     # shared, so flagging both would show up as "two winners" in the global
     # Notion view. Subsequent newsletters get the same tips with the flag cleared.
-    for i, nl in enumerate(NEWSLETTERS):
+    for i, nl in enumerate(to_process):
         print(f"\n{'='*60}")
         print(f"Saving for: {nl['name']}")
         print(f"{'='*60}")

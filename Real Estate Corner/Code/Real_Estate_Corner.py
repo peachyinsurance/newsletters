@@ -18,7 +18,7 @@ import anthropic
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import create_page, query_database, safe_str, HEADERS as NOTION_HEADERS
 from url_validator import validate_url, filter_valid_items
-from newsletters_config import NEWSLETTERS
+from newsletters_config import NEWSLETTERS, filter_by_env
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -523,7 +523,7 @@ if __name__ == "__main__":
     print("\nCleaning up old listings...")
     cleanup_old_re_listings()
 
-    for newsletter in NEWSLETTERS:
+    for newsletter in filter_by_env():
         print(f"\n{'='*60}")
         print(f"Processing: {newsletter['name']} ({newsletter['display']})")
         print(f"{'='*60}")

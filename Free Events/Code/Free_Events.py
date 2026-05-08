@@ -18,7 +18,7 @@ import anthropic
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import save_free_events_to_notion, get_used_free_event_urls
 from url_validator import validate_url
-from newsletters_config import NEWSLETTERS
+from newsletters_config import NEWSLETTERS, filter_by_env
 
 import re as _re
 
@@ -991,7 +991,7 @@ if __name__ == "__main__":
     skill_prompt = load_skill_prompt()
     pub_date = datetime.today().strftime("%Y-%m-%d")
 
-    for newsletter in NEWSLETTERS:
+    for newsletter in filter_by_env():
         print(f"\n{'='*60}")
         print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
         print(f"{'='*60}")

@@ -117,3 +117,23 @@ def get_newsletter(name: str) -> dict | None:
 def newsletter_names() -> list[str]:
     """Return just the list of newsletter names (for sections that only need names)."""
     return [nl["name"] for nl in NEWSLETTERS]
+
+
+def filter_by_env(env_var: str = "NEWSLETTER") -> list[dict]:
+    """Return NEWSLETTERS filtered by an env var (default: process all).
+
+    Used by section pipelines that support a per-newsletter workflow_dispatch
+    input. The env var should hold a single newsletter name (e.g.
+    "East_Cobb_Connect") or "all" / unset to process every newsletter.
+
+    Falls back to all if the env var holds an unrecognized value, with a
+    warning printed."""
+    import os
+    arg = (os.environ.get(env_var) or "all").strip()
+    if arg.lower() == "all":
+        return NEWSLETTERS
+    matches = [nl for nl in NEWSLETTERS if nl["name"] == arg]
+    if matches:
+        return matches
+    print(f"  [WARN] Unknown {env_var} '{arg}'. Falling back to all. Known: {newsletter_names()}")
+    return NEWSLETTERS

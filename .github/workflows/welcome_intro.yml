@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '0 14 * * 3'  # Every Wednesday at 9am EST (2pm UTC) — runs after lowdown & real estate
   workflow_dispatch:
+    inputs:
+      newsletter:
+        description: 'Which newsletter to generate for. "all" = every newsletter. (East_Cobb_Connect / Perimeter_Post / Lewisville_Lake_Lookout / all)'
+        required: false
+        default: 'all'
 
 jobs:
   generate:
@@ -30,6 +35,7 @@ jobs:
           NOTION_RE_DB_ID:          ${{ secrets.NOTION_RE_DB_ID }}
           NOTION_EVENTS_DB_ID:      ${{ secrets.NOTION_EVENTS_DB_ID }}
           NOTION_FREE_EVENTS_DB_ID: ${{ secrets.NOTION_FREE_EVENTS_DB_ID }}
+          NEWSLETTER:               ${{ github.event.inputs.newsletter || 'all' }}
         run: python "Welcome Intro/Code/Welcome_Intro.py"
 
       - name: Trigger newsletter page rebuild

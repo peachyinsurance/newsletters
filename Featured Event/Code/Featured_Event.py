@@ -18,7 +18,7 @@ import anthropic
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import save_events_to_notion, get_existing_event_urls
 from url_validator import filter_valid_items
-from newsletters_config import NEWSLETTERS
+from newsletters_config import NEWSLETTERS, filter_by_env
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -298,7 +298,7 @@ if __name__ == "__main__":
     print(f"Starting Featured Event automation — {datetime.today().strftime('%Y-%m-%d')}")
     skill_prompt = load_skill_prompt()
 
-    for newsletter in NEWSLETTERS:
+    for newsletter in filter_by_env():
         print(f"\n{'='*60}")
         print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
         print(f"{'='*60}")

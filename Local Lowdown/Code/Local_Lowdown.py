@@ -21,7 +21,7 @@ import anthropic
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import HEADERS as NOTION_HEADERS, save_lowdown_to_notion
 from url_validator import validate_url
-from newsletters_config import NEWSLETTERS
+from newsletters_config import NEWSLETTERS, filter_by_env
 
 NOTION_API_KEY = os.environ["NOTION_API_KEY"]
 
@@ -450,7 +450,7 @@ if __name__ == "__main__":
     skill_prompt = load_skill_prompt()
     pub_date = datetime.today().strftime("%Y-%m-%d")
 
-    for newsletter in NEWSLETTERS:
+    for newsletter in filter_by_env():
         print(f"\n{'='*60}")
         print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
         print(f"{'='*60}")
