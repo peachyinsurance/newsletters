@@ -16,6 +16,7 @@ import anthropic
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import save_poll_to_notion, get_used_poll_categories
+from newsletters_config import NEWSLETTERS
 
 
 # ---------------------------------------------------------------------------
@@ -28,10 +29,6 @@ SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter
 
 LOOKBACK_WEEKS = 8
 
-NEWSLETTERS = [
-    {"name": "East_Cobb_Connect", "display_area": "East Cobb"},
-    {"name": "Perimeter_Post",    "display_area": "Perimeter"},
-]
 
 
 # ---------------------------------------------------------------------------

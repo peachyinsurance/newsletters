@@ -20,6 +20,7 @@ from notion_helper import (
     query_database, update_page, NOTION_RESTAURANTS_DB_ID,
 )
 from url_validator import filter_valid_items
+from newsletters_config import NEWSLETTERS
 
 import requests
 import anthropic
@@ -41,11 +42,6 @@ MAX_CANDIDATES          = 30    # fetch before filtering
 TARGET_TOP_5            = 5
 MAX_SAME_CUISINE        = 2
 LOOKBACK_WEEKS          = 8
-
-NEWSLETTERS = [
-    {"name": "East_Cobb_Connect", "zip": "30062", "lat": 33.9773, "lng": -84.5130},
-    {"name": "Perimeter_Post",    "zip": "30328", "lat": 33.9207, "lng": -84.3882},
-]
 
 # ---------------------------------------------------------------------------
 # 2. KNOWN CHAINS TO EXCLUDE

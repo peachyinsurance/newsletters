@@ -22,20 +22,8 @@ import requests
 import anthropic
 from notion_helper import get_approved_pet_urls, save_pets_to_notion
 from url_validator import filter_valid_items
+from newsletters_config import NEWSLETTERS
 
-
-NEWSLETTERS = [
-    {
-        "name":   "East_Cobb_Connect",
-        "zip":    "30062",
-        "state":  "ga",
-    },
-    {
-        "name":   "Perimeter_Post",
-        "zip":    "30346",
-        "state":  "ga",
-    },
-]
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT

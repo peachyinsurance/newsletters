@@ -18,6 +18,7 @@ import anthropic
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import save_events_to_notion, get_existing_event_urls
 from url_validator import filter_valid_items
+from newsletters_config import NEWSLETTERS
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -29,34 +30,6 @@ SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter
 
 MAX_RESULTS_PER_QUERY = 10
 TARGET_EVENTS         = 3   # return top 3, flag 1 as winner
-
-NEWSLETTERS = [
-    {
-        "name":         "East_Cobb_Connect",
-        "display_area": "East Cobb",
-        "search_areas": ["East Cobb", "Marietta GA", "Roswell GA"],
-        "demographics": {
-            "median_income":    "$118,000",
-            "median_age":       "42",
-            "family_skew":      "Mix of established families and empty nesters. Many kids are teens or college-age.",
-            "homeownership":    "78%",
-            "education":        "65% bachelor's degree or higher",
-        },
-    },
-    {
-        "name":         "Perimeter_Post",
-        "display_area": "Perimeter",
-        "search_areas": ["Dunwoody GA", "Sandy Springs GA", "Brookhaven GA"],
-        "demographics": {
-            "median_income":    "$105,000",
-            "median_age":       "38",
-            "family_skew":      "Mix of young professionals, young families, and empty nesters. More adult-skewing than East Cobb.",
-            "homeownership":    "55%",
-            "education":        "70% bachelor's degree or higher",
-        },
-    },
-]
-
 
 # ---------------------------------------------------------------------------
 # 2. LOAD SKILL PROMPT

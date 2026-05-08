@@ -21,6 +21,7 @@ import anthropic
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import HEADERS as NOTION_HEADERS, save_lowdown_to_notion
 from url_validator import validate_url
+from newsletters_config import NEWSLETTERS
 
 NOTION_API_KEY = os.environ["NOTION_API_KEY"]
 
@@ -76,22 +77,6 @@ EVENT_ROUNDUP_MARKERS = (
     "roundup of events", "weekend roundup", "your weekend guide",
     "guide to events", "things to do in",
 )
-
-NEWSLETTERS = [
-    {
-        "name":         "East_Cobb_Connect",
-        "search_terms": ["East Cobb GA news"],
-        "retry_terms":  ["Marietta GA news", "Cobb County GA news"],
-        "display_area": "East Cobb",
-    },
-    {
-        "name":         "Perimeter_Post",
-        "search_terms": ["Dunwoody Sandy Springs news"],
-        "retry_terms":  ["Sandy Springs GA news", "Dunwoody GA news", "Perimeter Atlanta news"],
-        "display_area": "Perimeter",
-    },
-]
-
 
 # ---------------------------------------------------------------------------
 # 2. LOAD SKILL PROMPT
@@ -471,10 +456,10 @@ if __name__ == "__main__":
         print(f"{'='*60}")
 
         # Search for local news via Brave — retry with broader terms if not enough
-        articles = fetch_news_brave(newsletter["search_terms"])
+        articles = fetch_news_brave(newsletter["lowdown_search_terms"])
 
         if len(articles) < MIN_ARTICLES:
-            retry_terms = newsletter.get("retry_terms", [])
+            retry_terms = newsletter.get("lowdown_retry_terms", [])
             for attempt in range(1, MAX_RETRIES + 1):
                 if len(articles) >= MIN_ARTICLES or not retry_terms:
                     break
@@ -504,7 +489,7 @@ if __name__ == "__main__":
 
         # Claude selects and writes — retry with more articles if too few stories selected
         result = None
-        retry_terms = newsletter.get("retry_terms", [])[:]
+        retry_terms = newsletter.get("lowdown_retry_terms", [])[:]
         for claude_attempt in range(MAX_RETRIES + 1):
             print(f"\n  Sending {len(articles)} articles to Claude...")
             result = write_local_lowdown(

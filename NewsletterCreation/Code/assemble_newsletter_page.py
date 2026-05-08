@@ -19,6 +19,7 @@ import requests
 from datetime import datetime
 
 sys.path.append(os.path.dirname(__file__))
+from newsletters_config import newsletter_names
 
 NOTION_API_KEY           = os.environ["NOTION_API_KEY"]
 NOTION_PETS_DB_ID        = os.environ["NOTION_PETS_DB_ID"]
@@ -38,7 +39,7 @@ HEADERS = {
     "Content-Type":   "application/json",
 }
 
-NEWSLETTERS = ["East_Cobb_Connect", "Perimeter_Post"]
+NEWSLETTERS = newsletter_names()
 
 # ---------------------------------------------------------------------------
 # NOTION API HELPERS

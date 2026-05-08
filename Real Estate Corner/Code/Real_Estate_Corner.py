@@ -18,6 +18,7 @@ import anthropic
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import create_page, query_database, safe_str, HEADERS as NOTION_HEADERS
 from url_validator import validate_url, filter_valid_items
+from newsletters_config import NEWSLETTERS
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -29,29 +30,6 @@ NOTION_API_KEY    = os.environ["NOTION_API_KEY"]
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-real-estate-skill_auto.md"
 
 REALTOR_HOST = "realtor-search.p.rapidapi.com"
-
-NEWSLETTERS = [
-    {
-        "name":     "East_Cobb_Connect",
-        "location": "city:Marietta, GA",
-        "display":  "East Cobb",
-        "tiers": [
-            {"name": "Starter",    "label": "🏠 Starter Home", "max_price": 400000, "min_price": 0,       "min_beds": 3, "min_baths": 2, "type_filter": None},
-            {"name": "Sweet Spot", "label": "🏡 Sweet Spot",   "max_price": 700000, "min_price": 400000,  "min_beds": 0, "min_baths": 0, "type_filter": "single_family"},
-            {"name": "Showcase",   "label": "🏰 Showcase",     "max_price": None,   "min_price": 1000000, "min_beds": 0, "min_baths": 0, "type_filter": "single_family"},
-        ],
-    },
-    {
-        "name":     "Perimeter_Post",
-        "location": "city:Dunwoody, GA",
-        "display":  "Perimeter",
-        "tiers": [
-            {"name": "Starter",    "label": "🏠 Starter Home", "max_price": 400000, "min_price": 0,       "min_beds": 3, "min_baths": 2, "type_filter": None},
-            {"name": "Sweet Spot", "label": "🏡 Sweet Spot",   "max_price": 700000, "min_price": 400000,  "min_beds": 0, "min_baths": 0, "type_filter": "single_family"},
-            {"name": "Showcase",   "label": "🏰 Showcase",     "max_price": None,   "min_price": 1000000, "min_beds": 0, "min_baths": 0, "type_filter": "single_family"},
-        ],
-    },
-]
 
 # ---------------------------------------------------------------------------
 # 2. LOAD SKILL PROMPT
@@ -554,7 +532,7 @@ if __name__ == "__main__":
         excluded_urls = get_used_listing_urls(newsletter["name"])
 
         # Fetch all listings once, then filter per tier
-        all_listings = fetch_listings(location=newsletter["location"], limit=100)
+        all_listings = fetch_listings(location=newsletter["realtor_location"], limit=100)
         if not all_listings:
             print(f"  No listings found for {newsletter['name']}. Skipping.")
             continue
@@ -591,7 +569,7 @@ if __name__ == "__main__":
             print(f"  No listings with valid URLs for {newsletter['name']}. Skipping.")
             continue
 
-        tiers = newsletter["tiers"]
+        tiers = newsletter["real_estate_tiers"]
         tier_listings = []
         used_ids = set()
 
@@ -762,7 +740,7 @@ if __name__ == "__main__":
 
         # Generate blurbs
         print(f"\n  Generating blurbs for {len(tier_listings)} listings...")
-        results = generate_blurbs(tier_listings, skill_prompt, newsletter["display"])
+        results = generate_blurbs(tier_listings, skill_prompt, newsletter["display_area"])
 
         # Merge original listing data into Claude's results (source of truth for URLs/photos).
         # Claude only provides text: headline, blurb. Everything else is overwritten from source.

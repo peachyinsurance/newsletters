@@ -18,6 +18,7 @@ import anthropic
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import save_free_events_to_notion, get_used_free_event_urls
 from url_validator import validate_url
+from newsletters_config import NEWSLETTERS
 
 import re as _re
 
@@ -261,23 +262,6 @@ LISTICLE_TITLE_HINTS = (
     "things to do", "top ", "best ", "free things", "free events", "guide to",
     "what to do", "places to", "events in",
 )
-
-NEWSLETTERS = [
-    {
-        "name":         "East_Cobb_Connect",
-        "display_area": "East Cobb",
-        "search_areas": ["East Cobb GA", "Marietta GA", "Kennesaw GA"],
-        "lat":          33.9773,
-        "lng":          -84.5130,
-    },
-    {
-        "name":         "Perimeter_Post",
-        "display_area": "Perimeter",
-        "search_areas": ["Dunwoody GA", "Sandy Springs GA", "Perimeter Atlanta"],
-        "lat":          33.9462,
-        "lng":          -84.3346,
-    },
-]
 
 # Evergreen "free thing" search radius (~10 miles)
 EVERGREEN_RADIUS_METERS = 16093

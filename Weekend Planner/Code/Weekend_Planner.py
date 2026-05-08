@@ -27,6 +27,7 @@ from notion_helper import (
     save_weekend_events_to_notion,
     get_existing_weekend_event_urls,
 )
+from newsletters_config import NEWSLETTERS
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -71,50 +72,6 @@ AGGREGATOR_BLOCKLIST = {
     "zillow.com",
     "trulia.com",
 }
-
-NEWSLETTERS = [
-    {
-        "name":         "East_Cobb_Connect",
-        "display_area": "East Cobb",
-        "search_areas": ["East Cobb GA", "Marietta GA", "Roswell GA"],
-        "demographics": {
-            "median_income":    "$118,000",
-            "median_age":       "42",
-            "family_skew":      "Mix of established families and empty nesters. Many kids are teens or college-age.",
-            "homeownership":    "78%",
-            "education":        "65% bachelor's degree or higher",
-        },
-    },
-    {
-        "name":         "Perimeter_Post",
-        "display_area": "Perimeter",
-        "search_areas": ["Dunwoody GA", "Sandy Springs GA", "Brookhaven GA"],
-        "demographics": {
-            "median_income":    "$105,000",
-            "median_age":       "38",
-            "family_skew":      "Mix of young professionals, young families, and empty nesters. More adult-skewing than East Cobb.",
-            "homeownership":    "55%",
-            "education":        "70% bachelor's degree or higher",
-        },
-    },
-    {
-        "name":         "Lewisville_Lake_Lookout",
-        "display_area": "Lewisville Lake",
-        # Order matters: the first ~half are used in primary queries, the back
-        # half feeds retry queries for geographic variety.
-        "search_areas": ["Lewisville TX", "Flower Mound TX", "The Colony TX",
-                         "Little Elm TX", "Highland Village TX", "Hickory Creek TX",
-                         "Lake Dallas TX", "Corinth TX", "Shady Shores TX",
-                         "Lakewood Village TX"],
-        "demographics": {
-            "median_income":    "$95,000",
-            "median_age":       "36",
-            "family_skew":      "Strongly family-heavy with mixed income brackets — middle-income diverse suburbs (Lewisville, Little Elm, The Colony), affluent suburbs (Flower Mound, Highland Village), lake-lifestyle communities (Lake Dallas, Hickory Creek), plus a college-adjacent younger skew near UNT/TWU.",
-            "homeownership":    "65%",
-            "education":        "50% bachelor's degree or higher",
-        },
-    },
-]
 
 DAYS = ["Friday", "Saturday", "Sunday"]
 AUDIENCES = ["Family", "Adult"]

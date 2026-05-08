@@ -23,6 +23,7 @@ from notion_helper import (
     query_database,
     save_intro_to_notion,
 )
+from newsletters_config import NEWSLETTERS
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -40,18 +41,6 @@ NOTION_FREE_EVENTS_DB_ID  = os.environ.get("NOTION_FREE_EVENTS_DB_ID", "")
 
 SKILL_PROMPT_PATH  = Path(__file__).parent.parent.parent / "Skills" / "newsletter-welcome-intro-skill_auto.md"
 REVIEW_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-welcome-intro-review-skill.md"
-
-NEWSLETTERS = [
-    {
-        "name":         "East_Cobb_Connect",
-        "display_area": "East Cobb",
-    },
-    {
-        "name":         "Perimeter_Post",
-        "display_area": "Perimeter",
-    },
-]
-
 
 # ---------------------------------------------------------------------------
 # 2. LOAD SKILL PROMPTS

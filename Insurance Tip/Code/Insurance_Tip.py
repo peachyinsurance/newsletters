@@ -17,6 +17,7 @@ from brave_search import search_web
 from claude_json import call_with_json_output, ClaudeJSONError
 from notion_helper import save_tips_to_notion, get_existing_tip_urls, get_existing_tip_subjects
 from url_validator import filter_valid_items
+from newsletters_config import NEWSLETTERS
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -78,33 +79,6 @@ TOPIC_POOL = [
     ("marriage insurance policy review",                    "life_event", None),
     ("baby on the way insurance checklist",                 "life_event", None),
 ]
-
-# Both newsletters get the same tip — define them here so we save one row per newsletter.
-NEWSLETTERS = [
-    {
-        "name":         "East_Cobb_Connect",
-        "display_area": "East Cobb",
-        "demographics": {
-            "median_income":    "$118,000",
-            "median_age":       "42",
-            "family_skew":      "Mix of established families and empty nesters. Many kids are teens or college-age.",
-            "homeownership":    "78%",
-            "education":        "65% bachelor's degree or higher",
-        },
-    },
-    {
-        "name":         "Perimeter_Post",
-        "display_area": "Perimeter",
-        "demographics": {
-            "median_income":    "$105,000",
-            "median_age":       "38",
-            "family_skew":      "Mix of young professionals, young families, and empty nesters. More adult-skewing than East Cobb.",
-            "homeownership":    "55%",
-            "education":        "70% bachelor's degree or higher",
-        },
-    },
-]
-
 
 # ---------------------------------------------------------------------------
 # 2. LOAD SKILL PROMPT
