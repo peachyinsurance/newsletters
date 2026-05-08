@@ -1439,9 +1439,21 @@ if __name__ == "__main__":
         is_partial = False
 
     mode = f"partial ({section_arg})" if is_partial else "full rebuild"
-    print(f"Assembling newsletter landing pages — {datetime.today().strftime('%Y-%m-%d')} — mode: {mode}")
 
-    for newsletter_name in NEWSLETTERS:
+    # Optional NEWSLETTER filter — process just one newsletter or "all"
+    newsletter_arg = (os.environ.get("NEWSLETTER") or "all").strip()
+    if newsletter_arg.lower() == "all":
+        to_process = NEWSLETTERS
+    elif newsletter_arg in NEWSLETTERS:
+        to_process = [newsletter_arg]
+    else:
+        print(f"⚠ Unknown NEWSLETTER '{newsletter_arg}'. Falling back to all. Known: {NEWSLETTERS}")
+        to_process = NEWSLETTERS
+
+    scope = "all newsletters" if to_process is NEWSLETTERS else newsletter_arg
+    print(f"Assembling newsletter landing pages — {datetime.today().strftime('%Y-%m-%d')} — mode: {mode} — scope: {scope}")
+
+    for newsletter_name in to_process:
         display_name = newsletter_name.replace("_", " ")
         page_title = f"{display_name} — Current Edition"
 
