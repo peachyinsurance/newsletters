@@ -281,9 +281,13 @@ def setup_notion_databases():
             "Blurb":                  {"rich_text": {}},
             "Source URL":             {"url": {}},
             "Ticket URL":            {"url": {}},
+            # Colors omitted: existing Featured Event DB already has these options
+            # with manually-set colors that Notion's PATCH refuses to change.
+            # Same fix Candice applied to the Insurance Tip Category select (5449326).
             "Newsletter":             {"select": {"options": [
-                {"name": "East_Cobb_Connect", "color": "purple"},
-                {"name": "Perimeter_Post",    "color": "pink"}
+                {"name": "East_Cobb_Connect"},
+                {"name": "Perimeter_Post"},
+                {"name": "Lewisville_Lake_Lookout"},
             ]}},
             "Date Generated":         {"date": {}},
             "Status":                 {"select": {"options": [
