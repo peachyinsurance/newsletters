@@ -656,6 +656,22 @@ Candidates:
     for d in dropped[:10]:
         print(f"    • dropped idx {d.get('candidate_index', '?')}: {d.get('reason', '')[:120]}")
 
+    # Snapshot body_markdown from Claude's `events[]` array by candidate_index.
+    # Claude only fills body_markdown on the #1 pick (events[]); the all_scored
+    # entries are metadata-only. The scoreboard logic below picks the winner
+    # from all_scored after applying our source-quality bonus, then overwrites
+    # result["events"] with that winner — which would drop body_markdown unless
+    # we restore it from this snapshot.
+    body_by_idx: dict[int, str] = {}
+    for ev_obj in result.get("events", []) or []:
+        idx_v = ev_obj.get("candidate_index")
+        try:
+            idx_v = int(idx_v) if idx_v is not None else None
+        except Exception:
+            idx_v = None
+        if idx_v is not None and ev_obj.get("body_markdown"):
+            body_by_idx[idx_v] = ev_obj["body_markdown"]
+
     from datetime import date, timedelta
     try:
         pub = datetime.strptime(pub_date, "%Y-%m-%d").date()
@@ -769,6 +785,13 @@ Candidates:
         return result
 
     ev = winner["ev"]
+    # Capture candidate_index BEFORE popping so we can look up body_markdown
+    winner_idx = ev.get("candidate_index")
+    try:
+        winner_idx = int(winner_idx) if winner_idx is not None else None
+    except Exception:
+        winner_idx = None
+
     raw_url = winner["source_url"]
     # Try to drill down: if the winner's URL is a listicle/guide page, find the
     # specific event link inside it and use that instead of the generic guide URL.
@@ -780,6 +803,18 @@ Candidates:
     ev["source_quality_score"]   = winner["source_score"]
     ev["total_score"]            = winner["total"]
     ev["image_url"]              = fetch_event_image(ev["source_url"])
+
+    # Restore body_markdown from Claude's events[] (the all_scored entry we
+    # built `ev` from doesn't carry it). If the pipeline's winner is the same
+    # candidate Claude wrote up, body_by_idx has it. If not, we leave ev
+    # without body_markdown and the save layer falls back to legacy_blurb
+    # (or empty if neither is present).
+    if winner_idx is not None and winner_idx in body_by_idx:
+        ev["body_markdown"] = body_by_idx[winner_idx]
+    elif "body_markdown" not in ev:
+        # Pipeline picked a candidate Claude didn't fully write up. Log it so
+        # we know if this happens often (and can re-tune scoring if so).
+        print(f"  ⚠ Winner candidate_index {winner_idx} has no body_markdown from Claude — output will be metadata-only")
 
     result["events"] = [ev]
     print(f"  🏆 Winner: {ev.get('emoji', '')} {ev.get('name', '')} "
