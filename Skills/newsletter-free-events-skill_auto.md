@@ -104,12 +104,17 @@ You receive a JSON array of candidates, each with `candidate_index`:
     "source": "hostname",
     "date": "...",
     "summary": "...",
+    "full_text": "...",
     "address": "..."
   }
 ]
 ```
 
 Plus: `publication_date`, `coverage_area`, `newsletter_name`.
+
+**`full_text` is the article body fetched from the URL** — typically 1000-4000 characters of cleaned page text. **When it's present, use it as your primary source for `body_markdown`.** It has the specifics that let you actually write a 400-600 word recommendation (history, hours, parking, vibe, what reviewers say). The `summary` field is just a Brave snippet — too thin on its own for substantive sections.
+
+If `full_text` is empty (some pages are bot-protected or returned errors), fall back to `summary` and write what you can. If neither has enough material, drop the candidate per the "write less rather than fabricate" rule.
 
 ## Output Format
 

@@ -21,6 +21,73 @@ from url_validator import validate_url
 from newsletters_config import NEWSLETTERS, filter_by_env
 
 import re as _re
+from concurrent.futures import ThreadPoolExecutor
+
+
+# ---------------------------------------------------------------------------
+# Article-body fetching: gives Claude meaningful source material when Brave
+# snippets are too thin to write a 400-600 word recommendation.
+# ---------------------------------------------------------------------------
+
+_BROWSER_UA = "Mozilla/5.0 (newsletter-automation/1.0)"
+_FETCH_TIMEOUT = 10
+_MAX_TEXT_CHARS = 4000  # cap per-candidate so the Claude prompt doesn't blow up
+
+
+def _strip_html_to_text(html: str) -> str:
+    """Cheap HTML-to-text. Strips script/style entirely, removes all tags,
+    decodes a handful of common entities, collapses whitespace. Good enough
+    for Claude to extract event details from — not a full readability impl."""
+    html = _re.sub(r"<script[^>]*>.*?</script>", "", html, flags=_re.DOTALL | _re.IGNORECASE)
+    html = _re.sub(r"<style[^>]*>.*?</style>", "", html, flags=_re.DOTALL | _re.IGNORECASE)
+    html = _re.sub(r"<noscript[^>]*>.*?</noscript>", "", html, flags=_re.DOTALL | _re.IGNORECASE)
+    text = _re.sub(r"<[^>]+>", " ", html)
+    for entity, replacement in (
+        ("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
+        ("&quot;", "\""), ("&#39;", "'"), ("&apos;", "'"), ("&mdash;", "—"),
+        ("&ndash;", "–"), ("&hellip;", "..."), ("&rsquo;", "'"), ("&lsquo;", "'"),
+        ("&ldquo;", "\""), ("&rdquo;", "\""),
+    ):
+        text = text.replace(entity, replacement)
+    text = _re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _fetch_article_text(url: str) -> str:
+    """Fetch a URL, return cleaned article text capped at _MAX_TEXT_CHARS.
+    Returns empty string on any error (timeout, non-200, bot-protection 403)."""
+    if not url:
+        return ""
+    try:
+        r = requests.get(
+            url,
+            timeout=_FETCH_TIMEOUT,
+            headers={"User-Agent": _BROWSER_UA},
+            allow_redirects=True,
+        )
+        if r.status_code != 200 or not r.text:
+            return ""
+        text = _strip_html_to_text(r.text)
+        return text[:_MAX_TEXT_CHARS]
+    except Exception:
+        return ""
+
+
+def enrich_candidates_with_full_text(candidates: list[dict], max_concurrent: int = 8) -> list[dict]:
+    """In-place: attach `full_text` to each candidate by fetching its URL.
+    Failures fall through silently (candidate keeps its Brave summary only)."""
+    if not candidates:
+        return candidates
+
+    def _enrich_one(c: dict) -> None:
+        c["full_text"] = _fetch_article_text(c.get("url", ""))
+
+    with ThreadPoolExecutor(max_workers=max_concurrent) as pool:
+        list(pool.map(_enrich_one, candidates))
+
+    fetched = sum(1 for c in candidates if c.get("full_text"))
+    print(f"  Fetched full text for {fetched}/{len(candidates)} candidates")
+    return candidates
 
 
 def _image_looks_real(url: str) -> bool:
@@ -546,6 +613,8 @@ Newsletter: {newsletter_name}
 Publication date: {pub_date}
 Coverage area: {display_area}
 
+Each candidate may include a `full_text` field — that's the actual article body fetched from the URL. **When `full_text` is present, use it as your primary source for writing the body_markdown** (specific details, history, hours, parking, vibe). The `summary` is only a Brave snippet — much thinner than `full_text`. Fall back to `summary` only when `full_text` is empty.
+
 RETURN:
 - `events`: array of EXACTLY ONE event — your #1 pick
 - `all_scored`: array of up to 5 candidates, ranked best-to-worst, each with `time_sensitivity_score` (1-10) per the rubric
@@ -1001,6 +1070,12 @@ if __name__ == "__main__":
         if not candidates:
             print(f"  No candidates found for {newsletter['name']}. Skipping.")
             continue
+
+        # Fetch each candidate's article body so Claude has meaningful source
+        # material to write the multi-section 400-600 word recommendation
+        # (Brave snippets alone are too thin for that depth).
+        print(f"\n  Fetching article text for {len(candidates)} candidates...")
+        enrich_candidates_with_full_text(candidates)
 
         print(f"\n  Sending {len(candidates)} candidates to Claude...")
         result = write_free_events(
