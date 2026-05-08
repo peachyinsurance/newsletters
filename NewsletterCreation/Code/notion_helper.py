@@ -1441,32 +1441,40 @@ def save_free_events_to_notion(result: dict, newsletter_name: str) -> None:
     # Build full section markdown
     section_text = ""
     for ev in events:
-        emoji    = ev.get("emoji", "")
-        name     = ev.get("name", "")
-        when     = ev.get("when", "")
-        venue    = ev.get("venue", "")
-        audience = ev.get("audience", "")
-        blurb    = ev.get("blurb", "")
-        url      = ev.get("source_url", "")
-        source   = ev.get("source", "")
+        emoji         = ev.get("emoji", "")
+        name          = ev.get("name", "")
+        when          = ev.get("when", "")
+        address       = ev.get("address", "")
+        is_free       = ev.get("is_free", "Free")
+        venue         = ev.get("venue", "")
+        body_markdown = ev.get("body_markdown", "")
+        # Backward compatibility: if Claude returns the old short blurb format
+        # without body_markdown, fall back to the previous render path.
+        legacy_blurb  = ev.get("blurb", "")
+        url           = ev.get("source_url", "")
+        source_label  = ev.get("source_label", "") or ev.get("source", "") or "Details"
 
-        audience_label = {
-            "family-friendly": "👪 Family-friendly",
-            "adults only":     "🍷 Adults only",
-            "all ages":        "🎉 All ages",
-        }.get(audience, audience)
-
+        # Header line with emoji + name (rendered as heading_3 by assembler)
         section_text += f"### {emoji} {name}\n\n"
-        details = []
-        if when:  details.append(f"**{when}**")
-        if venue: details.append(venue)
-        if audience_label: details.append(audience_label)
-        if details:
-            section_text += " • ".join(details) + "\n\n"
-        section_text += f"{blurb}\n\n"
+
+        # Metadata line: when | address | price (or fall back to venue / audience)
+        metadata_parts = []
+        if when:                       metadata_parts.append(when)
+        if address:                    metadata_parts.append(address)
+        elif venue:                    metadata_parts.append(venue)
+        if is_free:                    metadata_parts.append(is_free)
+        if metadata_parts:
+            section_text += " | ".join(metadata_parts) + "\n\n"
+
+        # Body — prefer the rich body_markdown, fall back to old single-line blurb
+        if body_markdown:
+            section_text += body_markdown.strip() + "\n\n"
+        elif legacy_blurb:
+            section_text += legacy_blurb.strip() + "\n\n"
+
+        # More info link
         if url:
-            label = source or "Details"
-            section_text += f"More: [{label}]({url})\n\n"
+            section_text += f"**More info:** [{source_label}]({url})\n\n"
 
     # Chunk to respect Notion's 2000-char rich_text limit
     CHUNK_SIZE = 1900

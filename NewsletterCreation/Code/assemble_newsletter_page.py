@@ -13,6 +13,7 @@ Env vars:
   NOTION_PARENT_PAGE_ID   – parent page where landing pages are created
 """
 import os
+import re
 import sys
 import json
 import requests
@@ -463,6 +464,61 @@ def paragraph_block(text: str, bold: bool = False) -> dict:
         "paragraph": {
             "rich_text": [{"type": "text", "text": {"content": text}, "annotations": annotations}]
         },
+    }
+
+
+# Inline Markdown patterns used by paragraph_block_with_markdown
+_BOLD_PATTERN = re.compile(r"\*\*(.+?)\*\*")
+_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+
+
+def parse_inline_markdown(text: str) -> list[dict]:
+    """Convert inline Markdown to a list of Notion rich_text spans.
+    Supports `**bold**` and `[label](url)`. Plain text outside these is
+    emitted as plain spans. Overlapping matches resolve to the earliest."""
+    matches = []
+    for m in _BOLD_PATTERN.finditer(text):
+        matches.append(("bold", m.start(), m.end(), m.group(1), None))
+    for m in _LINK_PATTERN.finditer(text):
+        matches.append(("link", m.start(), m.end(), m.group(1), m.group(2)))
+    matches.sort(key=lambda x: x[1])
+
+    # Resolve overlaps — keep earliest, drop any that overlap a kept one
+    accepted = []
+    last_end = 0
+    for m in matches:
+        if m[1] >= last_end:
+            accepted.append(m)
+            last_end = m[2]
+
+    spans: list[dict] = []
+    pos = 0
+    for kind, start, end, group1, group2 in accepted:
+        if start > pos:
+            spans.append({"type": "text", "text": {"content": text[pos:start]}, "annotations": {}})
+        if kind == "bold":
+            spans.append({"type": "text", "text": {"content": group1}, "annotations": {"bold": True}})
+        elif kind == "link":
+            spans.append({
+                "type": "text",
+                "text": {"content": group1, "link": {"url": group2}},
+                "annotations": {"color": "blue"},
+            })
+        pos = end
+    if pos < len(text):
+        spans.append({"type": "text", "text": {"content": text[pos:]}, "annotations": {}})
+    if not spans:
+        spans.append({"type": "text", "text": {"content": text}, "annotations": {}})
+    return spans
+
+
+def paragraph_block_with_markdown(text: str) -> dict:
+    """Paragraph block with inline `**bold**` and `[label](url)` rendered as
+    proper Notion rich_text spans (vs. literal `**` characters)."""
+    return {
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {"rich_text": parse_inline_markdown(text)},
     }
 
 
@@ -1374,6 +1430,15 @@ def _build_weekend_planner(newsletter_name: str) -> list[dict]:
 
 
 def _build_free_events(newsletter_name: str) -> list[dict]:
+    """Render the Free Activity of the Week section.
+
+    The pipeline saves a Markdown blob to Notion (composed by save_free_events_to_notion).
+    Render rules:
+      `### text`      -> bold paragraph (the activity title row)
+      everything else -> paragraph with inline `**bold**` and `[label](url)`
+                         parsed into rich_text spans (so the published Notion
+                         page actually shows bold sub-section labels and clickable
+                         links rather than raw `**` characters)."""
     free_events_text = get_latest_free_events(newsletter_name)
     if not free_events_text:
         return [callout_block("No Free Events generated yet. Run the Free Events pipeline.", emoji="⏳")]
@@ -1385,7 +1450,7 @@ def _build_free_events(newsletter_name: str) -> list[dict]:
         if para.startswith("### "):
             out.append(paragraph_block(para.replace("### ", ""), bold=True))
         else:
-            out.append(paragraph_block(para))
+            out.append(paragraph_block_with_markdown(para))
     return out
 
 
