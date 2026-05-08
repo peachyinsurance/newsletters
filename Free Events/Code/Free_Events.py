@@ -587,6 +587,74 @@ def fetch_candidates(search_areas: list[str], excluded_urls: set | None = None) 
 # ---------------------------------------------------------------------------
 # 4. CLAUDE SELECTS + WRITES
 # ---------------------------------------------------------------------------
+def write_winner_body_markdown(
+    winner_ev: dict,
+    source_candidate: dict,
+    newsletter_name: str,
+    display_area: str,
+    skill_prompt: str,
+    pub_date: str,
+) -> str:
+    """Second-pass focused Claude call to write body_markdown for the picked winner.
+
+    Used when the pipeline's source-quality re-rank picks a winner that's
+    different from Claude's #1 from the first pass — in that case Claude
+    didn't write body_markdown for the picked candidate. We call Claude
+    again with just the winner's metadata + full_text and ask only for the
+    body content (no JSON wrapper, no ranking, just the recommendation)."""
+    client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+
+    full_text = source_candidate.get("full_text", "") or ""
+    summary   = source_candidate.get("summary", "") or ""
+    source_block = full_text or summary or "(no article body available — write what you can from the metadata above)"
+
+    user_content = f"""The pipeline has chosen the Free Activity below for this week's {display_area} newsletter. Write ONLY the multi-section `body_markdown` content for this activity, following the skill's voice, structure, and word-count rules (400-600 words across the hook + What it is / Plan it / On the trail / Logistics / Heads up sections).
+
+Newsletter: {newsletter_name}
+Coverage area: {display_area}
+Publication date: {pub_date}
+
+Chosen activity:
+- Name: {winner_ev.get('name', '')}
+- Venue: {winner_ev.get('venue', '')}
+- When: {winner_ev.get('when', '')}
+- Audience: {winner_ev.get('audience', '')}
+- Address: {winner_ev.get('address', '')}
+
+Source article body:
+{source_block}
+
+Return ONLY the body_markdown text — plain markdown, no JSON wrapper, no quotes around it, no preamble or explanation. Start directly with the hook paragraph."""
+
+    response = None
+    for attempt in range(3):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=2000,
+                system=skill_prompt,
+                messages=[{"role": "user", "content": user_content}],
+            )
+            break
+        except Exception as e:
+            if attempt < 2:
+                print(f"  body_markdown call error (attempt {attempt + 1}): {e}")
+                time.sleep(5 * (attempt + 1))
+            else:
+                print(f"  ✗ body_markdown call failed after retries: {e}")
+                return ""
+
+    if not response:
+        return ""
+    raw = next((block.text for block in response.content if block.type == "text"), "")
+    body = raw.strip()
+    # Strip accidental fences if Claude added them despite instructions
+    if body.startswith("```"):
+        body = body.split("\n", 1)[-1] if "\n" in body else body
+        body = body.removesuffix("```").strip()
+    return body
+
+
 def write_free_events(candidates: list[dict], newsletter_name: str, display_area: str,
                       skill_prompt: str, pub_date: str) -> dict:
     """Ask Claude to score up to 5 free-event candidates on time sensitivity.
@@ -806,15 +874,29 @@ Candidates:
 
     # Restore body_markdown from Claude's events[] (the all_scored entry we
     # built `ev` from doesn't carry it). If the pipeline's winner is the same
-    # candidate Claude wrote up, body_by_idx has it. If not, we leave ev
-    # without body_markdown and the save layer falls back to legacy_blurb
-    # (or empty if neither is present).
+    # candidate Claude wrote up, body_by_idx has it.
     if winner_idx is not None and winner_idx in body_by_idx:
         ev["body_markdown"] = body_by_idx[winner_idx]
-    elif "body_markdown" not in ev:
-        # Pipeline picked a candidate Claude didn't fully write up. Log it so
-        # we know if this happens often (and can re-tune scoring if so).
-        print(f"  ⚠ Winner candidate_index {winner_idx} has no body_markdown from Claude — output will be metadata-only")
+
+    # If body_markdown is still missing (pipeline's winner wasn't Claude's #1
+    # in the first pass), do a focused 2nd Claude call to write it for this
+    # specific candidate. Costs one extra Claude call only when needed.
+    if not ev.get("body_markdown") and winner_idx is not None:
+        source_candidate = candidates_by_index.get(winner_idx, {})
+        print(f"  Writing body_markdown for winner via 2nd Claude pass...")
+        body = write_winner_body_markdown(
+            winner_ev=ev,
+            source_candidate=source_candidate,
+            newsletter_name=newsletter_name,
+            display_area=display_area,
+            skill_prompt=skill_prompt,
+            pub_date=pub_date,
+        )
+        if body:
+            ev["body_markdown"] = body
+            print(f"  ✓ body_markdown written ({len(body)} chars)")
+        else:
+            print(f"  ⚠ 2nd-pass body_markdown call returned empty — output will be metadata-only")
 
     result["events"] = [ev]
     print(f"  🏆 Winner: {ev.get('emoji', '')} {ev.get('name', '')} "
