@@ -11,6 +11,14 @@ on:
         description: 'Which newsletter to update. "all" = every newsletter. Newsletter names: East_Cobb_Connect, Perimeter_Post, Lewisville_Lake_Lookout'
         required: false
         default: 'all'
+      weekend_audience:
+        description: 'Weekend Planner only: which audience pane. (Family / Adult / both)'
+        required: false
+        default: 'both'
+      weekend_day:
+        description: 'Weekend Planner only: which day(s). (Friday / Saturday / Sunday / all)'
+        required: false
+        default: 'all'
 
 jobs:
   assemble:
@@ -36,4 +44,6 @@ jobs:
           NOTION_PARENT_PAGE_ID:    ${{ secrets.NOTION_PARENT_PAGE_ID }}
           SECTION:                  ${{ github.event.inputs.section || 'all' }}
           NEWSLETTER:               ${{ github.event.inputs.newsletter || 'all' }}
+          WEEKEND_AUDIENCE:         ${{ github.event.inputs.weekend_audience || 'both' }}
+          WEEKEND_DAY:              ${{ github.event.inputs.weekend_day || 'all' }}
         run: python NewsletterCreation/Code/assemble_newsletter_page.py

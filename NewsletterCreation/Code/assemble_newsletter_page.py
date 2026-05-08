@@ -1297,19 +1297,45 @@ def _build_pets(newsletter_name: str) -> list[dict]:
 def _build_weekend_planner(newsletter_name: str) -> list[dict]:
     """Render the Weekend Planner section: Family Events + Adult Events,
     each with Friday/Saturday/Sunday subsections, each event as one inline
-    paragraph + one description paragraph."""
+    paragraph + one description paragraph.
+
+    Honors WEEKEND_AUDIENCE and WEEKEND_DAY env vars for partial rendering:
+      WEEKEND_AUDIENCE: Family | Adult | both (default: both)
+      WEEKEND_DAY: Friday | Saturday | Sunday | all (default: all)"""
     events = get_weekend_events(newsletter_name)
     if not events:
         return [_placeholder("No Weekend Planner events generated yet. Run the Weekend Planner pipeline.")]
 
+    # Apply audience filter
+    audience_arg = (os.environ.get("WEEKEND_AUDIENCE") or "both").strip()
+    if audience_arg.lower() in ("both", "all"):
+        audiences = ["Family", "Adult"]
+    elif audience_arg in ("Family", "Adult"):
+        audiences = [audience_arg]
+    else:
+        print(f"  ⚠ Unknown WEEKEND_AUDIENCE '{audience_arg}', falling back to both")
+        audiences = ["Family", "Adult"]
+
+    # Apply day filter
+    day_arg = (os.environ.get("WEEKEND_DAY") or "all").strip()
+    if day_arg.lower() == "all":
+        days = ["Friday", "Saturday", "Sunday"]
+    elif day_arg in ("Friday", "Saturday", "Sunday"):
+        days = [day_arg]
+    else:
+        print(f"  ⚠ Unknown WEEKEND_DAY '{day_arg}', falling back to all")
+        days = ["Friday", "Saturday", "Sunday"]
+
+    if audiences != ["Family", "Adult"] or days != ["Friday", "Saturday", "Sunday"]:
+        print(f"  Weekend Planner filtered: audience={audiences}, day={days}")
+
     # Group: audience -> day -> [events]
-    grouped: dict = {"Family": {"Friday": [], "Saturday": [], "Sunday": []},
-                     "Adult":  {"Friday": [], "Saturday": [], "Sunday": []}}
+    grouped: dict = {a: {d: [] for d in days} for a in audiences}
     for ev in events:
-        audience = ev.get("audience", "")
-        day = ev.get("day", "")
-        if audience in grouped and day in grouped[audience]:
-            grouped[audience][day].append(ev)
+        a = ev.get("audience", "")
+        d = ev.get("day", "")
+        if a in grouped and d in grouped[a]:
+            grouped[a][d].append(ev)
 
     # Pick a date label per day from any event in that bucket (they should all share)
     def _day_header(day: str, bucket_events: list[dict]) -> str:
@@ -1325,13 +1351,13 @@ def _build_weekend_planner(newsletter_name: str) -> list[dict]:
             return day
 
     blocks: list[dict] = []
-    for audience_label, audience_key in (("Family Events", "Family"), ("Adult Events", "Adult")):
+    for audience_key in audiences:
         # Skip the entire pane if it has no events at all
-        pane_total = sum(len(grouped[audience_key][d]) for d in ("Friday", "Saturday", "Sunday"))
+        pane_total = sum(len(grouped[audience_key][d]) for d in days)
         if pane_total == 0:
             continue
-        blocks.append(heading_block(audience_label, level=3))
-        for day in ("Friday", "Saturday", "Sunday"):
+        blocks.append(heading_block(f"{audience_key} Events", level=3))
+        for day in days:
             day_events = grouped[audience_key][day]
             if not day_events:
                 continue
