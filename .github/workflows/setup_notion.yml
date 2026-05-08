@@ -24,4 +24,5 @@ jobs:
           NOTION_FREE_EVENTS_DB_ID: ${{ secrets.NOTION_FREE_EVENTS_DB_ID }}
           NOTION_POLLS_DB_ID:       ${{ secrets.NOTION_POLLS_DB_ID }}
           NOTION_WEEKEND_PLANNER_DB_ID: ${{ secrets.NOTION_WEEKEND_PLANNER_DB_ID }}
+          NOTION_BUSINESS_BRIEF_DB_ID: ${{ secrets.NOTION_BUSINESS_BRIEF_DB_ID }}
         run: python NewsletterCreation/Code/setup_notion.py

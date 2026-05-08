@@ -32,6 +32,7 @@ NOTION_INTRO_DB_ID       = os.environ.get("NOTION_INTRO_DB_ID", "")
 NOTION_FREE_EVENTS_DB_ID = os.environ.get("NOTION_FREE_EVENTS_DB_ID", "")
 NOTION_POLLS_DB_ID       = os.environ.get("NOTION_POLLS_DB_ID", "")
 NOTION_WEEKEND_PLANNER_DB_ID = os.environ.get("NOTION_WEEKEND_PLANNER_DB_ID", "")
+NOTION_BUSINESS_BRIEF_DB_ID = os.environ.get("NOTION_BUSINESS_BRIEF_DB_ID", "")
 NOTION_PARENT_PAGE_ID    = os.environ["NOTION_PARENT_PAGE_ID"]
 
 HEADERS = {
@@ -1112,6 +1113,78 @@ def get_weekend_events(newsletter_name: str) -> list[dict]:
     return events
 
 
+def _business_brief_row_to_dict(props: dict) -> dict:
+    """Parse a Business Brief DB row."""
+    def _rt(key):
+        rt = props.get(key, {}).get("rich_text", [])
+        return rt[0].get("text", {}).get("content", "") if rt else ""
+    return {
+        "name":             _rt("Business Name"),
+        "city":             _rt("City"),
+        "outside_coverage": props.get("Outside Coverage", {}).get("checkbox", False),
+        "blurb":            _rt("Blurb"),
+        "price_level":      (props.get("Price Level", {}).get("select") or {}).get("name", ""),
+        "hours":            _rt("Hours"),
+        "address":          _rt("Address"),
+        "source_url":       props.get("Source URL", {}).get("url", "") or "",
+        "source_domain":    _rt("Source Domain"),
+        "status":           (props.get("Status", {}).get("select") or {}).get("name", ""),
+        "default_winner":   props.get("Default Winner", {}).get("checkbox", False),
+        "manually_edited":  props.get("Manually Edited", {}).get("checkbox", False),
+        "relevance_score":  props.get("Relevance Score", {}).get("number", 0) or 0,
+        "date_generated":   (props.get("Date Generated", {}).get("date") or {}).get("start", ""),
+    }
+
+
+def get_business_brief(newsletter_name: str) -> dict | None:
+    """Fetch the Business Brief pick for this newsletter. Falls back to the
+    highest-relevance pending row from the most recent batch when no manual
+    approval exists (mirrors get_featured_event behavior)."""
+    if not NOTION_BUSINESS_BRIEF_DB_ID:
+        print(f"  ⚠ NOTION_BUSINESS_BRIEF_DB_ID is empty — Business Brief section will not render")
+        return None
+    print(f"  Looking up Business Brief for {newsletter_name} (db {NOTION_BUSINESS_BRIEF_DB_ID[:8]}…)")
+    try:
+        pages = query_database(NOTION_BUSINESS_BRIEF_DB_ID)
+    except Exception as e:
+        print(f"  Business Brief query failed: {e}")
+        return None
+
+    nl_pages = [p for p in pages
+                if (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
+
+    # Tier 1: explicitly approved
+    approved = [p for p in nl_pages
+                if (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
+    if approved:
+        approved.sort(
+            key=lambda p: (p["properties"].get("Date Generated", {}).get("date") or {}).get("start", ""),
+            reverse=True,
+        )
+        return _business_brief_row_to_dict(approved[0]["properties"])
+
+    # Fallback: highest-relevance pending row from the most recent batch
+    candidates = [p for p in nl_pages
+                  if (p["properties"].get("Status", {}).get("select") or {}).get("name", "") not in ("approved - old", "rejected")]
+    if not candidates:
+        print(f"  No approved business brief AND no fallback candidates for {newsletter_name}")
+        return None
+
+    dates = [(p["properties"].get("Date Generated", {}).get("date") or {}).get("start", "") for p in candidates]
+    dates = [d for d in dates if d]
+    if dates:
+        latest = max(dates)
+        candidates = [p for p in candidates
+                      if (p["properties"].get("Date Generated", {}).get("date") or {}).get("start", "") == latest]
+
+    candidates.sort(
+        key=lambda p: -(p["properties"].get("Relevance Score", {}).get("number") or 0),
+    )
+    pick = _business_brief_row_to_dict(candidates[0]["properties"])
+    print(f"  ⓘ No approved business brief for {newsletter_name} — using highest-scored fallback: {pick.get('name')}")
+    return pick
+
+
 # ---------------------------------------------------------------------------
 # WEEKEND PLANNER FORMATTERS
 # ---------------------------------------------------------------------------
@@ -1454,6 +1527,39 @@ def _build_free_events(newsletter_name: str) -> list[dict]:
     return out
 
 
+def _build_business_brief(newsletter_name: str) -> list[dict]:
+    """Render the Business Brief section: bold business name + blurb paragraphs
+    + a Price/Hours/Website metadata block. Mirrors the Free Events renderer's
+    inline-Markdown approach so any `**bold**` or `[label](url)` Claude emits
+    in the blurb renders as Notion rich_text spans."""
+    business = get_business_brief(newsletter_name)
+    if not (business and business.get("blurb")):
+        return [callout_block("No business brief yet. Run the Business Brief pipeline and approve a pick.", emoji="⏳")]
+
+    out: list[dict] = []
+    # Bold business name as the title row
+    out.append(paragraph_block(business["name"], bold=True))
+
+    # Blurb paragraphs (split on blank lines so each becomes its own paragraph block)
+    for para in business["blurb"].split("\n\n"):
+        para = para.strip()
+        if not para:
+            continue
+        out.append(paragraph_block_with_markdown(para))
+
+    # Metadata block (Price / Hours / Address / Website) as plain lines
+    if business.get("price_level"):
+        out.append(paragraph_block_with_markdown(f"**Price:** {business['price_level']}"))
+    if business.get("hours"):
+        out.append(paragraph_block_with_markdown(f"**Hours:** {business['hours']}"))
+    if business.get("address"):
+        out.append(paragraph_block_with_markdown(f"**Address:** {business['address']}"))
+    if business.get("source_url"):
+        domain = display_domain(business["source_url"])
+        out.append(paragraph_block_with_markdown(f"**Website:** [{domain}]({business['source_url']})"))
+    return out
+
+
 def _build_static_placeholder(_newsletter_name: str) -> list[dict]:
     """Standard 'Not yet automated.' placeholder for un-automated sections."""
     return [_placeholder("Not yet automated.")]
@@ -1469,7 +1575,7 @@ SECTIONS = {
     "sponsor":        {"heading": "💼 Sponsor Corner",         "builder": _build_static_placeholder},
     "featured_event": {"heading": "🎪 Event of the Week",      "builder": _build_featured_event},
     "restaurants":    {"heading": "🍽️ Restaurant Radar",       "builder": _build_restaurants},
-    "business_brief": {"heading": "🏢 Business Brief",         "builder": _build_static_placeholder},
+    "business_brief": {"heading": "🏢 Business Brief",         "builder": _build_business_brief},
     "real_estate":    {"heading": "🏠 Real Estate Corner",     "builder": _build_real_estate},
     "lowdown":        {"heading": "🗞️ Local Lowdown",          "builder": _build_lowdown},
     "pets":           {"heading": "🐾 Furry Friends",          "builder": _build_pets},

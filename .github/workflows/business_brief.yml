@@ -1,0 +1,40 @@
+name: Generate Business Brief
+
+on:
+  schedule:
+    - cron: '0 14 * * 3'  # Every Wednesday at 9am EST (2pm UTC)
+  workflow_dispatch:
+    inputs:
+      newsletter:
+        description: 'Which newsletter to generate for. "all" = every newsletter. (East_Cobb_Connect / Perimeter_Post / Lewisville_Lake_Lookout / all)'
+        required: false
+        default: 'all'
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests anthropic
+      - name: Generate Business Brief
+        env:
+          CLAUDE_API_KEY:             ${{ secrets.CLAUDE_API_KEY }}
+          BRAVE_NEWS_API_KEY:         ${{ secrets.BRAVE_NEWS_API_KEY }}
+          NOTION_API_KEY:             ${{ secrets.NOTION_API_KEY }}
+          NOTION_BUSINESS_BRIEF_DB_ID: ${{ secrets.NOTION_BUSINESS_BRIEF_DB_ID }}
+          NEWSLETTER:                 ${{ github.event.inputs.newsletter || 'all' }}
+        run: python "Business Brief/Code/Business_Brief.py"
+
+      - name: Trigger newsletter page rebuild
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
+            -d '{"ref":"main","inputs":{"section":"business_brief"}}'
+          echo "✓ Newsletter page rebuild triggered (business_brief section)"

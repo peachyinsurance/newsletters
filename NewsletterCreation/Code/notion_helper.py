@@ -20,6 +20,7 @@ NOTION_TIPS_DB_ID        = os.environ.get("NOTION_TIPS_DB_ID", "")
 NOTION_FREE_EVENTS_DB_ID = os.environ.get("NOTION_FREE_EVENTS_DB_ID", "")
 NOTION_POLLS_DB_ID       = os.environ.get("NOTION_POLLS_DB_ID", "")
 NOTION_WEEKEND_PLANNER_DB_ID = os.environ.get("NOTION_WEEKEND_PLANNER_DB_ID", "")
+NOTION_BUSINESS_BRIEF_DB_ID = os.environ.get("NOTION_BUSINESS_BRIEF_DB_ID", "")
 
 HEADERS = {
     "Authorization":  f"Bearer {NOTION_API_KEY}",
@@ -448,6 +449,52 @@ def setup_notion_databases():
             print("✓ Weekend Planner database schema created")
         else:
             print(f"✗ Weekend Planner schema error: {r.text[:300]}")
+
+    # Business Brief database properties
+    if NOTION_BUSINESS_BRIEF_DB_ID:
+        business_brief_properties = {
+            "Name":             {"title": {}},
+            "Newsletter":       {"select": {"options": [
+                {"name": "East_Cobb_Connect",      "color": "purple"},
+                {"name": "Perimeter_Post",         "color": "pink"},
+                {"name": "Lewisville_Lake_Lookout", "color": "blue"},
+            ]}},
+            "Business Name":    {"rich_text": {}},
+            "City":             {"rich_text": {}},
+            "Outside Coverage": {"checkbox": {}},
+            "Blurb":            {"rich_text": {}},
+            "Price Level":      {"select": {"options": [
+                {"name": "$",    "color": "green"},
+                {"name": "$$",   "color": "yellow"},
+                {"name": "$$$",  "color": "orange"},
+                {"name": "$$$$", "color": "red"},
+            ]}},
+            "Hours":            {"rich_text": {}},
+            "Address":          {"rich_text": {}},
+            "Source URL":       {"url": {}},
+            "Source Domain":    {"rich_text": {}},
+            "Date Generated":   {"date": {}},
+            "Status":           {"select": {"options": [
+                {"name": "pending",        "color": "yellow"},
+                {"name": "approved",       "color": "green"},
+                {"name": "rejected",       "color": "red"},
+                {"name": "approved - old", "color": "gray"},
+            ]}},
+            "Relevance Score":  {"number": {"format": "number"}},
+            "Scoring Notes":    {"rich_text": {}},
+            "Default Winner":   {"checkbox": {}},
+            "Manually Edited":  {"checkbox": {}},
+        }
+        r = requests.patch(
+            f"https://api.notion.com/v1/databases/{NOTION_BUSINESS_BRIEF_DB_ID}",
+            headers=HEADERS,
+            json={"properties": business_brief_properties},
+            timeout=30
+        )
+        if r.ok:
+            print("✓ Business Brief database schema created")
+        else:
+            print(f"✗ Business Brief schema error: {r.text[:300]}")
 
 # ---------------------------------------------------------------------------
 # PETS HELPERS
@@ -1757,3 +1804,77 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str) -> None:
         create_page(NOTION_WEEKEND_PLANNER_DB_ID, properties)
         saved += 1
     print(f"  Saved {saved} new weekend events to Notion for {newsletter_name}")
+
+
+# ---------------------------------------------------------------------------
+# BUSINESS BRIEF HELPERS
+# ---------------------------------------------------------------------------
+
+def get_existing_business_brief_urls(newsletter_name: str) -> set:
+    """Get source URLs of existing business briefs for this newsletter to avoid duplicates."""
+    if not NOTION_BUSINESS_BRIEF_DB_ID:
+        return set()
+    try:
+        pages = query_database(NOTION_BUSINESS_BRIEF_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+        urls = set()
+        for page in pages:
+            url = page["properties"].get("Source URL", {}).get("url", "")
+            if url:
+                urls.add(url)
+        return urls
+    except Exception:
+        return set()
+
+
+def save_business_briefs_to_notion(results: list, newsletter_name: str) -> None:
+    """Save Business Brief candidates to Notion. Each row is one business.
+    Expected fields per item: name, city, is_outside_coverage, blurb, price_level,
+    hours, address, source_url, source, relevance_score, scoring_notes, default_winner."""
+    if not NOTION_BUSINESS_BRIEF_DB_ID:
+        print("  No NOTION_BUSINESS_BRIEF_DB_ID set, skipping Notion save")
+        return
+
+    print(f"  Saving {len(results)} business briefs to Notion for {newsletter_name}...")
+    existing_urls = get_existing_business_brief_urls(newsletter_name)
+    print(f"  Found {len(existing_urls)} existing entries to skip")
+
+    saved = 0
+    for data in results:
+        source_url = data.get("source_url", "")
+        if source_url and source_url in existing_urls:
+            print(f"  ✗ Skipping duplicate: {data.get('name')}")
+            continue
+
+        nl_display = newsletter_name.replace("_", " ")
+        title = f"{nl_display} - Business Brief - {data.get('name', '')}"
+
+        properties = {
+            "Name":             {"title":     [{"text": {"content": title}}]},
+            "Newsletter":       {"select":    {"name": newsletter_name}},
+            "Business Name":    {"rich_text": [{"text": {"content": safe_str(data.get("name"))}}]},
+            "City":             {"rich_text": [{"text": {"content": safe_str(data.get("city"))}}]},
+            "Outside Coverage": {"checkbox":  bool(data.get("is_outside_coverage", False))},
+            "Blurb":            {"rich_text": [{"text": {"content": safe_str(data.get("blurb"))[:2000]}}]},
+            "Hours":            {"rich_text": [{"text": {"content": safe_str(data.get("hours"))}}]},
+            "Address":          {"rich_text": [{"text": {"content": safe_str(data.get("address"))}}]},
+            "Source URL":       {"url":       data.get("source_url") or None},
+            "Source Domain":    {"rich_text": [{"text": {"content": safe_str(data.get("source"))}}]},
+            "Date Generated":   {"date":      {"start": datetime.today().strftime("%Y-%m-%d")}},
+            "Status":           {"select":    {"name": "pending"}},
+            "Relevance Score":  {"number":    int(data.get("relevance_score", 0) or 0)},
+            "Scoring Notes":    {"rich_text": [{"text": {"content": safe_str(data.get("scoring_notes"))}}]},
+            "Default Winner":   {"checkbox":  data.get("default_winner", "") == "yes"},
+            "Manually Edited":  {"checkbox":  False},
+        }
+
+        # Price Level select — only set if Claude returned a valid value
+        price = safe_str(data.get("price_level"))
+        if price in ("$", "$$", "$$$", "$$$$"):
+            properties["Price Level"] = {"select": {"name": price}}
+
+        create_page(NOTION_BUSINESS_BRIEF_DB_ID, properties)
+        saved += 1
+    print(f"  Saved {saved} new business briefs to Notion for {newsletter_name}")
