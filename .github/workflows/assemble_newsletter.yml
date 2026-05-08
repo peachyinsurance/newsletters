@@ -19,6 +19,10 @@ on:
         description: 'Weekend Planner only: which day(s). (Friday / Saturday / Sunday / all)'
         required: false
         default: 'all'
+      append:
+        description: 'Append to the section instead of overwriting. Useful for adding Weekend Planner events incrementally. (true/false)'
+        required: false
+        default: 'false'
 
 jobs:
   assemble:
@@ -46,4 +50,5 @@ jobs:
           NEWSLETTER:               ${{ github.event.inputs.newsletter || 'all' }}
           WEEKEND_AUDIENCE:         ${{ github.event.inputs.weekend_audience || 'both' }}
           WEEKEND_DAY:              ${{ github.event.inputs.weekend_day || 'all' }}
+          APPEND:                   ${{ github.event.inputs.append || 'false' }}
         run: python NewsletterCreation/Code/assemble_newsletter_page.py

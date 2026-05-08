@@ -148,8 +148,14 @@ def find_section_blocks(blocks: list[dict], heading_text: str) -> tuple[list[str
     return section_block_ids, heading_id
 
 
-def update_section(page_id: str, heading_text: str, new_blocks: list[dict]) -> bool:
-    """Find a section by heading, clear its content, and insert new blocks."""
+def update_section(page_id: str, heading_text: str, new_blocks: list[dict], append: bool = False) -> bool:
+    """Find a section by heading and write new_blocks into it.
+
+    If append=False (default), the section's existing content is cleared first
+    and replaced with new_blocks. If append=True, existing content is preserved
+    and new_blocks are inserted at the END of the section (just before the next
+    heading/divider). Append is useful for incrementally adding Weekend Planner
+    events without wiping previously rendered content."""
     blocks = notion_get_blocks(page_id)
     section_ids, heading_id = find_section_blocks(blocks, heading_text)
 
@@ -157,32 +163,29 @@ def update_section(page_id: str, heading_text: str, new_blocks: list[dict]) -> b
         print(f"  Could not find heading containing '{heading_text}'")
         return False
 
-    # Delete existing content in the section
-    for block_id in section_ids:
-        requests.delete(f"https://api.notion.com/v1/blocks/{block_id}", headers=HEADERS, timeout=30)
+    if append:
+        # Insert at the end of the existing section content (or right after the
+        # heading if the section is currently empty).
+        insert_after_id = section_ids[-1] if section_ids else heading_id
+    else:
+        # Clear the existing section content, insert directly after the heading.
+        for block_id in section_ids:
+            requests.delete(f"https://api.notion.com/v1/blocks/{block_id}", headers=HEADERS, timeout=30)
+        insert_after_id = heading_id
 
-    # Insert new content after the heading
     if new_blocks:
         r = requests.patch(
-            f"https://api.notion.com/v1/blocks/{heading_id}/children" if False else
             f"https://api.notion.com/v1/blocks/{page_id}/children",
             headers=HEADERS,
-            json={"children": new_blocks, "after": heading_id},
+            json={"children": new_blocks, "after": insert_after_id},
             timeout=30,
         )
-        if not r.ok:
-            # Try appending after heading using the after parameter
-            r = requests.patch(
-                f"https://api.notion.com/v1/blocks/{page_id}/children",
-                headers=HEADERS,
-                json={"children": new_blocks, "after": heading_id},
-                timeout=30,
-            )
         if not r.ok:
             print(f"  Failed to insert blocks: {r.text[:300]}")
             return False
 
-    print(f"  ✓ Updated '{heading_text}' section ({len(new_blocks)} blocks)")
+    action = "Appended to" if append else "Updated"
+    print(f"  ✓ {action} '{heading_text}' section ({len(new_blocks)} blocks)")
     return True
 
 
@@ -1439,18 +1442,28 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
 
 
 def update_one_section(page_id: str, newsletter_name: str, section_key: str) -> bool:
-    """Replace just one section's content blocks on the landing page.
-    Heading + divider stay; only blocks between the heading and the next heading/divider
-    are deleted and replaced. Manual edits in OTHER sections are untouched."""
+    """Update one section's content on the landing page.
+
+    Default behavior: clear the section's current content and replace it with
+    a fresh build from the DB. With APPEND=true env var, instead append the
+    new build to the end of the existing section (useful for incrementally
+    adding Weekend Planner events without wiping previous renders)."""
     cfg = SECTIONS.get(section_key)
     if not cfg:
         print(f"  ✗ Unknown section key: '{section_key}'. Known: {list(SECTIONS)}")
         return False
-    print(f"  Updating section '{section_key}' ({cfg['heading']})…")
-    # Sync any landing-page edits back to the DB before we overwrite from DB
-    sync_edits_back(page_id, newsletter_name)
+
+    append_mode = (os.environ.get("APPEND") or "false").strip().lower() == "true"
+    mode_label = "appending to" if append_mode else "updating"
+    print(f"  {mode_label.capitalize()} section '{section_key}' ({cfg['heading']})…")
+
+    # Sync any landing-page edits back to the DB before we overwrite from DB.
+    # Skip the sync in append mode — the existing content is being preserved,
+    # not replaced, so there's nothing to sync back.
+    if not append_mode:
+        sync_edits_back(page_id, newsletter_name)
     new_blocks = cfg["builder"](newsletter_name)
-    return update_section(page_id, cfg["heading"], new_blocks)
+    return update_section(page_id, cfg["heading"], new_blocks, append=append_mode)
 
 
 # ---------------------------------------------------------------------------
