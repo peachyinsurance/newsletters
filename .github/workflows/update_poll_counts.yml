@@ -1,0 +1,45 @@
+name: Update Poll Counts
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # every 30 minutes
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install requests
+
+      - name: Pull poll click data + write JSON
+        env:
+          BEEHIIV_API_KEY:            ${{ secrets.BEEHIIV_API_KEY }}
+          BEEHIIV_ECC_PUBLICATION_ID: ${{ secrets.BEEHIIV_ECC_PUBLICATION_ID }}
+          NOTION_API_KEY:             ${{ secrets.NOTION_API_KEY }}
+          NOTION_POLLS_DB_ID:         ${{ secrets.NOTION_POLLS_DB_ID }}
+          NOTION_PETS_DB_ID:          ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID:   ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+        run: python Beehiiv/Code/update_poll_counts.py
+
+      - name: Stage poll-counts.json for gh-pages
+        run: |
+          mkdir -p /tmp/poll_staging
+          cp review-app/public/poll-counts.json /tmp/poll_staging/poll-counts.json
+          echo "Staged $(ls -la /tmp/poll_staging/)"
+
+      - name: Publish to gh-pages (keep_files preserves existing site)
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          personal_token: ${{ secrets.PAT_TOKEN }}
+          publish_dir: /tmp/poll_staging
+          publish_branch: gh-pages
+          keep_files: true
+          commit_message: 'update poll counts (auto)'
