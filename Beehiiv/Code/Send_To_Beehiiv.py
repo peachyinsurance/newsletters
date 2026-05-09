@@ -77,11 +77,16 @@ NEWSLETTER_CONFIG = {
         "publication_id":   os.environ.get("BEEHIIV_ECC_PUBLICATION_ID", "").strip(),
         "template_post_id": _normalize_post_id(os.environ.get("BEEHIIV_ECC_TEMPLATE_POST_ID", "")),
         "display_area":     "East Cobb",
+        # Poll vote-tracking links use this base. Click counts on these URLs
+        # (per the unique `?vote=` query string) become the vote tally — visible
+        # in Beehiiv's per-issue link analytics dashboard.
+        "poll_vote_base":   "https://www.eastcobbconnect.com/?vote={slug}",
     },
     # "Perimeter_Post": {
     #     "publication_id":   os.environ.get("BEEHIIV_PP_PUBLICATION_ID", ""),
     #     "template_post_id": os.environ.get("BEEHIIV_PP_TEMPLATE_POST_ID", ""),
     #     "display_area":     "Perimeter",
+    #     "poll_vote_base":   "https://www.perimeterpost.com/?vote={slug}",
     # },
 }
 
@@ -215,6 +220,9 @@ URL_TYPED_KEYS = {
     "real_estate_showcase_link",
     "local_lowdown1_link", "local_lowdown2_link", "local_lowdown3_link",
     "local_lowdown4_link", "local_lowdown5_link",
+    # Poll vote-tracking links
+    "poll_option_1_url", "poll_option_2_url", "poll_option_3_url",
+    "poll_option_4_url", "poll_option_5_url",
     # aliases (shorter forms users typed in URL fields)
     "event_of_the_week",
     "free_event_link",
@@ -528,6 +536,26 @@ def build_replacements(client: BeehiivClient, publication_id: str,
                     image_swaps[free_img] = hosted
                 alt_swaps["free_event_image_1"] = hosted or free_img
 
+    # ---- Poll (inline HTML, click-tracked via Beehiiv's link analytics) ----
+    # Beehiiv polls API is plan-locked — POST /polls returns 404 on this account.
+    # Workaround: each option becomes a regular link to the newsletter's domain
+    # with `?vote=<slug>`. Beehiiv tracks clicks per URL; the click counts in
+    # Beehiiv's per-issue dashboard give us the vote tally for free.
+    poll = get_latest_poll(newsletter_name)
+    poll_vote_base = (NEWSLETTER_CONFIG.get(newsletter_name) or {}).get("poll_vote_base", "")
+    if poll and poll.get("question") and poll_vote_base:
+        repl["poll_question"] = poll["question"]
+        for i, opt in enumerate(poll.get("options", [])[:5], start=1):
+            opt_slug = re.sub(r"[^a-z0-9]+", "-", opt.lower().strip()).strip("-")
+            url = poll_vote_base.format(slug=opt_slug)
+            repl[f"poll_option_{i}_label"] = opt
+            repl[f"poll_option_{i}_url"]   = url
+        print(f"  ✓ Poll filled: '{poll['question'][:60]}…' "
+              f"({len(poll.get('options') or [])} options)")
+    else:
+        if not poll_vote_base:
+            print(f"  ⚠ poll_vote_base not configured for {newsletter_name}; poll skipped")
+
     return repl, image_swaps, alt_swaps, story_count
 
 
@@ -801,9 +829,10 @@ def main():
     new_post_id = new_post.get("id", "")
     print(f"  ✓ Post created: {new_post_id}")
 
-    # Attempt to attach a native poll
-    print("\n  Attempting to attach native poll…")
-    attach_poll_to_post(client, cfg["publication_id"], NEWSLETTER)
+    # Native Beehiiv polls API is plan-locked (POST /polls returns 404).
+    # We use inline HTML poll instead — the {poll_question} + {poll_option_N_*}
+    # placeholders in the template are filled by build_replacements above.
+    # Beehiiv's link-click analytics dashboard captures votes per option URL.
 
     # Print URL hint
     print()
