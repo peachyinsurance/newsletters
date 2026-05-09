@@ -114,6 +114,25 @@
     "default_winner": ""
   },
   {
+    "source_url": "https://www.localprofile.com/things-to-do/top-10-things-to-do-this-week-in-plano-frisco-and-beyond-12231189",
+    "event_name": "The Melting Pot Market: Spring Market",
+    "date": "Saturday, May 9",
+    "time": "Afternoon",
+    "venue": "The Lawn at Grandscape, The Colony",
+    "price": "Free",
+    "blurb": "Grandscape's lawn becomes a marketplace this Saturday as The Melting Pot Market brings more than 80 vendors together for its spring edition. Think local makers, small businesses, food, and the kind of browsing that's actually fun rather than obligatory.\n\nIt's at The Colony \u2014 right in the heart of the coverage area \u2014 and it's free to walk around. Great for a Mother's Day weekend outing if you want to find something a little more thoughtful than a last-minute gift card. Grab lunch from a food vendor, let the kids explore, and support some local businesses while you're at it.\n\nNo tickets needed. Just show up.",
+    "ticket_url": "",
+    "date_generated": "2026-05-09",
+    "status": "pending",
+    "newsletter_name": "Lewisville_Lake_Lookout",
+    "total_score": "21",
+    "demographic_fit_score": "7",
+    "uniqueness_score": "6",
+    "audience_match_score": "8",
+    "scoring_notes": "Strong geographic fit \u2014 Grandscape in The Colony is squarely inside the coverage area and well-known to this readership. The 80-vendor count gives it more scale than a typical weekend market, and the multicultural, community-driven framing adds some distinctiveness. Mother's Day weekend timing helps the hook. Uniqueness is the weakest of the three picks since markets are recurring in format, but the spring edition framing and large vendor count elevate it. Demographic fit is solid across the middle-income suburban and college-adjacent younger reader segments.",
+    "default_winner": ""
+  },
+  {
     "source_url": "https://cobbcountycourier.com/2026/04/seafood-sounds-springtime-fun-return-to-powder-springs-may-15-17/",
     "event_name": "Powder Springs Seafood and Sounds Festival",
     "date": "Thursday, May 15 through Saturday, May 17",
@@ -168,6 +187,25 @@
     "uniqueness_score": "7",
     "audience_match_score": "8",
     "scoring_notes": "Art festivals skew well toward educated, higher-income audiences who buy original art and enjoy curated outdoor experiences. The Dunwoody location is core Perimeter territory. Slightly lower uniqueness score because art festivals are a recurring annual event rather than a once-in-a-decade milestone, but the weekend-long run and high demographic alignment make it a strong pick. Free admission means no barrier for any segment of the audience.",
+    "default_winner": ""
+  },
+  {
+    "source_url": "https://planomoms.com/fun-activities-for-this-weekend/",
+    "event_name": "Flower Mound Arts Festival",
+    "date": "Saturday, May 9",
+    "time": "10:00 AM \u2013 4:00 PM",
+    "venue": "Heritage Park, Flower Mound",
+    "price": "Free",
+    "blurb": "If you've been looking for a reason to get the family outside this weekend, this is it. The Flower Mound Arts Festival is happening today at Heritage Park \u2014 free admission, no catch, just a great morning or afternoon out.\n\nLocal and regional artists fill the park with paintings, sculpture, photography, and more. It's the kind of event where the kids can wander, you can browse without a agenda, and everyone finds something worth stopping for. Plus it's outdoors in May, which in North Texas means you go now before summer shows up and ruins everything.\n\nFree parking, free entry, and it runs all day \u2014 swing by whenever it works for you.",
+    "ticket_url": "",
+    "date_generated": "2026-05-09",
+    "status": "pending",
+    "newsletter_name": "Lewisville_Lake_Lookout",
+    "total_score": "23",
+    "demographic_fit_score": "8",
+    "uniqueness_score": "7",
+    "audience_match_score": "8",
+    "scoring_notes": "Strong fit for the Flower Mound and Highland Village segments of the audience, which skew affluent and educated \u2014 exactly the demographic that turns out for arts festivals. Free admission removes any friction. Family-friendly format matches the strongly family-heavy audience skew. Uniqueness is annual but once-a-year still qualifies as a can't-miss for the local arts calendar. Slightly lower uniqueness score than Brew & Que because arts festivals are a common format, but the local setting and free price point make it highly practical for this readership.",
     "default_winner": ""
   },
   {
@@ -226,5 +264,24 @@
     "audience_match_score": "8",
     "scoring_notes": "Food-and-music festival format is a strong fit for the Perimeter audience: educated, higher-income, food-curious adults who go out regularly. City Springs is directly in the coverage zone. The June 4 date means this is a forward-looking feature rather than this-weekend urgency, which is a trade-off, but it gives readers lead time to plan. Lower uniqueness score because food festivals recur annually, but the specific Sandy Springs culinary angle adds local relevance. Worth including as a 'coming up' pick.",
     "default_winner": ""
+  },
+  {
+    "source_url": "https://www.995thewolf.com/2026/05/01/win-tickets-to-little-elms-brew-que/",
+    "event_name": "Little Elm Brew & Que",
+    "date": "Saturday, May 9",
+    "time": "TBD",
+    "venue": "Little Elm Park, Little Elm",
+    "price": "Ticketed (contest entry via 99.5 The Wolf)",
+    "blurb": "Dust off your boots and head to the lake. Little Elm's Brew & Que brings legendary BBQ, craft drinks, and live music together right on the shores of Lewisville Lake at Little Elm Park \u2014 and this one is your backyard.\n\nIt's a full Texas throwdown: competition BBQ, cold craft beers, and live music with a crowd that knows how to have a good time outdoors. The kind of event where the kids can run around while the adults eat something worth talking about later.\n\nTickets are available through 99.5 The Wolf \u2014 head there now and grab yours before they're gone.",
+    "ticket_url": "",
+    "date_generated": "2026-05-09",
+    "status": "pending",
+    "newsletter_name": "Lewisville_Lake_Lookout",
+    "total_score": "26",
+    "demographic_fit_score": "9",
+    "uniqueness_score": "8",
+    "audience_match_score": "9",
+    "scoring_notes": "This is a direct bullseye for the Lewisville Lake audience. It's on the lake, it's Texas-flavored, it fits both the family-heavy and lake-lifestyle segments of the readership. BBQ and craft beer skew well for the 36-median-age crowd. Strong uniqueness as an annual signature event for the community \u2014 not something that happens every weekend. Price point is low relative to the $95K median income. High audience match across the mixed-income suburban and lake-lifestyle reader base.",
+    "default_winner": "yes"
   }
 ]
