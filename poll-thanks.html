@@ -170,7 +170,7 @@
 
     <div id="resultsLoading" class="loading">Loading live results…</div>
 
-    <p class="countdown" id="countdown">Heading back to East Cobb Connect in 10…</p>
+    <p class="countdown" id="countdown">Heading back to East Cobb Connect in 5…</p>
     <a class="btn" id="goNow" href="https://www.eastcobbconnect.com/">Back to the newsletter →</a>
 
     <div class="footer">
@@ -250,9 +250,9 @@
         (data.updated_at ? ' · updated ' + new Date(data.updated_at).toLocaleString() : '');
     }
 
-    // Auto-redirect after 10 seconds (longer than before — gives time to read results)
+    // Auto-redirect after 5 seconds
     const dest = 'https://www.eastcobbconnect.com/';
-    let remaining = 10;
+    let remaining = 5;
     const cd = document.getElementById('countdown');
     const interval = setInterval(() => {
       remaining -= 1;
