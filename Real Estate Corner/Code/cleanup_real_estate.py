@@ -18,6 +18,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterC
 from notion_helper import query_database, archive_page, update_page
 
 NOTION_RE_DB_ID = os.environ.get("NOTION_RE_DB_ID", "")
+NEWSLETTER_SCOPE = (os.environ.get("NEWSLETTER") or "all").strip()
 APPROVED_OLD_WEEKS = 8
 
 
@@ -28,6 +29,8 @@ def cleanup_real_estate_notion() -> None:
 
     cutoff = (datetime.today() - timedelta(weeks=APPROVED_OLD_WEEKS)).strftime("%Y-%m-%d")
     print(f"  Cutoff for 'approved - old' archival: {cutoff} ({APPROVED_OLD_WEEKS} weeks ago)")
+    if NEWSLETTER_SCOPE.lower() != "all":
+        print(f"  Scope: {NEWSLETTER_SCOPE} (rows for other newsletters are skipped)")
 
     try:
         pages = query_database(NOTION_RE_DB_ID)
@@ -36,11 +39,16 @@ def cleanup_real_estate_notion() -> None:
         return
 
     print(f"  Scanning {len(pages)} real estate rows…")
-    flipped = archived = kept_old = 0
+    flipped = archived = kept_old = skipped_scope = 0
 
     for page in pages:
         page_id = page["id"]
         props = page["properties"]
+        if NEWSLETTER_SCOPE.lower() != "all":
+            row_newsletter = (props.get("Newsletter", {}).get("select") or {}).get("name") or ""
+            if row_newsletter != NEWSLETTER_SCOPE:
+                skipped_scope += 1
+                continue
         status_prop = props.get("Status", {})
         # Real Estate uses 'select' for Status (matches pet cleanup)
         status_obj = status_prop.get("select") or status_prop.get("status") or {}
@@ -70,6 +78,8 @@ def cleanup_real_estate_notion() -> None:
     print(f"\nFlipped  {flipped} 'approved' → 'approved - old'")
     print(f"Kept     {kept_old} 'approved - old' rows within {APPROVED_OLD_WEEKS}-week window")
     print(f"Archived {archived} stale RE entries (pending / rejected / >{APPROVED_OLD_WEEKS}w old)")
+    if NEWSLETTER_SCOPE.lower() != "all":
+        print(f"Skipped  {skipped_scope} rows belonging to other newsletters (scope: {NEWSLETTER_SCOPE})")
 
 
 if __name__ == "__main__":

@@ -2,6 +2,11 @@ name: Cleanup Real Estate
 
 on:
   workflow_dispatch:
+    inputs:
+      newsletter:
+        description: 'Which newsletter to clean up. "all" = every newsletter. (East_Cobb_Connect / Perimeter_Post / Lewisville_Lake_Lookout / all)'
+        required: false
+        default: 'all'
   schedule:
     - cron: '0 13 * * 6'  # Every Saturday at 8am EST (1pm UTC)
 
@@ -20,6 +25,7 @@ jobs:
           NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
           NOTION_RE_DB_ID:          ${{ secrets.NOTION_RE_DB_ID }}
+          NEWSLETTER:               ${{ github.event.inputs.newsletter || 'all' }}
         run: python "Real Estate Corner/Code/cleanup_real_estate.py"
 
       - name: Trigger deploy to refresh review app
