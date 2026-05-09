@@ -261,6 +261,21 @@ PRUNEABLE_SLOTS = [
     ("event_of_the_week_headline", "event_of_the_week_headline"),
     # Pet
     ("PET_NAME",                   "PET_NAME"),
+    # Real Estate — three tiers (Starter / Sweet Spot / Showcase). Each tier's
+    # data is the listing URL; if a tier has no listing, the URL is empty and
+    # the whole tier card gets pruned.
+    ("real_estate_starter_link",    "real_estate_starter_link"),
+    ("real_estate_sweetspot_link",  "real_estate_sweetspot_link"),
+    ("real_estate_showcase_link",   "real_estate_showcase_link"),
+    # Poll — anchor on `poll_question`; if no poll for this issue, drop the
+    # whole poll block. Then anchor on each option label individually so unused
+    # option rows (e.g. poll has 3 options, slots 4-5 in template) disappear.
+    ("poll_question",              "poll_question"),
+    ("poll_option_1_label",        "poll_option_1_label"),
+    ("poll_option_2_label",        "poll_option_2_label"),
+    ("poll_option_3_label",        "poll_option_3_label"),
+    ("poll_option_4_label",        "poll_option_4_label"),
+    ("poll_option_5_label",        "poll_option_5_label"),
 ]
 
 
