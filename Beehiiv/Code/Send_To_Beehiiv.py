@@ -220,9 +220,10 @@ URL_TYPED_KEYS = {
     "real_estate_showcase_link",
     "local_lowdown1_link", "local_lowdown2_link", "local_lowdown3_link",
     "local_lowdown4_link", "local_lowdown5_link",
-    # Poll vote-tracking links
-    "poll_option_1_url", "poll_option_2_url", "poll_option_3_url",
-    "poll_option_4_url", "poll_option_5_url",
+    # (Poll URLs intentionally NOT here — we use `{poll_option_N_slug}`
+    # embedded in the template URL field, e.g.
+    # `https://www.eastcobbconnect.com/?vote={poll_option_1_slug}`. Beehiiv
+    # treats the full URL as valid and doesn't auto-prepend a scheme.)
     # aliases (shorter forms users typed in URL fields)
     "event_of_the_week",
     "free_event_link",
@@ -538,23 +539,25 @@ def build_replacements(client: BeehiivClient, publication_id: str,
 
     # ---- Poll (inline HTML, click-tracked via Beehiiv's link analytics) ----
     # Beehiiv polls API is plan-locked — POST /polls returns 404 on this account.
-    # Workaround: each option becomes a regular link to the newsletter's domain
-    # with `?vote=<slug>`. Beehiiv tracks clicks per URL; the click counts in
-    # Beehiiv's per-issue dashboard give us the vote tally for free.
+    # Workaround: each option becomes a regular link with `?vote=<slug>`.
+    # Beehiiv tracks clicks per URL → the click counts in Beehiiv's per-issue
+    # dashboard give us the vote tally for free.
+    #
+    # IMPORTANT: only fill the SLUG, never a full URL.
+    # Beehiiv's URL-field validator mangles full-URL placeholders (we ended up
+    # with `http://http/https://...`). To work around it, the template URL field
+    # holds the entire URL EXCEPT the slug — like:
+    #     https://www.eastcobbconnect.com/?vote={poll_option_1_slug}
+    # Beehiiv sees a valid URL and doesn't touch it. We just substitute the slug.
     poll = get_latest_poll(newsletter_name)
-    poll_vote_base = (NEWSLETTER_CONFIG.get(newsletter_name) or {}).get("poll_vote_base", "")
-    if poll and poll.get("question") and poll_vote_base:
+    if poll and poll.get("question"):
         repl["poll_question"] = poll["question"]
         for i, opt in enumerate(poll.get("options", [])[:5], start=1):
             opt_slug = re.sub(r"[^a-z0-9]+", "-", opt.lower().strip()).strip("-")
-            url = poll_vote_base.format(slug=opt_slug)
             repl[f"poll_option_{i}_label"] = opt
-            repl[f"poll_option_{i}_url"]   = url
+            repl[f"poll_option_{i}_slug"]  = opt_slug
         print(f"  ✓ Poll filled: '{poll['question'][:60]}…' "
               f"({len(poll.get('options') or [])} options)")
-    else:
-        if not poll_vote_base:
-            print(f"  ⚠ poll_vote_base not configured for {newsletter_name}; poll skipped")
 
     return repl, image_swaps, alt_swaps, story_count
 
