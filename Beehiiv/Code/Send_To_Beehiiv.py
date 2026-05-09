@@ -77,10 +77,12 @@ NEWSLETTER_CONFIG = {
         "publication_id":   os.environ.get("BEEHIIV_ECC_PUBLICATION_ID", "").strip(),
         "template_post_id": _normalize_post_id(os.environ.get("BEEHIIV_ECC_TEMPLATE_POST_ID", "")),
         "display_area":     "East Cobb",
-        # Poll vote-tracking links use this base. Click counts on these URLs
-        # (per the unique `?vote=` query string) become the vote tally — visible
-        # in Beehiiv's per-issue link analytics dashboard.
-        "poll_vote_base":   "https://www.eastcobbconnect.com/?vote={slug}",
+        # Poll vote-tracking links land on a hosted "thanks for voting!" page
+        # (review-app/public/poll-thanks.html → deployed to gh-pages).
+        # The page reads ?vote=… from the URL, displays it, and redirects back
+        # to the newsletter after 5 seconds. Beehiiv tracks the click on this
+        # URL, so the click count per option = the vote tally.
+        "poll_vote_base":   "https://peachyinsurance.github.io/newsletters/poll-thanks.html?vote={slug}",
     },
     # "Perimeter_Post": {
     #     "publication_id":   os.environ.get("BEEHIIV_PP_PUBLICATION_ID", ""),

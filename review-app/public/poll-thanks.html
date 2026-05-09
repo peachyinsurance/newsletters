@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Thanks for voting! · East Cobb Connect</title>
+  <style>
+    :root {
+      --rust:  #B7461E;
+      --sage:  #6B8E5F;
+      --sand:  #F5EDE0;
+      --ink:   #2C2C2C;
+      --muted: #6B6B6B;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--sand);
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: white;
+      border-radius: 24px;
+      padding: 48px 40px;
+      max-width: 540px;
+      width: 100%;
+      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08);
+      text-align: center;
+    }
+    .check {
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 24px;
+      background: var(--sage);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 36px;
+      font-weight: 700;
+    }
+    h1 {
+      font-size: 28px;
+      margin: 0 0 12px;
+      letter-spacing: -0.02em;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 16px;
+      margin: 0 0 28px;
+      line-height: 1.5;
+    }
+    .vote-line {
+      background: var(--sand);
+      border-radius: 12px;
+      padding: 14px 20px;
+      margin: 0 auto 28px;
+      max-width: 420px;
+      font-size: 15px;
+    }
+    .vote-line strong { color: var(--rust); }
+    .countdown {
+      color: var(--muted);
+      font-size: 13px;
+      margin: 0 0 20px;
+    }
+    .btn {
+      display: inline-block;
+      background: var(--rust);
+      color: white;
+      text-decoration: none;
+      padding: 14px 28px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 15px;
+      letter-spacing: 0.02em;
+    }
+    .btn:hover { opacity: 0.9; }
+    .footer {
+      margin-top: 32px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .footer a { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="check">✓</div>
+    <h1>Thanks for voting!</h1>
+    <p class="sub">Your pick is in. Results will be in next week's issue.</p>
+    <div id="voteLine" class="vote-line" style="display:none">
+      You voted: <strong id="voteValue"></strong>
+    </div>
+    <p class="countdown" id="countdown">Heading back to East Cobb Connect in 5…</p>
+    <a class="btn" id="goNow" href="https://www.eastcobbconnect.com/">Back to the newsletter →</a>
+    <div class="footer">
+      <a href="https://www.eastcobbconnect.com/">East Cobb Connect</a>
+    </div>
+  </div>
+
+  <script>
+    // Read the vote from the URL (?vote=mexican-food etc.)
+    const params = new URLSearchParams(window.location.search);
+    const rawVote = params.get('vote') || '';
+    if (rawVote) {
+      // Pretty-print: "a-night-out-at-a-wine-bar" → "A Night Out At A Wine Bar"
+      const pretty = rawVote
+        .split('-')
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+      document.getElementById('voteValue').textContent = pretty;
+      document.getElementById('voteLine').style.display = 'block';
+    }
+
+    // Countdown + auto-redirect (5 seconds)
+    const dest = 'https://www.eastcobbconnect.com/';
+    let remaining = 5;
+    const cd = document.getElementById('countdown');
+    const tick = () => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        window.location.href = dest;
+        return;
+      }
+      cd.textContent = `Heading back to East Cobb Connect in ${remaining}…`;
+    };
+    const interval = setInterval(tick, 1000);
+
+    // If user clicks the button manually, cancel the auto-redirect
+    document.getElementById('goNow').addEventListener('click', () => {
+      clearInterval(interval);
+    });
+  </script>
+</body>
+</html>
