@@ -12,9 +12,6 @@
       --sand:  #F5EDE0;
       --ink:   #2C2C2C;
       --muted: #6B6B6B;
-      --bar-bg:    #E8DCC4;
-      --bar-fill:  #B7461E;
-      --bar-mine:  #6B8E5F;
     }
     * { box-sizing: border-box; }
     body {
@@ -24,111 +21,56 @@
       background: var(--sand);
       color: var(--ink);
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: center;
-      padding: 40px 24px;
+      padding: 24px;
     }
     .card {
       background: white;
       border-radius: 24px;
-      padding: 40px;
-      max-width: 560px;
+      padding: 48px 40px;
+      max-width: 540px;
       width: 100%;
       box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08);
       text-align: center;
     }
     .check {
-      width: 64px;
-      height: 64px;
-      margin: 0 auto 20px;
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 24px;
       background: var(--sage);
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
       color: white;
-      font-size: 32px;
+      font-size: 36px;
       font-weight: 700;
     }
     h1 {
-      font-size: 26px;
-      margin: 0 0 8px;
+      font-size: 28px;
+      margin: 0 0 12px;
       letter-spacing: -0.02em;
     }
     .sub {
       color: var(--muted);
-      font-size: 15px;
-      margin: 0 0 24px;
+      font-size: 16px;
+      margin: 0 0 28px;
       line-height: 1.5;
     }
     .vote-line {
       background: var(--sand);
       border-radius: 12px;
-      padding: 12px 20px;
+      padding: 14px 20px;
       margin: 0 auto 28px;
-      max-width: 460px;
-      font-size: 14px;
+      max-width: 420px;
+      font-size: 15px;
     }
     .vote-line strong { color: var(--rust); }
-
-    .results {
-      text-align: left;
-      margin: 32px 0 24px;
-      padding-top: 24px;
-      border-top: 1px solid var(--sand);
-    }
-    .results-title {
-      font-size: 12px;
-      font-weight: 600;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--muted);
-      text-align: center;
-      margin: 0 0 6px;
-    }
-    .results-question {
-      font-size: 16px;
-      font-weight: 600;
-      text-align: center;
-      margin: 0 0 20px;
-    }
-    .row { margin-bottom: 14px; }
-    .row-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      font-size: 14px;
-      margin-bottom: 4px;
-    }
-    .row-head .label { font-weight: 500; }
-    .row-head .stat { color: var(--muted); font-size: 13px; }
-    .row.mine .row-head .label { color: var(--sage); font-weight: 700; }
-    .row.mine .row-head .label::before { content: "✓ "; }
-    .bar {
-      background: var(--bar-bg);
-      height: 10px;
-      border-radius: 5px;
-      overflow: hidden;
-      position: relative;
-    }
-    .bar-fill {
-      height: 100%;
-      background: var(--bar-fill);
-      transition: width 0.6s ease-out;
-      border-radius: 5px;
-    }
-    .row.mine .bar-fill { background: var(--bar-mine); }
-
-    .total-line {
-      font-size: 12px;
-      color: var(--muted);
-      margin: 10px 0 0;
-      text-align: center;
-    }
     .countdown {
       color: var(--muted);
       font-size: 13px;
-      margin: 24px 0 18px;
+      margin: 0 0 20px;
     }
     .btn {
       display: inline-block;
@@ -143,45 +85,37 @@
     }
     .btn:hover { opacity: 0.9; }
     .footer {
-      margin-top: 28px;
-      font-size: 11px;
+      margin-top: 32px;
+      font-size: 12px;
       color: var(--muted);
     }
     .footer a { color: var(--muted); }
-    .loading { color: var(--muted); font-size: 13px; padding: 16px 0; }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="check">✓</div>
     <h1>Thanks for voting!</h1>
-    <p class="sub">Your pick is in. Live results below.</p>
-
+    <p class="sub">Your pick is in. See you next week.</p>
     <div id="voteLine" class="vote-line" style="display:none">
       You voted: <strong id="voteValue"></strong>
     </div>
-
-    <div class="results" id="resultsBlock" style="display:none">
-      <div class="results-title">Live Results</div>
-      <div class="results-question" id="resultsQuestion"></div>
-      <div id="resultsRows"></div>
-      <p class="total-line" id="totalLine"></p>
-    </div>
-
-    <div id="resultsLoading" class="loading">Loading live results…</div>
-
-    <p class="countdown" id="countdown">Heading back to East Cobb Connect in 5…</p>
+    <p class="countdown" id="countdown">Heading back to the newsletter in 5…</p>
     <a class="btn" id="goNow" href="https://www.eastcobbconnect.com/">Back to the newsletter →</a>
-
     <div class="footer">
       <a href="https://www.eastcobbconnect.com/">East Cobb Connect</a>
     </div>
   </div>
 
   <script>
-    // Read the user's vote from URL
     const params = new URLSearchParams(window.location.search);
-    const myVoteSlug = (params.get('vote') || '').toLowerCase();
+    const rawVote = (params.get('vote') || '').toLowerCase();
+    // Detect unfilled placeholders (clicking from a Beehiiv DRAFT preview where
+    // {poll_option_N_slug} wasn't yet replaced by Send_To_Beehiiv).
+    const isPlaceholder = /^[\{%][a-z_0-9]+[%\}]?$/i.test(rawVote)
+                          || rawVote.includes('poll_option')
+                          || rawVote.startsWith('%7b') || rawVote.startsWith('{');
+    const myVoteSlug = isPlaceholder ? '' : rawVote;
     if (myVoteSlug) {
       const pretty = myVoteSlug
         .split('-')
@@ -189,69 +123,25 @@
         .join(' ');
       document.getElementById('voteValue').textContent = pretty;
       document.getElementById('voteLine').style.display = 'block';
+    } else if (isPlaceholder) {
+      document.getElementById('voteValue').textContent = 'recorded';
+      document.getElementById('voteLine').style.display = 'block';
     }
 
-    // Fetch live results
-    async function loadResults() {
-      try {
-        // Cache-bust so updates show after the workflow refreshes the file
-        const url = './poll-counts.json?t=' + Math.floor(Date.now() / 60000);
-        const res = await fetch(url, { cache: 'no-store' });
-        if (!res.ok) throw new Error('fetch failed: ' + res.status);
-        const data = await res.json();
-        renderResults(data);
-      } catch (e) {
-        document.getElementById('resultsLoading').textContent =
-          "Live results aren't available right now.";
+    // Build the return URL from the email's UTM params so readers go back to
+    // the SAME issue rather than the publication home page.
+    function buildReturnUrl() {
+      const utmCampaign = params.get('utm_campaign') || '';
+      const utmSource   = (params.get('utm_source')  || '').toLowerCase();
+      const fallbackHost = utmSource.startsWith('www.') ? utmSource : 'www.eastcobbconnect.com';
+      if (utmCampaign && /^[a-z0-9-]+$/i.test(utmCampaign)) {
+        return 'https://' + fallbackHost + '/p/' + utmCampaign;
       }
+      return 'https://' + fallbackHost + '/';
     }
+    const dest = buildReturnUrl();
+    document.getElementById('goNow').setAttribute('href', dest);
 
-    function renderResults(data) {
-      const opts = (data.options || []);
-      if (!opts.length) {
-        document.getElementById('resultsLoading').textContent =
-          "No vote counts yet. You may be the first!";
-        return;
-      }
-      const total = data.total_votes || opts.reduce((s, o) => s + (o.count || 0), 0);
-      const max   = Math.max(1, ...opts.map(o => o.count || 0));
-
-      document.getElementById('resultsLoading').style.display = 'none';
-      const block = document.getElementById('resultsBlock');
-      block.style.display = 'block';
-
-      if (data.question) {
-        document.getElementById('resultsQuestion').textContent = data.question;
-      }
-
-      const rowsEl = document.getElementById('resultsRows');
-      rowsEl.innerHTML = '';
-      opts.forEach(o => {
-        const slug = (o.slug || '').toLowerCase();
-        const isMine = slug === myVoteSlug;
-        const widthPct = max > 0 ? (o.count / max * 100) : 0;
-        const sharePct = total > 0 ? Math.round(o.count / total * 100) : 0;
-
-        const row = document.createElement('div');
-        row.className = 'row' + (isMine ? ' mine' : '');
-        row.innerHTML = `
-          <div class="row-head">
-            <span class="label"></span>
-            <span class="stat">${o.count} (${sharePct}%)</span>
-          </div>
-          <div class="bar"><div class="bar-fill" style="width: ${widthPct}%"></div></div>
-        `;
-        row.querySelector('.label').textContent = o.label || slug;
-        rowsEl.appendChild(row);
-      });
-
-      document.getElementById('totalLine').textContent =
-        total + ' total vote' + (total === 1 ? '' : 's') +
-        (data.updated_at ? ' · updated ' + new Date(data.updated_at).toLocaleString() : '');
-    }
-
-    // Auto-redirect after 5 seconds
-    const dest = 'https://www.eastcobbconnect.com/';
     let remaining = 5;
     const cd = document.getElementById('countdown');
     const interval = setInterval(() => {
@@ -260,13 +150,9 @@
         window.location.href = dest;
         return;
       }
-      cd.textContent = `Heading back to East Cobb Connect in ${remaining}…`;
+      cd.textContent = `Heading back to the newsletter in ${remaining}…`;
     }, 1000);
-    document.getElementById('goNow').addEventListener('click', () => {
-      clearInterval(interval);
-    });
-
-    loadResults();
+    document.getElementById('goNow').addEventListener('click', () => clearInterval(interval));
   </script>
 </body>
 </html>
