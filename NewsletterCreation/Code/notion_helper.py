@@ -1262,8 +1262,9 @@ def _ensure_tips_schema():
         "Source URL":           {"url": {}},
         "Source Name":          {"rich_text": {}},
         "Newsletter":           {"select": {"options": [
-            {"name": "East_Cobb_Connect", "color": "purple"},
-            {"name": "Perimeter_Post",    "color": "pink"},
+            {"name": "East_Cobb_Connect"},
+            {"name": "Perimeter_Post"},
+            {"name": "Lewisville_Lake_Lookout"},
         ]}},
         "Date Generated":       {"date": {}},
         "Status":               {"select": {"options": [

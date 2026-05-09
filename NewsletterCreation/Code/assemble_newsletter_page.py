@@ -33,6 +33,7 @@ NOTION_FREE_EVENTS_DB_ID = os.environ.get("NOTION_FREE_EVENTS_DB_ID", "")
 NOTION_POLLS_DB_ID       = os.environ.get("NOTION_POLLS_DB_ID", "")
 NOTION_WEEKEND_PLANNER_DB_ID = os.environ.get("NOTION_WEEKEND_PLANNER_DB_ID", "")
 NOTION_BUSINESS_BRIEF_DB_ID = os.environ.get("NOTION_BUSINESS_BRIEF_DB_ID", "")
+NOTION_TIPS_DB_ID        = os.environ.get("NOTION_TIPS_DB_ID", "")
 NOTION_PARENT_PAGE_ID    = os.environ["NOTION_PARENT_PAGE_ID"]
 
 HEADERS = {
@@ -833,6 +834,42 @@ def get_latest_free_events(newsletter_name: str) -> str | None:
     return None
 
 
+def get_latest_tip(newsletter_name: str) -> dict | None:
+    """Get the tip row this newsletter should render.
+    Drop rows in 'rejected' / 'approved - old' status. Prefer the most recent
+    Default Winner; fall back to the most recent remaining row."""
+    if not NOTION_TIPS_DB_ID:
+        return None
+    try:
+        pages = query_database(NOTION_TIPS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+    except Exception:
+        return None
+    pages = [p for p in pages if
+             ((p["properties"].get("Status", {}).get("select") or {}).get("name") or "pending")
+             not in ("rejected", "approved - old")]
+    if not pages:
+        return None
+    pages.sort(
+        key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+        reverse=True,
+    )
+    winners = [p for p in pages if p["properties"].get("Default Winner", {}).get("checkbox", False)]
+    chosen = winners[0] if winners else pages[0]
+    props = chosen["properties"]
+    def _rt(key: str) -> str:
+        items = props.get(key, {}).get("rich_text", [])
+        return "".join(c.get("text", {}).get("content", "") for c in items)
+    return {
+        "tip_title":   _rt("Tip Title"),
+        "blurb":       _rt("Blurb"),
+        "source_url":  props.get("Source URL", {}).get("url", "") or "",
+        "source_name": _rt("Source Name"),
+    }
+
+
 def get_latest_free_event_image(newsletter_name: str) -> str:
     """Return the Image URL for the latest approved Free Event row, or "" if none."""
     if not NOTION_FREE_EVENTS_DB_ID:
@@ -1577,6 +1614,25 @@ def _build_business_brief(newsletter_name: str) -> list[dict]:
     return out
 
 
+def _build_tip(newsletter_name: str) -> list[dict]:
+    """Render the Insurance Tip section: bold tip title + the blurb body
+    (parsed for inline `**bold**` and `[label](url)` so links render). The
+    skill stores the tip body in the Blurb column and the title in Tip Title.
+    The 'Learn more from <Source Name>' line is part of the blurb."""
+    tip = get_latest_tip(newsletter_name)
+    if not (tip and tip.get("blurb")):
+        return [callout_block("No Insurance Tip yet. Run the Insurance Tip pipeline.", emoji="⏳")]
+    out: list[dict] = []
+    if tip.get("tip_title"):
+        out.append(paragraph_block(tip["tip_title"], bold=True))
+    for para in tip["blurb"].split("\n\n"):
+        para = para.strip()
+        if not para:
+            continue
+        out.append(paragraph_block_with_markdown(para))
+    return out
+
+
 def _build_static_placeholder(_newsletter_name: str) -> list[dict]:
     """Standard 'Not yet automated.' placeholder for un-automated sections."""
     return [_placeholder("Not yet automated.")]
@@ -1598,7 +1654,7 @@ SECTIONS = {
     "pets":           {"heading": "🐾 Furry Friends",          "builder": _build_pets},
     "weekend_planner": {"heading": "📅 Weekend Planner",        "builder": _build_weekend_planner},
     "free_events":    {"heading": "🆓 Free Event of the Week", "builder": _build_free_events},
-    "tip":            {"heading": "🛡️ Insurance Tip",          "builder": _build_static_placeholder},
+    "tip":            {"heading": "🛡️ Insurance Tip",          "builder": _build_tip},
     "in_search_of":   {"heading": "🔍 In Search Of",           "builder": _build_static_placeholder},
     "meme":           {"heading": "😂 Meme Corner",            "builder": _build_static_placeholder},
 }
