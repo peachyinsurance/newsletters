@@ -525,7 +525,7 @@ if __name__ == "__main__":
 
     for newsletter in filter_by_env():
         print(f"\n{'='*60}")
-        print(f"Processing: {newsletter['name']} ({newsletter['display']})")
+        print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
         print(f"{'='*60}")
 
         # Load previously used listings to exclude
