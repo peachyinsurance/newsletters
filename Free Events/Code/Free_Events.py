@@ -9,15 +9,7 @@ import os
 import sys
 import json
 import time
-from datetime import datetime, date, timedelta
-
-
-def _upcoming_friday(today: date | None = None) -> date:
-    """Return the next Friday on or after `today` (today if today is Friday).
-    Used to enforce 'no event before Friday of this week' when the Monday
-    pipeline runs."""
-    today = today or date.today()
-    return today + timedelta(days=(4 - today.weekday()) % 7)
+from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -27,6 +19,11 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterC
 from notion_helper import save_free_events_to_notion, get_used_free_event_urls
 from url_validator import validate_url
 from newsletters_config import NEWSLETTERS, filter_by_env
+from event_date_filter import (
+    upcoming_friday as _upcoming_friday,
+    filter_candidates_by_date,
+    filter_past_events,
+)
 
 import re as _re
 from concurrent.futures import ThreadPoolExecutor
@@ -1193,16 +1190,49 @@ if __name__ == "__main__":
         print(f"{'='*60}")
 
         excluded = get_used_free_event_urls(newsletter["name"])
-        candidates = fetch_candidates(newsletter["search_areas"], excluded_urls=excluded)
+
+        # Candidate retry loop: pull from Brave, drop past-dated entries,
+        # re-pull (excluding what we rejected) until we have enough valid
+        # options or run out of rounds.
+        MIN_VALID_CANDIDATES = 8
+        floor = _upcoming_friday()
+        candidates: list[dict] = []
+        for round_idx in range(1, 4):
+            print(f"\n  --- Free Events candidate round {round_idx} (floor: {floor}) ---")
+            new_pool = fetch_candidates(newsletter["search_areas"], excluded_urls=excluded)
+            kept, past_urls = filter_candidates_by_date(new_pool, floor)
+            excluded.update(past_urls)
+            seen = {c.get("url") for c in candidates}
+            for c in kept:
+                if c.get("url") and c["url"] not in seen:
+                    candidates.append(c)
+                    seen.add(c["url"])
+            print(f"  ↳ pool size after round {round_idx}: {len(candidates)}")
+            if len(candidates) >= MIN_VALID_CANDIDATES:
+                break
+
         if not candidates:
-            print(f"  No candidates found for {newsletter['name']}. Skipping.")
+            print(f"  No future-dated free-event candidates for {newsletter['name']}. Skipping.")
             continue
+        if len(candidates) < MIN_VALID_CANDIDATES:
+            print(f"  ⚠ Only {len(candidates)} valid candidates after retries — proceeding")
 
         # Fetch each candidate's article body so Claude has meaningful source
         # material to write the multi-section 400-600 word recommendation
         # (Brave snippets alone are too thin for that depth).
         print(f"\n  Fetching article text for {len(candidates)} candidates...")
         enrich_candidates_with_full_text(candidates)
+
+        # Re-filter post-enrichment: full_text often surfaces explicit dates
+        # that weren't in the title/summary. Drop any candidate that's now
+        # clearly past-dated.
+        candidates, more_past = filter_candidates_by_date(
+            candidates, floor, text_keys=("title", "summary", "full_text"))
+        if more_past:
+            print(f"  Post-enrichment: dropped {len(more_past)} more past-dated candidates")
+        if not candidates:
+            print(f"  All candidates filtered out post-enrichment for {newsletter['name']}. Skipping.")
+            continue
 
         print(f"\n  Sending {len(candidates)} candidates to Claude...")
         result = write_free_events(

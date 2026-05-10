@@ -28,6 +28,7 @@ from notion_helper import (
     get_existing_weekend_event_urls,
 )
 from newsletters_config import NEWSLETTERS, filter_by_env
+from event_date_filter import upcoming_friday, filter_candidates_by_date
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -273,6 +274,15 @@ def fetch_and_filter_candidates(
         candidates = [c for c in candidates if c["url"] not in excluded_urls]
         if before - len(candidates):
             print(f"    [{label}] dropped {before - len(candidates)} already-seen URLs")
+
+    # Date floor: Brave often surfaces last-month roundups whose only
+    # specific dates are past. Drop any candidate whose ONLY parseable
+    # dates fall before this week's Friday.
+    before = len(candidates)
+    candidates, past_urls = filter_candidates_by_date(candidates, upcoming_friday())
+    if past_urls:
+        excluded_urls.update(past_urls)
+        print(f"    [{label}] dropped {before - len(candidates)} past-only candidates")
 
     print(f"    [{label}] {len(candidates)} candidates ready for Claude")
     return candidates[:30]

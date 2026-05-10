@@ -9,15 +9,8 @@ import os
 import sys
 import json
 import time
-from datetime import datetime, date, timedelta
+from datetime import datetime
 
-
-def _upcoming_friday(today: date | None = None) -> date:
-    """Return the date of the next Friday on or after `today`. If today is
-    already Friday, returns today. Used to enforce 'no event before Friday
-    of this week' when the pipeline runs on Monday."""
-    today = today or date.today()
-    return today + timedelta(days=(4 - today.weekday()) % 7)
 from pathlib import Path
 
 import requests
@@ -27,6 +20,14 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterC
 from notion_helper import save_events_to_notion, get_existing_event_urls
 from url_validator import filter_valid_items
 from newsletters_config import NEWSLETTERS, filter_by_env
+# Shared event-date filtering (Friday floor + parsing) lives in
+# NewsletterCreation/Code/event_date_filter.py — used by Featured Event,
+# Free Events, and Weekend Planner.
+from event_date_filter import (
+    upcoming_friday as _upcoming_friday,
+    filter_candidates_by_date,
+    filter_past_events as _filter_past_events,
+)
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -37,7 +38,11 @@ BRAVE_NEWS_API_KEY = os.environ["BRAVE_NEWS_API_KEY"]
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-featured-event-skill_auto.md"
 
 MAX_RESULTS_PER_QUERY = 10
-TARGET_EVENTS         = 3   # return top 3, flag 1 as winner
+# Claude is asked for a larger pool so the date-floor filter has headroom —
+# we then keep the top FINAL_EVENTS by score after dropping past-dated ones.
+CANDIDATE_EVENTS      = 8   # ask Claude for this many
+TARGET_EVENTS         = CANDIDATE_EVENTS  # legacy alias used in the prompt
+FINAL_EVENTS          = 3   # keep this many after the date-floor filter
 
 # ---------------------------------------------------------------------------
 # 2. LOAD SKILL PROMPT
@@ -71,15 +76,24 @@ def build_search_queries(display_area: str, search_areas: list[str]) -> list[str
     return queries
 
 
-def fetch_events_brave(search_areas: list[str], display_area: str) -> list[dict]:
-    """Fetch event candidates via Brave Search API."""
+def fetch_events_brave(search_areas: list[str], display_area: str,
+                       exclude_urls: set[str] | None = None,
+                       extra_queries: list[str] | None = None) -> list[dict]:
+    """Fetch event candidates via Brave Search API.
+
+    `exclude_urls` — URLs we already pulled and rejected (past-dated etc.);
+    they're skipped so a re-pull yields fresh candidates.
+    `extra_queries` — additional queries to broaden the search on retries
+    (e.g. swap 'this weekend' → 'next two weeks')."""
     headers = {
         "Accept":              "application/json",
         "Accept-Encoding":     "gzip",
         "X-Subscription-Token": BRAVE_NEWS_API_KEY,
     }
-
+    exclude_urls = exclude_urls or set()
     queries = build_search_queries(display_area, search_areas)
+    if extra_queries:
+        queries = list(extra_queries) + queries
     all_results = []
     seen_urls = set()
 
@@ -98,7 +112,7 @@ def fetch_events_brave(search_areas: list[str], display_area: str) -> list[dict]
                 print(f"    News: {len(results)} results")
                 for item in results:
                     url = item.get("url", "")
-                    if not url or url in seen_urls:
+                    if not url or url in seen_urls or url in exclude_urls:
                         continue
                     seen_urls.add(url)
                     all_results.append({
@@ -121,7 +135,7 @@ def fetch_events_brave(search_areas: list[str], display_area: str) -> list[dict]
                 print(f"    Web:  {len(web_results)} results")
                 for item in web_results:
                     url = item.get("url", "")
-                    if not url or url in seen_urls:
+                    if not url or url in seen_urls or url in exclude_urls:
                         continue
                     seen_urls.add(url)
                     all_results.append({
@@ -282,6 +296,11 @@ Candidates:
         validated.append(r)
     results = validated
 
+    # Hard floor: drop anything dated before this week's Friday (the
+    # newsletter's earliest publish date). Belt-and-suspenders against
+    # Claude leaking past events past the prompt-level instruction.
+    results = _filter_past_events(results, _upcoming_friday())
+
     # Sort by total score descending
     results.sort(key=lambda x: x["total_score"], reverse=True)
 
@@ -318,29 +337,58 @@ if __name__ == "__main__":
         print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
         print(f"{'='*60}")
 
-        # Fetch event candidates
-        candidates = fetch_events_brave(
-            search_areas=newsletter["search_areas"],
-            display_area=newsletter["display_area"],
-        )
+        # Fetch event candidates → date-floor filter → backfill if needed.
+        # We want at least MIN_VALID_CANDIDATES candidates surviving the
+        # date filter so Claude has real choices. If we fall short, re-pull
+        # with broader queries while excluding URLs we already rejected.
+        MIN_VALID_CANDIDATES = 8
+        floor = _upcoming_friday()
+        excluded_urls: set[str] = set()
+        broader_query_sets = [
+            None,                                            # round 1: defaults
+            [f"{newsletter['display_area']} events next two weeks",
+             f"{newsletter['display_area']} upcoming events"],
+            [f"{newsletter['display_area']} festivals this month",
+             f"{newsletter['display_area']} concerts this month",
+             f"things to do near {newsletter['display_area']}"],
+        ]
+        candidates: list[dict] = []
+        for round_idx, extra in enumerate(broader_query_sets, 1):
+            print(f"\n  --- Candidate round {round_idx} (floor: {floor}) ---")
+            new_pool = fetch_events_brave(
+                search_areas=newsletter["search_areas"],
+                display_area=newsletter["display_area"],
+                exclude_urls=excluded_urls,
+                extra_queries=extra,
+            )
+            # URL-validate the new pool before paying for Claude
+            new_pool, rejected = filter_valid_items(
+                new_pool,
+                critical_fields=["url"],
+                optional_fields=[],
+                label_field="title",
+            )
+            if rejected:
+                print(f"  Dropped {len(rejected)} new candidates with dead URLs")
+                excluded_urls.update(r.get("url", "") for r in rejected if r.get("url"))
+            # Date-floor filter on the new pool
+            kept, past_urls = filter_candidates_by_date(new_pool, floor)
+            excluded_urls.update(past_urls)
+            # Merge (dedup by URL) into the surviving candidate set
+            seen = {c["url"] for c in candidates}
+            for c in kept:
+                if c.get("url") and c["url"] not in seen:
+                    candidates.append(c)
+                    seen.add(c["url"])
+            print(f"  ↳ pool size after round {round_idx}: {len(candidates)} valid candidates")
+            if len(candidates) >= MIN_VALID_CANDIDATES:
+                break
 
         if not candidates:
-            print(f"  No event candidates found for {newsletter['name']}. Skipping.")
+            print(f"  No future-dated event candidates for {newsletter['name']}. Skipping.")
             continue
-
-        # Validate candidate URLs before spending on Claude
-        print(f"\n  Validating {len(candidates)} candidate URLs...")
-        candidates, rejected = filter_valid_items(
-            candidates,
-            critical_fields=["url"],
-            optional_fields=[],
-            label_field="title",
-        )
-        if rejected:
-            print(f"  Dropped {len(rejected)} candidates with dead URLs before evaluation")
-        if not candidates:
-            print(f"  No candidates with valid URLs for {newsletter['name']}. Skipping.")
-            continue
+        if len(candidates) < MIN_VALID_CANDIDATES:
+            print(f"  ⚠ Only {len(candidates)} valid candidates after retries — proceeding anyway")
 
         # Cross-newsletter URL dedup — union of existing event URLs across both newsletters.
         # Re-fetched per iteration so Newsletter 2 sees Newsletter 1's freshly-saved winners.

@@ -6,8 +6,46 @@ Handles creating/updating pages in Pets and Restaurants databases.
 
 import os
 import json
+import time
 import requests
 from datetime import datetime, timedelta
+
+
+# ---------------------------------------------------------------------------
+# Notion rate-limited HTTP wrapper.
+# Notion's REST API limits to ~3 req/sec averaged. Bursting hits 429s.
+# Retries 429/5xx up to 5 times with exponential backoff (honoring
+# Retry-After when present) so a multi-newsletter run doesn't crash mid-save.
+# ---------------------------------------------------------------------------
+def _notion_request(method: str, url: str, *, json_body: dict | None = None,
+                    timeout: int = 30, max_attempts: int = 5) -> requests.Response:
+    last_exc = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            r = requests.request(method, url, headers=HEADERS,
+                                 json=json_body, timeout=timeout)
+        except requests.RequestException as e:
+            last_exc = e
+            wait = min(2 ** attempt, 30)
+            print(f"  ⚠ Notion network error (attempt {attempt}/{max_attempts}): {e} — sleeping {wait}s")
+            time.sleep(wait)
+            continue
+
+        # Retry on rate-limit / transient server errors
+        if r.status_code in (429, 500, 502, 503, 504) and attempt < max_attempts:
+            try:
+                wait = float(r.headers.get("Retry-After", "")) or min(2 ** attempt, 30)
+            except (ValueError, TypeError):
+                wait = min(2 ** attempt, 30)
+            print(f"  ⚠ Notion {r.status_code} (attempt {attempt}/{max_attempts}) — sleeping {wait}s")
+            time.sleep(wait)
+            continue
+
+        r.raise_for_status()
+        return r
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Notion request failed after retries")
 
 NOTION_API_KEY           = os.environ["NOTION_API_KEY"]
 NOTION_PETS_DB_ID        = os.environ.get("NOTION_PETS_DB_ID", "")
@@ -41,8 +79,7 @@ def query_database(db_id: str, filters: dict = None) -> list:
     while has_more:
         if cursor:
             payload["start_cursor"] = cursor
-        r = requests.post(url, headers=HEADERS, json=payload, timeout=30)
-        r.raise_for_status()
+        r = _notion_request("POST", url, json_body=payload)
         data     = r.json()
         results += data.get("results", [])
         has_more = data.get("has_more", False)
@@ -51,21 +88,18 @@ def query_database(db_id: str, filters: dict = None) -> list:
     return results
 
 def update_page(page_id: str, properties: dict) -> dict:
-    r = requests.patch(
+    r = _notion_request(
+        "PATCH",
         f"https://api.notion.com/v1/pages/{page_id}",
-        headers=HEADERS,
-        json={"properties": properties},
-        timeout=30
+        json_body={"properties": properties},
     )
-    r.raise_for_status()
     return r.json()
 
 def create_page(db_id: str, properties: dict) -> dict:
-    r = requests.post(
+    r = _notion_request(
+        "POST",
         "https://api.notion.com/v1/pages",
-        headers=HEADERS,
-        json={"parent": {"database_id": db_id}, "properties": properties},
-        timeout=30
+        json_body={"parent": {"database_id": db_id}, "properties": properties},
     )
     if not r.ok:
         print(f"  Notion error: {r.text[:500]}")
