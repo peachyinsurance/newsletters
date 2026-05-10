@@ -46,7 +46,8 @@ jobs:
           NEWSLETTER:               ${{ github.event.inputs.newsletter || 'all' }}
         run: python "Poll/Code/Poll.py"
 
-      - name: Trigger newsletter page rebuild
+      - name: Trigger newsletter page rebuild (poll section, standalone runs only)
+        if: ${{ (github.event.inputs.chain || 'true') == 'false' }}
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
@@ -55,4 +56,32 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
             -d '{"ref":"main","inputs":{"section":"poll"}}'
-          echo "✓ Newsletter page rebuild triggered"
+          echo "✓ Newsletter page rebuild triggered (poll only)"
+
+      # ─── END OF CHAIN — fire ONE full rebuild + ONE deploy ───────────
+      # On chained runs every prior step skipped its per-section page
+      # rebuild + review-app deploy; the chain consolidates them here so
+      # we deploy exactly once with all sections fresh.
+      - name: Trigger full newsletter page rebuild (end of chain)
+        if: ${{ (github.event.inputs.chain || 'true') == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
+            -d '{"ref":"main","inputs":{"section":"all"}}'
+          echo "✓ Full newsletter rebuild triggered (end of chain)"
+
+      - name: Trigger review app deploy (end of chain)
+        if: ${{ (github.event.inputs.chain || 'true') == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/deploy_review_app.yml/dispatches \
+            -d '{"ref":"main"}'
+          echo "✓ Review app deploy triggered (end of chain)"

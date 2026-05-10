@@ -42,6 +42,7 @@ jobs:
           NEWSLETTER:               ${{ github.event.inputs.newsletter || 'all' }}
         run: python "Featured Event/Code/Featured_Event.py"
       - name: Trigger newsletter page rebuild
+        if: ${{ (github.event.inputs.chain || 'true') == 'false' }}
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |

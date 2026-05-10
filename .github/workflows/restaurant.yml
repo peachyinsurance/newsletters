@@ -81,6 +81,7 @@ jobs:
           fi
 
       - name: Trigger deploy to refresh review app
+        if: ${{ (github.event.inputs.chain || 'true') == 'false' }}
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |

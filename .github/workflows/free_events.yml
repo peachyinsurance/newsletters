@@ -49,6 +49,7 @@ jobs:
         run: python "Free Events/Code/Free_Events.py"
 
       - name: Trigger newsletter page rebuild
+        if: ${{ (github.event.inputs.chain || 'true') == 'false' }}
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
