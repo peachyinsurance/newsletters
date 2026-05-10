@@ -1008,10 +1008,17 @@ def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
             "property": "Newsletter",
             "select": {"equals": newsletter_name}
         })
+        # Only block on manual edits to a row that's still 'current'
+        # (status = approved/pending). Archived ('approved - old'/'rejected')
+        # AND blank-status rows are treated as not-current — blank typically
+        # means a legacy row pre-status-tracking, which shouldn't permanently
+        # block the section.
+        def _row_is_current(p):
+            st = (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
+            return st not in ("", "approved - old", "rejected")
         has_manual_edit = any(
             p["properties"].get("Manually Edited", {}).get("checkbox", False)
-            and (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
-                not in ("approved - old", "rejected")
+            and _row_is_current(p)
             for p in existing
         )
         if has_manual_edit:
@@ -1258,10 +1265,17 @@ def save_intro_to_notion(result: dict, newsletter_name: str) -> None:
             "property": "Newsletter",
             "select": {"equals": newsletter_name}
         })
+        # Only block on manual edits to a row that's still 'current'
+        # (status = approved/pending). Archived ('approved - old'/'rejected')
+        # AND blank-status rows are treated as not-current — blank typically
+        # means a legacy row pre-status-tracking, which shouldn't permanently
+        # block the section.
+        def _row_is_current(p):
+            st = (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
+            return st not in ("", "approved - old", "rejected")
         has_manual_edit = any(
             p["properties"].get("Manually Edited", {}).get("checkbox", False)
-            and (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
-                not in ("approved - old", "rejected")
+            and _row_is_current(p)
             for p in existing
         )
         if has_manual_edit:
@@ -1536,10 +1550,17 @@ def save_free_events_to_notion(result: dict, newsletter_name: str) -> None:
             "property": "Newsletter",
             "select":   {"equals": newsletter_name}
         })
+        # Only block on manual edits to a row that's still 'current'
+        # (status = approved/pending). Archived ('approved - old'/'rejected')
+        # AND blank-status rows are treated as not-current — blank typically
+        # means a legacy row pre-status-tracking, which shouldn't permanently
+        # block the section.
+        def _row_is_current(p):
+            st = (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
+            return st not in ("", "approved - old", "rejected")
         has_manual_edit = any(
             p["properties"].get("Manually Edited", {}).get("checkbox", False)
-            and (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
-                not in ("approved - old", "rejected")
+            and _row_is_current(p)
             for p in existing
         )
         if has_manual_edit:
@@ -1716,10 +1737,17 @@ def save_poll_to_notion(result: dict, newsletter_name: str) -> None:
             "property": "Newsletter",
             "select":   {"equals": newsletter_name}
         })
+        # Only block on manual edits to a row that's still 'current'
+        # (status = approved/pending). Archived ('approved - old'/'rejected')
+        # AND blank-status rows are treated as not-current — blank typically
+        # means a legacy row pre-status-tracking, which shouldn't permanently
+        # block the section.
+        def _row_is_current(p):
+            st = (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
+            return st not in ("", "approved - old", "rejected")
         has_manual_edit = any(
             p["properties"].get("Manually Edited", {}).get("checkbox", False)
-            and (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
-                not in ("approved - old", "rejected")
+            and _row_is_current(p)
             for p in existing
         )
         if has_manual_edit:
