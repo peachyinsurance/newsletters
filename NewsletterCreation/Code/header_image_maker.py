@@ -19,9 +19,8 @@ import io
 import re
 from pathlib import Path
 
-import numpy as np
 import requests
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 
 REPO_ROOT     = Path(__file__).resolve().parent.parent.parent
@@ -36,23 +35,47 @@ TITLE_FILL = (255, 255, 255)        # white text reads cleanly on red bg
 # Sky:  pale blue (~ R<235, G>200, B>220, B>=R)
 # Grass: muted green (~ G dominant)
 def _build_blob_mask(template_rgb: Image.Image) -> Image.Image:
-    a = np.array(template_rgb)
-    R, G, B = a[..., 0], a[..., 1], a[..., 2]
-    sky   = (R > 150) & (R < 235) & (G > 200) & (B > 220) & (B >= R)
-    grass = (G > 170) & (G > R) & (G > B) & (R < 220)
-    mask = (sky | grass).astype(np.uint8) * 255
+    """Return an L-mode mask: 255 where the template's placeholder photo
+    (sky+grass blob) lives, 0 elsewhere. Pure-Pillow (no numpy) so the
+    GitHub Actions runner doesn't need extra wheels.
 
-    # Restrict to the blob bounding box — kills any false positives elsewhere
+    Detection:
+      sky   ≈ pale blue (B > R, G > 200, R < 235)
+      grass ≈ muted green (G > R and G > B and R < 220)
+    """
+    R, G, B = template_rgb.split()
+
+    # Helper: build a binary L-mask where `op(p)` is True
+    def _binmask(channel: Image.Image, lo: int, hi: int) -> Image.Image:
+        # point() returns 0/255 per pixel based on threshold
+        return channel.point(lambda p, lo=lo, hi=hi: 255 if lo <= p <= hi else 0)
+
+    # Sky candidates
+    sky_R = _binmask(R, 150, 234)
+    sky_G = _binmask(G, 201, 255)
+    sky_B = _binmask(B, 221, 255)
+    sky   = ImageChops.multiply(ImageChops.multiply(sky_R, sky_G), sky_B)
+
+    # Grass: G > R and G > B (use ImageChops.subtract; result>0 ⇒ True)
+    g_minus_r = ImageChops.subtract(G, R)            # >0 where G>R
+    g_minus_b = ImageChops.subtract(G, B)            # >0 where G>B
+    g_gt_r    = g_minus_r.point(lambda p: 255 if p > 0 else 0)
+    g_gt_b    = g_minus_b.point(lambda p: 255 if p > 0 else 0)
+    g_min     = _binmask(G, 171, 255)
+    r_low     = _binmask(R, 0, 219)
+    grass     = ImageChops.multiply(ImageChops.multiply(g_gt_r, g_gt_b),
+                                    ImageChops.multiply(g_min, r_low))
+
+    mask = ImageChops.lighter(sky, grass)            # union (sky OR grass)
+
+    # Restrict to the blob bounding box — kills false positives elsewhere
     # (e.g. the bottom-right "EAST COBB" badge contains light pixels too).
-    x1, y1, x2, y2 = BLOB_BBOX
-    bbox_mask = np.zeros_like(mask)
-    bbox_mask[y1:y2, x1:x2] = 1
-    mask = mask * bbox_mask
+    bbox_mask = Image.new("L", template_rgb.size, 0)
+    ImageDraw.Draw(bbox_mask).rectangle(BLOB_BBOX, fill=255)
+    mask = ImageChops.multiply(mask, bbox_mask)
 
-    m = Image.fromarray(mask, mode="L")
     # Smooth a hair so the edge blends with the dark blob outline.
-    m = m.filter(ImageFilter.GaussianBlur(radius=1.2))
-    return m
+    return mask.filter(ImageFilter.GaussianBlur(radius=1.2))
 
 
 def _load_font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
