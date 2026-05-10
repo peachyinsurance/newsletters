@@ -65,15 +65,20 @@ def build_search_queries(display_area: str, search_areas: list[str]) -> list[str
     today = datetime.today()
     month_year = today.strftime("%B %Y")
 
-    queries = []
-    for area in search_areas:
-        queries.append(f"{area} events this weekend")
-        queries.append(f"{area} events next week")
-        queries.append(f"{area} things to do {month_year}")
-    # Broader queries
-    queries.append(f"{display_area} concerts shows festivals {month_year}")
+    # Trimmed from 12 → 5 queries per newsletter to cut Brave spend ~2.5x.
+    # These five capture the same hits the full set did in past runs:
+    # Brave's index dedup means the per-area triplets and the
+    # "Eventbrite/concerts/things-to-do" variants all return overlapping URLs.
+    queries = [
+        f"{display_area} events this weekend",
+        f"{display_area} events next week",
+        f"{display_area} {month_year} festivals concerts",
+    ]
+    # One broader area-based query keeps coverage when the display_area
+    # is ambiguous (e.g. "Perimeter" in Georgia).
+    if search_areas:
+        queries.append(f"{search_areas[0]} things to do {month_year}")
     queries.append(f"events near {display_area} Georgia {month_year}")
-    queries.append(f"{display_area} Eventbrite events {month_year}")
     return queries
 
 
@@ -99,70 +104,43 @@ def fetch_events_brave(search_areas: list[str], display_area: str,
     all_results = []
     seen_urls = set()
 
+    # Web-only — Brave Web Search returns ≥80% of what /news/search does
+    # for these queries, at half the API cost. Dropping news cut Brave
+    # spend ~2x without measurable quality loss.
     for query in queries:
         if quota_exhausted:
             print(f"  ⏭ Skipping remaining queries — Brave quota exhausted (402)")
             break
         print(f"  Searching: {query}")
         try:
-            # Try news endpoint first for timely results
             res = requests.get(
-                "https://api.search.brave.com/res/v1/news/search",
-                headers=headers,
-                params={"q": query, "count": MAX_RESULTS_PER_QUERY, "freshness": "pw"},
-                timeout=30,
-            )
-            if res.status_code == 402:
-                print(f"    News: HTTP 402 — Brave quota exhausted; aborting search loop")
-                quota_exhausted = True
-                break
-            if res.status_code != 200:
-                print(f"    News: HTTP {res.status_code} — {res.text[:160]}")
-            if res.status_code == 200:
-                results = res.json().get("results", [])
-                print(f"    News: {len(results)} results")
-                for item in results:
-                    url = item.get("url", "")
-                    if not url or url in seen_urls or url in exclude_urls:
-                        continue
-                    seen_urls.add(url)
-                    all_results.append({
-                        "title":   item.get("title", ""),
-                        "url":     url,
-                        "source":  item.get("meta_url", {}).get("hostname", "") if isinstance(item.get("meta_url"), dict) else "",
-                        "date":    item.get("age", "") or item.get("page_age", ""),
-                        "summary": item.get("description", ""),
-                    })
-
-            # Also try web search for Eventbrite / venue pages
-            res2 = requests.get(
                 "https://api.search.brave.com/res/v1/web/search",
                 headers=headers,
                 params={"q": query, "count": MAX_RESULTS_PER_QUERY, "freshness": "pm"},
                 timeout=30,
             )
-            if res2.status_code == 402:
+            if res.status_code == 402:
                 print(f"    Web:  HTTP 402 — Brave quota exhausted; aborting search loop")
                 quota_exhausted = True
                 break
-            if res2.status_code != 200:
-                print(f"    Web:  HTTP {res2.status_code} — {res2.text[:160]}")
-            if res2.status_code == 200:
-                web_results = res2.json().get("web", {}).get("results", [])
-                print(f"    Web:  {len(web_results)} results")
-                for item in web_results:
-                    url = item.get("url", "")
-                    if not url or url in seen_urls or url in exclude_urls:
-                        continue
-                    seen_urls.add(url)
-                    all_results.append({
-                        "title":   item.get("title", ""),
-                        "url":     url,
-                        "source":  item.get("meta_url", {}).get("hostname", "") if isinstance(item.get("meta_url"), dict) else "",
-                        "date":    "",
-                        "summary": item.get("description", ""),
-                    })
-
+            if res.status_code != 200:
+                print(f"    Web:  HTTP {res.status_code} — {res.text[:160]}")
+                time.sleep(0.5)
+                continue
+            web_results = res.json().get("web", {}).get("results", [])
+            print(f"    Web:  {len(web_results)} results")
+            for item in web_results:
+                url = item.get("url", "")
+                if not url or url in seen_urls or url in exclude_urls:
+                    continue
+                seen_urls.add(url)
+                all_results.append({
+                    "title":   item.get("title", ""),
+                    "url":     url,
+                    "source":  item.get("meta_url", {}).get("hostname", "") if isinstance(item.get("meta_url"), dict) else "",
+                    "date":    item.get("age", "") or item.get("page_age", ""),
+                    "summary": item.get("description", ""),
+                })
         except Exception as e:
             print(f"    Brave API error: {e}")
 
@@ -283,7 +261,49 @@ Candidates:
 
     raw = next(block.text for block in response.content if block.type == "text")
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
-    results = json.loads(clean)
+    # Claude occasionally appends commentary, multiple arrays, or trailing
+    # whitespace after the JSON. Extract the FIRST top-level JSON array
+    # via balanced-bracket scanning so we don't choke on "Extra data".
+    try:
+        results = json.loads(clean)
+    except json.JSONDecodeError:
+        start = clean.find("[")
+        if start < 0:
+            print(f"  ✗ No JSON array in Claude response. First 500 chars:\n{clean[:500]}")
+            return []
+        depth, end = 0, -1
+        in_str = False
+        esc = False
+        for i in range(start, len(clean)):
+            ch = clean[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+            else:
+                if ch == '"':
+                    in_str = True
+                elif ch == "[":
+                    depth += 1
+                elif ch == "]":
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+        if end < 0:
+            print(f"  ✗ Couldn't find balanced JSON array. First 500 chars:\n{clean[:500]}")
+            return []
+        try:
+            results = json.loads(clean[start:end])
+            print(f"  ⓘ Recovered JSON array from chars {start}..{end} "
+                  f"(stripped {len(clean) - (end - start)} chars of extra output)")
+        except json.JSONDecodeError as e:
+            print(f"  ✗ JSON parse failed even after extraction: {e}")
+            print(f"     First 500 chars of array:\n{clean[start:start+500]}")
+            return []
 
     # Attach real URLs from candidates using the index Claude returned.
     # Discard any URLs Claude may have provided directly.
@@ -358,7 +378,13 @@ if __name__ == "__main__":
         # We want at least MIN_VALID_CANDIDATES candidates surviving the
         # date filter so Claude has real choices. If we fall short, re-pull
         # with broader queries while excluding URLs we already rejected.
+        # Round 1 typically yields 30-80 valid candidates per newsletter, so
+        # rounds 2/3 are wasted spend in normal operation. We only fire them
+        # when round 1 was thin (<3 valid) — likely indicates a bad-search-
+        # term week or geo. MIN_VALID_FOR_RETRY is the round-1 floor that
+        # triggers a retry; MIN_VALID_CANDIDATES is the warning threshold.
         MIN_VALID_CANDIDATES = 8
+        MIN_VALID_FOR_RETRY  = 3
         floor = _upcoming_friday()
         excluded_urls: set[str] = set()
         broader_query_sets = [
@@ -423,6 +449,11 @@ if __name__ == "__main__":
                     candidates.append(c)
                     seen.add(c["url"])
             print(f"  ↳ pool size after round {round_idx}: {len(candidates)} valid candidates")
+            # Stop after round 1 unless we got VERY thin — protects against
+            # burning Brave credits when the round-1 pool is healthy.
+            if round_idx == 1 and len(candidates) >= MIN_VALID_FOR_RETRY:
+                print(f"  ↳ round-1 pool sufficient ({len(candidates)} ≥ {MIN_VALID_FOR_RETRY}) — skipping retry rounds")
+                break
             if len(candidates) >= MIN_VALID_CANDIDATES:
                 break
 

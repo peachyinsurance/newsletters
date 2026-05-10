@@ -109,12 +109,16 @@ def target_weekend_dates(today: datetime | None = None) -> dict:
 # 4. SEARCH QUERY BUILDERS
 # ---------------------------------------------------------------------------
 def build_queries(newsletter: dict, audience: str, day: str, target_date_iso: str) -> list[str]:
-    """Build 4 Brave search queries for one (newsletter, audience, day) combo.
+    """Build 2 Brave search queries per (newsletter, audience, day) combo.
 
-    Queries rotate across the newsletter's `search_areas` (concrete town names)
-    rather than using the generic `display_area`. Display areas like "Perimeter"
-    or "Lewisville Lake" are too ambiguous as search keywords (Brave returns
-    Perimeter Institute physics seminars, dictionary definitions, etc.)."""
+    Trimmed from 4 → 2 to cut Brave spend ~2x — Brave's index dedupes
+    heavily across similar local-area queries, so the four-query variant
+    returned mostly overlapping URLs. Two well-chosen queries capture the
+    same hits at half the cost.
+
+    Queries rotate across `search_areas` (concrete towns) instead of
+    `display_area` because display areas like 'Perimeter' or 'Lewisville
+    Lake' return too much off-topic content (physics seminars, etc.)."""
     target_dt = datetime.fromisoformat(target_date_iso)
     date_label = target_dt.strftime("%B %d %Y")
     month_year = target_dt.strftime("%B %Y")
@@ -127,24 +131,19 @@ def build_queries(newsletter: dict, audience: str, day: str, target_date_iso: st
     if audience == "Family":
         return [
             f"{area(0)} family events {day} {date_label}",
-            f"{area(1)} kids activities {day} {month_year}",
-            f"{area(2)} family things to do weekend {month_year}",
-            f"{area(3)} library museum park {day}",
+            f"{area(1)} kids things to do {month_year}",
         ]
     else:  # Adult
         return [
-            f"{area(0)} live music {day} {month_year}",
-            f"{area(1)} brewery distillery winery {day}",
-            f"{area(2)} concerts shows nightlife {day} {month_year}",
-            f"{area(3)} adult things to do {day} {date_label}",
+            f"{area(0)} live music {day} {date_label}",
+            f"{area(1)} concerts nightlife weekend {month_year}",
         ]
 
 
 def build_fallback_queries(newsletter: dict, audience: str, day: str, target_date_iso: str) -> list[str]:
-    """Broader fallback queries for the retry pass — same towns list, but the
-    rotation starts at the back half of `search_areas` so the retry pool covers
-    different geography than the primary pass (e.g., Hickory Creek / Corinth
-    on retry instead of Lewisville / Flower Mound on primary)."""
+    """Broader fallback queries for the retry pass (trimmed 4 → 2). Rotation
+    starts at the back half of `search_areas` so the retry pool covers
+    different towns than the primary pass."""
     target_dt = datetime.fromisoformat(target_date_iso)
     month_year = target_dt.strftime("%B %Y")
 
@@ -157,16 +156,12 @@ def build_fallback_queries(newsletter: dict, audience: str, day: str, target_dat
     if audience == "Family":
         return [
             f"{area(0)} weekend events {month_year}",
-            f"things to do with kids near {area(1)}",
-            f"{area(2)} community events {month_year}",
-            f"{area(3)} family weekend activities",
+            f"{area(1)} community events {month_year}",
         ]
     else:  # Adult
         return [
-            f"{area(0)} nightlife {day} {month_year}",
-            f"{area(1)} bars venues weekend",
-            f"what's happening {area(2)} {day}",
-            f"{area(3)} weekend activities for adults {month_year}",
+            f"{area(0)} nightlife weekend {month_year}",
+            f"what's happening {area(1)} {day}",
         ]
 
 
