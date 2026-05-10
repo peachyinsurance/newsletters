@@ -107,6 +107,8 @@ def fetch_events_brave(search_areas: list[str], display_area: str,
                 params={"q": query, "count": MAX_RESULTS_PER_QUERY, "freshness": "pw"},
                 timeout=30,
             )
+            if res.status_code != 200:
+                print(f"    News: HTTP {res.status_code} — {res.text[:160]}")
             if res.status_code == 200:
                 results = res.json().get("results", [])
                 print(f"    News: {len(results)} results")
@@ -130,6 +132,8 @@ def fetch_events_brave(search_areas: list[str], display_area: str,
                 params={"q": query, "count": MAX_RESULTS_PER_QUERY, "freshness": "pm"},
                 timeout=30,
             )
+            if res2.status_code != 200:
+                print(f"    Web:  HTTP {res2.status_code} — {res2.text[:160]}")
             if res2.status_code == 200:
                 web_results = res2.json().get("web", {}).get("results", [])
                 print(f"    Web:  {len(web_results)} results")
