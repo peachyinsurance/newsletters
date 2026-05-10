@@ -48,6 +48,7 @@ from assemble_newsletter_page import (
 
 import anthropic
 from beehiiv_client import BeehiivClient, BeehiivError
+from header_image_maker import build_header_image
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +405,27 @@ def build_replacements(client: BeehiivClient, publication_id: str,
                 image_swaps[ev_img] = hosted
             alt_swaps["event_of_the_week_image"] = hosted or ev_img
 
+        # ---- Newsletter Header thumbnail (Canva-style composite) ----
+        # Build a 1200x630 PNG that puts the featured event title + photo onto
+        # the template at Featured Event/Template/featured_event_template.png,
+        # upload to Beehiiv, and swap into the template <img> whose src
+        # contains "newsletter-header".
+        try:
+            header_bytes = build_header_image(
+                title=event.get("event_name", ""),
+                photo_url=ev_img or None,
+            )
+            if header_bytes:
+                hosted_header = client.upload_image(
+                    publication_id, header_bytes,
+                    "newsletter-header.png", "image/png",
+                )
+                if hosted_header:
+                    alt_swaps["newsletter_header_image"] = hosted_header
+                    print(f"    ✓ Newsletter header image uploaded: {hosted_header}")
+        except Exception as e:
+            print(f"    ✗ Newsletter header image failed: {e}")
+
     # ---- Restaurants (Tier 1 + others) ----
     restaurants = get_restaurants(newsletter_name)
     # restaurants is sorted Tier 1 first, then Tier 2 by score
@@ -601,6 +623,7 @@ def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
     # `restaurant-radar-1` etc. don't collide with `restaurant-radar` (substring).
     # `furry-friends` would collide → use `pet-photo` instead.
     SLOT_TO_FILENAME = {
+        "newsletter_header_image":     "Newsletter_Header_image",
         "event_of_the_week_image":     "event-of-the-week",
         "restaurant_radar_image":      "restaurant-radar-1",
         "restaurant_radar_2_image":    "restaurant-radar-2",
@@ -651,6 +674,7 @@ def prune_unused_image_slots(html: str, alt_swaps: dict[str, str]) -> tuple[str,
     a swap target for that slot, the <img> is removed.
     """
     SLOT_TO_FILENAME = {
+        "newsletter_header_image":     "Newsletter_Header_image",
         "event_of_the_week_image":     "event-of-the-week",
         "restaurant_radar_image":      "restaurant-radar-1",
         "restaurant_radar_2_image":    "restaurant-radar-2",
