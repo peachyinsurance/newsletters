@@ -1,0 +1,71 @@
+name: Archive Stale Rows
+
+# Sweep: for one (or all) newsletters, find rows in every section DB whose
+# `Date Generated` is older than CUTOFF_DAYS and flip their Status to
+# `approved - old`. The assembler treats that status as "exclude from
+# rendering", so the stale data stops showing on the landing page.
+#
+# Use this when the page is bleeding data from previous weeks — usually
+# after manually deleting some Notion rows but leaving others, or when
+# `default_winner` rows from old runs are still being picked up.
+#
+# After this runs, the assembler is auto-triggered for the same
+# newsletter (section=all) so the page repaints with current data only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      newsletter:
+        description: 'Which newsletter to archive stale rows for'
+        required: false
+        default: 'East_Cobb_Connect'
+        type: choice
+        options:
+          - 'all'
+          - 'East_Cobb_Connect'
+          - 'Perimeter_Post'
+          - 'Lewisville_Lake_Lookout'
+      cutoff_days:
+        description: 'Archive rows older than N days (default 5 = anything not from this Mon)'
+        required: false
+        default: '5'
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+
+      - name: Archive stale rows
+        env:
+          NOTION_API_KEY:               ${{ secrets.NOTION_API_KEY }}
+          NOTION_PETS_DB_ID:            ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID:     ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+          NOTION_LOWDOWN_DB_ID:         ${{ secrets.NOTION_LOWDOWN_DB_ID }}
+          NOTION_RE_DB_ID:              ${{ secrets.NOTION_RE_DB_ID }}
+          NOTION_INTRO_DB_ID:           ${{ secrets.NOTION_INTRO_DB_ID }}
+          NOTION_EVENTS_DB_ID:          ${{ secrets.NOTION_EVENTS_DB_ID }}
+          NOTION_TIPS_DB_ID:            ${{ secrets.NOTION_TIPS_DB_ID }}
+          NOTION_FREE_EVENTS_DB_ID:     ${{ secrets.NOTION_FREE_EVENTS_DB_ID }}
+          NOTION_POLLS_DB_ID:           ${{ secrets.NOTION_POLLS_DB_ID }}
+          NOTION_WEEKEND_PLANNER_DB_ID: ${{ secrets.NOTION_WEEKEND_PLANNER_DB_ID }}
+          NOTION_BUSINESS_BRIEF_DB_ID:  ${{ secrets.NOTION_BUSINESS_BRIEF_DB_ID }}
+          NEWSLETTER:                   ${{ github.event.inputs.newsletter }}
+          CUTOFF_DAYS:                  ${{ github.event.inputs.cutoff_days || '5' }}
+        run: python NewsletterCreation/Code/archive_stale_rows.py
+
+      - name: Trigger assembler to repaint the page
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          NL: ${{ github.event.inputs.newsletter }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
+            -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"$NL\",\"section\":\"all\"}}"
+          echo "✓ Assembler triggered (newsletter=$NL, section=all)"
