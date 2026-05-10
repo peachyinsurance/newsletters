@@ -28,6 +28,7 @@ from event_date_filter import (
     filter_candidates_by_date,
     filter_past_events as _filter_past_events,
 )
+from aggregator_drilldown import drill_down_candidate, is_aggregator_url
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -383,18 +384,35 @@ if __name__ == "__main__":
             )
             if not new_pool:
                 brave_dead = True
-            # URL-validate the new pool before paying for Claude
-            new_pool, rejected = filter_valid_items(
-                new_pool,
-                critical_fields=["url"],
-                optional_fields=[],
-                label_field="title",
+            # NOTE: deliberately NOT URL-validating here. HEAD/GET-validation
+            # gives false positives on bot-protected event pages — local news
+            # sites (eastcobbnews.com, 11alive.com, discoveratlanta.com,
+            # artsatl.org, etc.) return 403/404 to non-browser User-Agents.
+            # We rely on aggregator drill-down + date filter as the gates.
+
+            # Drill aggregator URLs into their primary embedded source. e.g.
+            # eastcobbnews.com/taste-of-east-cobb-announces-2026-… → tasteofeastcobb.com
+            # That swap is important because the aggregator's article text may
+            # be timeless ("returns for 36th annual event") while the official
+            # site shows the actual date — which our date filter can then
+            # check against `primary_text`.
+            drilled_count = 0
+            for c in new_pool:
+                if is_aggregator_url(c.get("url", "")):
+                    drill_down_candidate(c)
+                    if c.get("drilled"):
+                        drilled_count += 1
+            if drilled_count:
+                print(f"  ↳ drilled {drilled_count} aggregator URLs to primary sources")
+
+            # Date-floor filter — scan title + summary + primary_text (when
+            # available, from drill-down). The primary_text catch is what
+            # lets us drop "Taste of East Cobb returns" articles whose
+            # official site shows a past date.
+            kept, past_urls = filter_candidates_by_date(
+                new_pool, floor,
+                text_keys=("title", "summary", "primary_text"),
             )
-            if rejected:
-                print(f"  Dropped {len(rejected)} new candidates with dead URLs")
-                excluded_urls.update(r.get("url", "") for r in rejected if r.get("url"))
-            # Date-floor filter on the new pool
-            kept, past_urls = filter_candidates_by_date(new_pool, floor)
             excluded_urls.update(past_urls)
             # Merge (dedup by URL) into the surviving candidate set
             seen = {c["url"] for c in candidates}
