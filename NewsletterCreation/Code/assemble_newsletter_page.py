@@ -654,10 +654,17 @@ def get_approved_pet(newsletter_name: str) -> dict | None:
 
     # Tier 2 fallback: default winner (most recent batch). default_winner is a
     # checkbox set by the pet pipeline when scoring picks a fresh winner.
+    # Skip rows already archived ('approved - old') or rejected — they're
+    # explicitly out of rotation, so we shouldn't promote them as fallback.
     defaults = []
     for p in nl_pages:
-        if (p["properties"].get("Default Winner", {}).get("checkbox") or False):
-            defaults.append(p)
+        if not (p["properties"].get("Default Winner", {}).get("checkbox") or False):
+            continue
+        status_prop = p["properties"].get("Status", {})
+        status_name = (status_prop.get("select") or status_prop.get("status") or {}).get("name", "")
+        if status_name in ("approved - old", "rejected"):
+            continue
+        defaults.append(p)
     if defaults:
         # Sort by Date Generated desc — pick the most recent default winner
         defaults.sort(
