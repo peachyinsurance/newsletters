@@ -338,6 +338,22 @@ Candidates:
     # Claude leaking past events past the prompt-level instruction.
     results = _filter_past_events(results, _upcoming_friday())
 
+    # Dedup by event_name — Claude sometimes returns the same event twice
+    # when two candidate indices point at the same festival via different
+    # aggregator articles (e.g. eastcobbnews + Fox5 both write up Marietta
+    # Greek Festival). Keep the higher-scored copy.
+    by_name: dict[str, dict] = {}
+    for r in results:
+        key = (r.get("event_name") or "").strip().lower()
+        if not key:
+            continue
+        existing = by_name.get(key)
+        if existing is None or (r.get("total_score", 0) > existing.get("total_score", 0)):
+            by_name[key] = r
+    if len(by_name) != len(results):
+        print(f"  ⓘ Deduplicated {len(results) - len(by_name)} same-name event(s)")
+    results = list(by_name.values())
+
     # Sort by total score descending
     results.sort(key=lambda x: x["total_score"], reverse=True)
 

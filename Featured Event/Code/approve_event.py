@@ -9,7 +9,8 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import approve_event_in_notion
 
-APPROVED_URL = os.environ["APPROVED_URL"]
+APPROVED_URL        = os.environ["APPROVED_URL"]
+APPROVED_NEWSLETTER = os.environ.get("APPROVED_NEWSLETTER", "").strip()
 
-approve_event_in_notion(APPROVED_URL)
+approve_event_in_notion(APPROVED_URL, newsletter_hint=APPROVED_NEWSLETTER)
 print("✓ Notion updated")

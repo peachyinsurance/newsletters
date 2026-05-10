@@ -467,7 +467,10 @@ def save_real_estate_to_notion(results: list[dict], newsletter_name: str) -> Non
             is_edited = props.get("Manually Edited", {}).get("checkbox", False)
             tier = (props.get("Tier", {}).get("select") or {}).get("name", "")
             status = (props.get("Status", {}).get("select") or {}).get("name", "")
-            if is_edited:
+            # Only respect Manually Edited on CURRENT rows. Once a row's
+            # been archived ('approved - old' / 'rejected'), historical
+            # manual edits shouldn't permanently block this tier.
+            if is_edited and status not in ("approved - old", "rejected"):
                 protected_tiers.add(tier)
                 print(f"  🔒 Preserving manually edited {tier} listing")
             elif status == "approved":

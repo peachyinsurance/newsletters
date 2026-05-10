@@ -6,6 +6,10 @@ on:
       source_url:
         description: 'Source URL of the pet to approve'
         required: true
+      newsletter:
+        description: 'Newsletter the pet belongs to (prevents cross-newsletter approvals)'
+        required: false
+        default: ''
 
 jobs:
   approve:
@@ -22,6 +26,7 @@ jobs:
           NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
           APPROVED_URL:             ${{ github.event.inputs.source_url }}
+          APPROVED_NEWSLETTER:      ${{ github.event.inputs.newsletter }}
         run: python Pets/Code/approve_pet.py
 
       - name: Trigger newsletter page rebuild

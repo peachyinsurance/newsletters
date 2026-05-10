@@ -603,29 +603,40 @@ def save_pets_to_notion(results: list, newsletter_name: str) -> None:
         saved += 1
     print(f"Saved {saved} new pets to Notion")
 
-def approve_pet_in_notion(source_url: str) -> None:
-    """Set approved pet to approved, all others in same newsletter to rejected."""
+def approve_pet_in_notion(source_url: str, newsletter_hint: str = "") -> None:
+    """Set approved pet to approved, all others in same newsletter to rejected.
+
+    `newsletter_hint` — scopes the lookup so a pet that appears under
+    multiple newsletters (same RescueGroups source_url shared across rows)
+    gets approved on the correct newsletter."""
     source_url = (source_url or "").strip()
     if not source_url:
         print("✗ No source_url provided — aborting approval to avoid updating all rows")
         return
 
     pages = query_database(NOTION_PETS_DB_ID)
+    newsletter_hint = (newsletter_hint or "").strip()
 
-    # First find the approved pet to get its newsletter
+    # Find the approved pet — when newsletter_hint is provided, only accept
+    # a row matching that newsletter to prevent cross-newsletter approvals.
     approved_newsletter = None
     approved_page_id = None
     for page in pages:
         props    = page["properties"]
         page_url = props.get("Source URL", {}).get("url", "")
-        if page_url and page_url == source_url:
-            newsletter = props.get("Newsletter", {}).get("select", {})
-            approved_newsletter = newsletter.get("name", "") if newsletter else ""
-            approved_page_id = page["id"]
-            break
+        if not (page_url and page_url == source_url):
+            continue
+        newsletter = props.get("Newsletter", {}).get("select", {})
+        page_newsletter = newsletter.get("name", "") if newsletter else ""
+        if newsletter_hint and page_newsletter != newsletter_hint:
+            continue
+        approved_newsletter = page_newsletter
+        approved_page_id = page["id"]
+        break
 
     if not approved_newsletter:
-        print(f"✗ No pet found with source_url '{source_url}' — aborting")
+        scope = f" in newsletter '{newsletter_hint}'" if newsletter_hint else ""
+        print(f"✗ No pet found with source_url '{source_url}'{scope} — aborting")
         return
 
     print(f"Approving for newsletter: {approved_newsletter}")
@@ -816,30 +827,44 @@ def save_restaurants_to_notion(results: list, newsletter_name: str) -> None:
         saved += 1
     print(f"Saved {saved} new restaurants to Notion")
     
-def approve_restaurant_in_notion(place_id: str) -> None:
-    """Set selected restaurant to Tier 1 Winner, others in same newsletter to Tier 2 Winner."""
+def approve_restaurant_in_notion(place_id: str, newsletter_hint: str = "") -> None:
+    """Set selected restaurant to Tier 1 Winner, others in same newsletter to Tier 2 Winner.
+
+    `newsletter_hint` — when provided, scopes the search to that newsletter
+    so chain restaurants (which exist as separate rows under each newsletter
+    with the same place_id) get approved on the right newsletter instead of
+    whichever row the DB query returned first."""
     place_id = (place_id or "").strip()
     if not place_id:
         print("✗ No place_id provided — aborting approval to avoid updating all rows")
         return
 
     pages = query_database(NOTION_RESTAURANTS_DB_ID)
+    newsletter_hint = (newsletter_hint or "").strip()
 
-    # First find the selected restaurant to get its newsletter
+    # First find the selected restaurant to get its newsletter.
+    # When `newsletter_hint` is provided, ONLY accept a row matching that
+    # newsletter — prevents cross-newsletter approvals when the same
+    # place_id exists in multiple newsletters' rows.
     approved_newsletter = None
     approved_page_id = None
     for page in pages:
         props     = page["properties"]
         pid_prop  = props.get("Place ID", {}).get("rich_text", [])
         page_place_id = pid_prop[0].get("text", {}).get("content", "") if pid_prop else ""
-        if page_place_id and page_place_id == place_id:
-            newsletter = props.get("Newsletter", {}).get("select", {})
-            approved_newsletter = newsletter.get("name", "") if newsletter else ""
-            approved_page_id = page["id"]
-            break
+        if not (page_place_id and page_place_id == place_id):
+            continue
+        newsletter = props.get("Newsletter", {}).get("select", {})
+        page_newsletter = newsletter.get("name", "") if newsletter else ""
+        if newsletter_hint and page_newsletter != newsletter_hint:
+            continue
+        approved_newsletter = page_newsletter
+        approved_page_id = page["id"]
+        break
 
     if not approved_newsletter:
-        print(f"✗ No restaurant found with place_id '{place_id}' — aborting")
+        scope = f" in newsletter '{newsletter_hint}'" if newsletter_hint else ""
+        print(f"✗ No restaurant found with place_id '{place_id}'{scope} — aborting")
         return
 
     print(f"Selecting Tier 1 for newsletter: {approved_newsletter}")
@@ -985,6 +1010,8 @@ def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
         })
         has_manual_edit = any(
             p["properties"].get("Manually Edited", {}).get("checkbox", False)
+            and (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
+                not in ("approved - old", "rejected")
             for p in existing
         )
         if has_manual_edit:
@@ -1038,29 +1065,39 @@ def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
 
 # ---------------------------------------------------------------------------
 # FEATURED EVENT HELPERS
-def approve_event_in_notion(source_url: str) -> None:
-    """Set selected event to approved, others in same newsletter to rejected"""
+def approve_event_in_notion(source_url: str, newsletter_hint: str = "") -> None:
+    """Set selected event to approved, others in same newsletter to rejected.
+
+    `newsletter_hint` — scopes the lookup so an event that appears under
+    multiple newsletters (same source URL shared across rows) gets
+    approved on the correct newsletter."""
     source_url = (source_url or "").strip()
     if not source_url:
         print("✗ No source_url provided — aborting approval to avoid updating all rows")
-        return 
+        return
 
     pages = query_database(NOTION_EVENTS_DB_ID)
+    newsletter_hint = (newsletter_hint or "").strip()
     approved_newsletter = None
     approved_page_id = None
     for page in pages:
         props = page["properties"]
         page_url = props.get("Source URL", {}).get("url", "")
-        if page_url and page_url == source_url:
-            newsletter = props.get("Newsletter", {}).get("select", {})
-            approved_newsletter = newsletter.get("name", "") if newsletter else ""
-            approved_page_id = page["id"]
-            break
+        if not (page_url and page_url == source_url):
+            continue
+        newsletter = props.get("Newsletter", {}).get("select", {})
+        page_newsletter = newsletter.get("name", "") if newsletter else ""
+        if newsletter_hint and page_newsletter != newsletter_hint:
+            continue
+        approved_newsletter = page_newsletter
+        approved_page_id = page["id"]
+        break
 
     if not approved_newsletter:
-        print(f"✗ No event found with source_url '{source_url}' — aborting")
+        scope = f" in newsletter '{newsletter_hint}'" if newsletter_hint else ""
+        print(f"✗ No event found with source_url '{source_url}'{scope} — aborting")
         return
-    
+
     print(f"Approving for newsletter: {approved_newsletter}")
 
     for page in pages:
@@ -1223,6 +1260,8 @@ def save_intro_to_notion(result: dict, newsletter_name: str) -> None:
         })
         has_manual_edit = any(
             p["properties"].get("Manually Edited", {}).get("checkbox", False)
+            and (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
+                not in ("approved - old", "rejected")
             for p in existing
         )
         if has_manual_edit:
@@ -1499,6 +1538,8 @@ def save_free_events_to_notion(result: dict, newsletter_name: str) -> None:
         })
         has_manual_edit = any(
             p["properties"].get("Manually Edited", {}).get("checkbox", False)
+            and (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
+                not in ("approved - old", "rejected")
             for p in existing
         )
         if has_manual_edit:
@@ -1677,6 +1718,8 @@ def save_poll_to_notion(result: dict, newsletter_name: str) -> None:
         })
         has_manual_edit = any(
             p["properties"].get("Manually Edited", {}).get("checkbox", False)
+            and (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
+                not in ("approved - old", "rejected")
             for p in existing
         )
         if has_manual_edit:

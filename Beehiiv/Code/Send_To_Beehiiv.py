@@ -237,12 +237,25 @@ URL_TYPED_KEYS = {
 # placeholder string we search for in the HTML to locate the slot's container.
 # Walking up to the nearest <tr> from the anchor identifies the slot's row/card.
 PRUNEABLE_SLOTS = [
-    # Restaurants — primary key is the name; if empty, drop the whole card
+    # Restaurants — primary key is the name; if empty, drop the whole card.
+    # Multiple anchors per card so we mop up every cell of a deep
+    # Beehiiv table layout (cells for name, message, url, address each
+    # sit under a different innermost container).
     ("restaurant_radar_name",      "restaurant_radar_name"),
+    ("restaurant_radar_name",      "restaurant_radar_message"),
+    ("restaurant_radar_name",      "restaurant_radar_url"),
     ("restaurant_radar_2_name",    "restaurant_radar_2_name"),
+    ("restaurant_radar_2_name",    "restaurant_radar_2_message"),
+    ("restaurant_radar_2_name",    "restaurant_radar_2_url"),
     ("restaurant_radar_3_name",    "restaurant_radar_3_name"),
+    ("restaurant_radar_3_name",    "restaurant_radar_3_message"),
+    ("restaurant_radar_3_name",    "restaurant_radar_3_url"),
     ("restaurant_radar_4_name",    "restaurant_radar_4_name"),
+    ("restaurant_radar_4_name",    "restaurant_radar_4_message"),
+    ("restaurant_radar_4_name",    "restaurant_radar_4_url"),
     ("restaurant_radar_5_name",    "restaurant_radar_5_name"),
+    ("restaurant_radar_5_name",    "restaurant_radar_5_message"),
+    ("restaurant_radar_5_name",    "restaurant_radar_5_url"),
     # Local Lowdown
     ("local_lowdown1_title",       "local_lowdown1_title"),
     ("local_lowdown2_title",       "local_lowdown2_title"),
@@ -316,11 +329,17 @@ def prune_empty_slots(html: str, replacements: dict[str, str]) -> str:
                 or target.find_parent("table")
                 or target.find_parent("div")
             )
-            if container:
+            # Guard: only decompose if we actually got a named structural
+            # element (not the root document or a degenerate tag). This
+            # prevents accidentally nuking the whole soup if BeautifulSoup
+            # returns something unexpected from find_parent().
+            if container and container.name in ("tr", "table", "div"):
                 container.decompose()
                 pruned += 1
                 print(f"    ✓ pruned slot: {primary_key} (anchor='{anchor}', container=<{container.name}>)")
                 break
+            elif container:
+                print(f"    ⚠ skipped prune for {primary_key}: unexpected container <{container.name!r}>")
         else:
             # no variant found in HTML — slot wasn't in template, nothing to prune
             pass
