@@ -69,3 +69,14 @@ jobs:
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
             -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"$NL\",\"section\":\"all\"}}"
           echo "✓ Assembler triggered (newsletter=$NL, section=all)"
+
+      - name: Trigger review app deploy
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/deploy_review_app.yml/dispatches \
+            -d '{"ref":"main"}'
+          echo "✓ Review app deploy triggered (re-exports events.json without archived rows)"
