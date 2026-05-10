@@ -25,12 +25,47 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - run: pip install requests anthropic beautifulsoup4 Pillow
+
+      - name: Build newsletter header image
+        env:
+          NOTION_API_KEY:        ${{ secrets.NOTION_API_KEY }}
+          NOTION_EVENTS_DB_ID:   ${{ secrets.NOTION_EVENTS_DB_ID }}
+          NOTION_PARENT_PAGE_ID: ${{ secrets.NOTION_PARENT_PAGE_ID }}
+          NEWSLETTER:            ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
+        run: python "Beehiiv/Code/prepare_header_image.py"
+
+      - name: Publish header image to gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          if compgen -G "Beehiiv/Code/output/Newsletter_Header_image_*.png" > /dev/null 2>&1; then
+            mkdir -p /tmp/header_staging
+            cp Beehiiv/Code/output/Newsletter_Header_image_*.png /tmp/header_staging/
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git stash --include-untracked || true
+            git fetch origin gh-pages
+            git checkout gh-pages
+            mkdir -p gifs
+            cp /tmp/header_staging/*.png gifs/
+            git add gifs/Newsletter_Header_image_*.png
+            git commit -m "update newsletter header image" || true
+            git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/peachyinsurance/newsletters.git
+            git push origin gh-pages
+            git checkout main
+            git stash pop || true
+            echo "✓ Header image published to gh-pages/gifs/"
+          else
+            echo "  ⓘ No header image to publish (no featured event?)"
+          fi
 
       - name: Send issue to Beehiiv
         env:

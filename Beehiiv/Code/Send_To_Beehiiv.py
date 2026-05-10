@@ -48,7 +48,6 @@ from assemble_newsletter_page import (
 
 import anthropic
 from beehiiv_client import BeehiivClient, BeehiivError
-from header_image_maker import build_header_image
 
 
 # ---------------------------------------------------------------------------
@@ -406,25 +405,13 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             alt_swaps["event_of_the_week_image"] = hosted or ev_img
 
         # ---- Newsletter Header thumbnail (Canva-style composite) ----
-        # Build a 1200x630 PNG that puts the featured event title + photo onto
-        # the template at Featured Event/Template/featured_event_template.png,
-        # upload to Beehiiv, and swap into the template <img> whose src
-        # contains "newsletter-header".
-        try:
-            header_bytes = build_header_image(
-                title=event.get("event_name", ""),
-                photo_url=ev_img or None,
-            )
-            if header_bytes:
-                hosted_header = client.upload_image(
-                    publication_id, header_bytes,
-                    "newsletter-header.png", "image/png",
-                )
-                if hosted_header:
-                    alt_swaps["newsletter_header_image"] = hosted_header
-                    print(f"    ✓ Newsletter header image uploaded: {hosted_header}")
-        except Exception as e:
-            print(f"    ✗ Newsletter header image failed: {e}")
+        # Generated + published to gh-pages by the
+        # `prepare_header_image.py` step earlier in send_to_beehiiv.yml.
+        # We just point the template <img> at the predicted URL.
+        alt_swaps["newsletter_header_image"] = (
+            f"https://peachyinsurance.github.io/newsletters/gifs/"
+            f"Newsletter_Header_image_{newsletter_name}.png"
+        )
 
     # ---- Restaurants (Tier 1 + others) ----
     restaurants = get_restaurants(newsletter_name)
