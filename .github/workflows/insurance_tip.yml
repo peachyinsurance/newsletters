@@ -7,6 +7,12 @@ on:
         description: 'Which newsletter to generate for. "all" = the shared-tip pattern (saves identical row to each newsletter). Filtered = single-newsletter mode. (East_Cobb_Connect / Perimeter_Post / Lewisville_Lake_Lookout / all)'
         required: false
         default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'East_Cobb_Connect'
+          - 'Perimeter_Post'
+          - 'Lewisville_Lake_Lookout'
       chain:
         description: 'Continue chain (Reader Poll) after this finishes'
         required: false

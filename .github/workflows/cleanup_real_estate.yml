@@ -7,6 +7,12 @@ on:
         description: 'Which newsletter to clean up. "all" = every newsletter. (East_Cobb_Connect / Perimeter_Post / Lewisville_Lake_Lookout / all)'
         required: false
         default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'East_Cobb_Connect'
+          - 'Perimeter_Post'
+          - 'Lewisville_Lake_Lookout'
   schedule:
     - cron: '0 13 * * 6'  # Every Saturday at 8am EST (1pm UTC)
 

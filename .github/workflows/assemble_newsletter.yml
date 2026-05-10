@@ -11,6 +11,12 @@ on:
         description: 'Which newsletter to update. "all" = every newsletter. Newsletter names: East_Cobb_Connect, Perimeter_Post, Lewisville_Lake_Lookout'
         required: false
         default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'East_Cobb_Connect'
+          - 'Perimeter_Post'
+          - 'Lewisville_Lake_Lookout'
       weekend_audience:
         description: 'Weekend Planner only: which audience pane. (Family / Adult / both)'
         required: false

@@ -9,6 +9,12 @@ on:
         description: 'Which newsletter to generate for. "all" = every newsletter. (East_Cobb_Connect / Perimeter_Post / Lewisville_Lake_Lookout / all)'
         required: false
         default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'East_Cobb_Connect'
+          - 'Perimeter_Post'
+          - 'Lewisville_Lake_Lookout'
       chain:
         description: 'Continue chain (Restaurants → Featured Event → ...) after this finishes'
         required: false
