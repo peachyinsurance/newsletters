@@ -790,7 +790,8 @@ def get_restaurants(newsletter_name: str) -> list[dict]:
 
 
 def get_latest_lowdown(newsletter_name: str) -> str | None:
-    """Get the most recent Local Lowdown section text from the database."""
+    """Get the most recent Local Lowdown section text. Skips rows in
+    `approved - old` / `rejected` so archived weeks don't keep rendering."""
     if not NOTION_LOWDOWN_DB_ID:
         return None
     try:
@@ -800,6 +801,9 @@ def get_latest_lowdown(newsletter_name: str) -> str | None:
         })
     except Exception:
         return None
+    pages = [p for p in pages
+             if (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
+             not in ("approved - old", "rejected")]
     if not pages:
         return None
     # Sort by date descending to get the latest
@@ -951,7 +955,8 @@ def get_latest_poll(newsletter_name: str) -> dict | None:
 
 
 def get_latest_intro(newsletter_name: str) -> dict | None:
-    """Get the most recent Welcome Intro blurb from the database."""
+    """Get the most recent Welcome Intro blurb. Skips rows in
+    `approved - old` / `rejected` so archived weeks don't keep rendering."""
     if not NOTION_INTRO_DB_ID:
         return None
     try:
@@ -961,6 +966,9 @@ def get_latest_intro(newsletter_name: str) -> dict | None:
         })
     except Exception:
         return None
+    pages = [p for p in pages
+             if (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
+             not in ("approved - old", "rejected")]
     if not pages:
         return None
     # Sort by date descending to get the latest
