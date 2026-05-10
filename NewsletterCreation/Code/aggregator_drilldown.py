@@ -189,19 +189,30 @@ def find_primary_url(aggregator_url: str, title: str = "") -> str | None:
 
 
 def drill_down_candidate(candidate: dict) -> dict:
-    """If `candidate['url']` is from an aggregator, swap it for the primary
-    URL discovered by drilling the page. Mutates and returns `candidate`.
+    """For aggregator candidates: fetch the article body, find a primary
+    embedded URL if available, and stash everything we can use for
+    downstream date extraction.
 
-    Adds three keys:
-      candidate['original_url']    — the aggregator URL we replaced
-      candidate['drilled']         — True if a swap happened
-      candidate['primary_text']    — fetched body text of the primary URL
-                                     (used for downstream date extraction)
+    Mutates and returns `candidate`. Adds:
+      candidate['article_text']    — body text of the aggregator article
+                                     (always populated for aggregator URLs)
+      candidate['original_url']    — the aggregator URL (when we swap)
+      candidate['drilled']         — True iff candidate.url was replaced
+      candidate['primary_text']    — body text of the primary URL (when found)
+
+    Why both: many aggregator articles contain the event details in
+    their body but link only to a venue homepage that lacks the event
+    page (e.g. eastcobbnews.com → mariettahistory.org/). The article
+    body is the only source for the actual date in those cases.
     """
     url = candidate.get("url", "")
     if not url or not is_aggregator_url(url):
         candidate["drilled"] = False
         return candidate
+
+    # Always pull the aggregator article's body text so the date filter
+    # can scan it for explicit dates ("Saturday, June 27th, at 2:00 p.m.").
+    candidate["article_text"] = fetch_page_text(url)
 
     primary = find_primary_url(url, title=candidate.get("title", ""))
     if not primary:
@@ -212,7 +223,7 @@ def drill_down_candidate(candidate: dict) -> dict:
     candidate["url"] = primary
     candidate["source"] = _hostname(primary)
     candidate["drilled"] = True
-    # Fetch primary content so the date filter can re-check against the
-    # canonical page (e.g. the official event site showing the actual date).
+    # Fetch primary content too — sometimes it has a clean event page
+    # whose date differs from anything mentioned in the aggregator body.
     candidate["primary_text"] = fetch_page_text(primary)
     return candidate

@@ -1,15 +1,20 @@
 name: Generate Insurance Tip
 
 on:
-  workflow_run:
-    workflows: ["Generate Business Brief"]
-    types: [completed]
   workflow_dispatch:
     inputs:
       newsletter:
         description: 'Which newsletter to generate for. "all" = the shared-tip pattern (saves identical row to each newsletter). Filtered = single-newsletter mode. (East_Cobb_Connect / Perimeter_Post / Lewisville_Lake_Lookout / all)'
         required: false
         default: 'all'
+      chain:
+        description: 'Continue chain (Reader Poll) after this finishes'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 jobs:
   generate:
@@ -40,3 +45,15 @@ jobs:
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
             -d '{"ref":"main","inputs":{"section":"tip"}}'
           echo "✓ Newsletter page rebuild triggered"
+
+      - name: Trigger next in chain (Reader Poll)
+        if: ${{ always() && (github.event.inputs.chain || 'true') == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/poll.yml/dispatches \
+            -d '{"ref":"main","inputs":{"chain":"true"}}'
+          echo "→ Triggered Reader Poll"

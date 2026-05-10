@@ -9,6 +9,14 @@ on:
         description: 'Which newsletter to generate for. "all" = every newsletter. (East_Cobb_Connect / Perimeter_Post / Lewisville_Lake_Lookout / all)'
         required: false
         default: 'all'
+      chain:
+        description: 'Continue chain (Restaurants → Featured Event → ...) after this finishes'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
  
 jobs:
   generate:
@@ -77,3 +85,15 @@ jobs:
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/deploy_review_app.yml/dispatches \
             -d '{"ref":"main"}'
           echo "✓ Deploy triggered"
+
+      - name: Trigger next in chain (Restaurants)
+        if: ${{ always() && (github.event.inputs.chain || 'true') == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/restaurant.yml/dispatches \
+            -d '{"ref":"main","inputs":{"chain":"true"}}'
+          echo "→ Triggered Restaurant Pipeline"

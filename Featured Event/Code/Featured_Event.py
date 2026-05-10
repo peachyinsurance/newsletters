@@ -405,13 +405,15 @@ if __name__ == "__main__":
             if drilled_count:
                 print(f"  ↳ drilled {drilled_count} aggregator URLs to primary sources")
 
-            # Date-floor filter — scan title + summary + primary_text (when
-            # available, from drill-down). The primary_text catch is what
-            # lets us drop "Taste of East Cobb returns" articles whose
-            # official site shows a past date.
+            # Date-floor filter — scan title + summary + article body
+            # (always present for aggregator candidates) + primary_text
+            # (when drill-down found a clean primary URL). The article body
+            # is critical for cases like the Marietta History Center event,
+            # where the venue's website doesn't list the event but the
+            # aggregator's article spells out 'Saturday, June 27th'.
             kept, past_urls = filter_candidates_by_date(
                 new_pool, floor,
-                text_keys=("title", "summary", "primary_text"),
+                text_keys=("title", "summary", "article_text", "primary_text"),
             )
             excluded_urls.update(past_urls)
             # Merge (dedup by URL) into the surviving candidate set
