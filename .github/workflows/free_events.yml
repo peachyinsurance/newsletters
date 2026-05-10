@@ -1,8 +1,9 @@
 name: Generate Free Events
 
 on:
-  schedule:
-    - cron: '30 13 * * 3'  # Every Wednesday at 8:30am EST (1:30pm UTC)
+  workflow_run:
+    workflows: ["Generate Featured Event"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       newsletter:

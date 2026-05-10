@@ -1,8 +1,9 @@
 name: Generate Featured Event
 
 on:
-  schedule:
-    - cron: '0 13 * * 3'  # Every Wednesday at 8am EST (1pm UTC)
+  workflow_run:
+    workflows: ["Restaurant Pipeline"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       newsletter:

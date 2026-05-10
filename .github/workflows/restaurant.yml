@@ -1,14 +1,15 @@
 name: Restaurant Pipeline
 
 on:
+  workflow_run:
+    workflows: ["Generate Newsletter - Pet Adoption"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       newsletter:
         description: 'Which newsletter to generate for. "all" = every newsletter. (East_Cobb_Connect / Perimeter_Post / Lewisville_Lake_Lookout / all)'
         required: false
         default: 'all'
-  schedule:
-    - cron: '0 10 * * 1'  # Every Monday at 10am UTC
 
 jobs:
   run:

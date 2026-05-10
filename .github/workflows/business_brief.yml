@@ -1,8 +1,9 @@
 name: Generate Business Brief
 
 on:
-  schedule:
-    - cron: '0 14 * * 3'  # Every Wednesday at 9am EST (2pm UTC)
+  workflow_run:
+    workflows: ["Generate Weekend Planner"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       newsletter:

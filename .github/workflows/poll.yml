@@ -1,8 +1,9 @@
 name: Generate Reader Poll
 
 on:
-  schedule:
-    - cron: '0 16 * * 3'  # Every Wednesday at 11am EST (4pm UTC) — after Free Events
+  workflow_run:
+    workflows: ["Generate Insurance Tip"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       newsletter:

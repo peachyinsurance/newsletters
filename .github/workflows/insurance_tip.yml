@@ -1,8 +1,9 @@
 name: Generate Insurance Tip
 
 on:
-  schedule:
-    - cron: '0 13 * * 1'  # Every Monday at 8am EST (1pm UTC)
+  workflow_run:
+    workflows: ["Generate Business Brief"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       newsletter:

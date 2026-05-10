@@ -9,7 +9,15 @@ import os
 import sys
 import json
 import time
-from datetime import datetime
+from datetime import datetime, date, timedelta
+
+
+def _upcoming_friday(today: date | None = None) -> date:
+    """Return the date of the next Friday on or after `today`. If today is
+    already Friday, returns today. Used to enforce 'no event before Friday
+    of this week' when the pipeline runs on Monday."""
+    today = today or date.today()
+    return today + timedelta(days=(4 - today.weekday()) % 7)
 from pathlib import Path
 
 import requests
@@ -167,7 +175,14 @@ def evaluate_and_write_events(
     )
 
     today = datetime.today()
-    pub_context = f"Today is {today.strftime('%A, %B %d, %Y')}. The newsletter publishes this week."
+    earliest = _upcoming_friday(today.date())
+    pub_context = (
+        f"Today is {today.strftime('%A, %B %d, %Y')}. "
+        f"The newsletter publishes this week. "
+        f"IMPORTANT: only consider events occurring on or after "
+        f"{earliest.strftime('%A, %B %d, %Y')} "
+        f"(the upcoming Friday) — anything earlier in the week is past by send time."
+    )
 
     response = None
     for attempt in range(3):

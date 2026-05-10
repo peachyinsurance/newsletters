@@ -1,8 +1,9 @@
 name: Generate Weekend Planner
 
 on:
-  schedule:
-    - cron: '0 13 * * 3'  # Every Wednesday at 8am EST (1pm UTC) — 8 days before Thursday issue
+  workflow_run:
+    workflows: ["Generate Real Estate Corner"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       newsletter:

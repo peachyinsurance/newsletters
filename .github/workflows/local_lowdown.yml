@@ -1,8 +1,9 @@
 name: Generate Local Lowdown
 
 on:
-  schedule:
-    - cron: '0 13 * * 3'  # Every Wednesday at 8am EST (1pm UTC)
+  workflow_run:
+    workflows: ["Generate Free Events"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       newsletter:

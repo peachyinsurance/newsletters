@@ -2,7 +2,7 @@ name: Generate Newsletter - Pet Adoption
  
 on:
   schedule:
-    - cron: '0 9 * * 1'   # Every Monday at 9am UTC
+    - cron: '0 13 * * 1'  # Mon 8am EST (1pm UTC) — chain starter
   workflow_dispatch:        # Allows manual trigger from GitHub UI
     inputs:
       newsletter:

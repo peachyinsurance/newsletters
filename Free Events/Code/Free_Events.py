@@ -9,7 +9,15 @@ import os
 import sys
 import json
 import time
-from datetime import datetime
+from datetime import datetime, date, timedelta
+
+
+def _upcoming_friday(today: date | None = None) -> date:
+    """Return the next Friday on or after `today` (today if today is Friday).
+    Used to enforce 'no event before Friday of this week' when the Monday
+    pipeline runs."""
+    today = today or date.today()
+    return today + timedelta(days=(4 - today.weekday()) % 7)
 from pathlib import Path
 
 import requests
@@ -680,6 +688,8 @@ def write_free_events(candidates: list[dict], newsletter_name: str, display_area
 Newsletter: {newsletter_name}
 Publication date: {pub_date}
 Coverage area: {display_area}
+
+IMPORTANT date floor: the event must occur on or after {_upcoming_friday().strftime('%A, %B %d, %Y')} (the upcoming Friday). Reject anything dated earlier — by send time those will be past.
 
 Each candidate may include a `full_text` field — that's the actual article body fetched from the URL. **When `full_text` is present, use it as your primary source for writing the body_markdown** (specific details, history, hours, parking, vibe). The `summary` is only a Brave snippet — much thinner than `full_text`. Fall back to `summary` only when `full_text` is empty.
 

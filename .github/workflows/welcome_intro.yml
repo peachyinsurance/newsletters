@@ -2,7 +2,7 @@ name: Generate Welcome Intro
 
 on:
   schedule:
-    - cron: '0 14 * * 3'  # Every Wednesday at 9am EST (2pm UTC) — runs after lowdown & real estate
+    - cron: '0 13 * * 4'  # Thursday 8am EST (1pm UTC) — uses Mon's pet/restaurant/featured event
   workflow_dispatch:
     inputs:
       newsletter:
