@@ -67,8 +67,11 @@ def search_web(
                 params={"q": q, "count": max_per_query},
                 timeout=30,
             )
+            if res.status_code == 402:
+                print(f"    Brave API quota exhausted (402) — aborting remaining queries")
+                break
             if res.status_code != 200:
-                print(f"    Brave API status {res.status_code}")
+                print(f"    Brave API status {res.status_code} — {res.text[:160]}")
                 continue
 
             web_results = res.json().get("web", {}).get("results", [])

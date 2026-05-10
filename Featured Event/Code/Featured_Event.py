@@ -94,10 +94,14 @@ def fetch_events_brave(search_areas: list[str], display_area: str,
     queries = build_search_queries(display_area, search_areas)
     if extra_queries:
         queries = list(extra_queries) + queries
+    quota_exhausted = False  # set True on HTTP 402 — stop hammering the API
     all_results = []
     seen_urls = set()
 
     for query in queries:
+        if quota_exhausted:
+            print(f"  ⏭ Skipping remaining queries — Brave quota exhausted (402)")
+            break
         print(f"  Searching: {query}")
         try:
             # Try news endpoint first for timely results
@@ -107,6 +111,10 @@ def fetch_events_brave(search_areas: list[str], display_area: str,
                 params={"q": query, "count": MAX_RESULTS_PER_QUERY, "freshness": "pw"},
                 timeout=30,
             )
+            if res.status_code == 402:
+                print(f"    News: HTTP 402 — Brave quota exhausted; aborting search loop")
+                quota_exhausted = True
+                break
             if res.status_code != 200:
                 print(f"    News: HTTP {res.status_code} — {res.text[:160]}")
             if res.status_code == 200:
@@ -132,6 +140,10 @@ def fetch_events_brave(search_areas: list[str], display_area: str,
                 params={"q": query, "count": MAX_RESULTS_PER_QUERY, "freshness": "pm"},
                 timeout=30,
             )
+            if res2.status_code == 402:
+                print(f"    Web:  HTTP 402 — Brave quota exhausted; aborting search loop")
+                quota_exhausted = True
+                break
             if res2.status_code != 200:
                 print(f"    Web:  HTTP {res2.status_code} — {res2.text[:160]}")
             if res2.status_code == 200:
@@ -357,7 +369,11 @@ if __name__ == "__main__":
              f"things to do near {newsletter['display_area']}"],
         ]
         candidates: list[dict] = []
+        brave_dead = False  # set True if a round returns 0 candidates (quota or hard outage)
         for round_idx, extra in enumerate(broader_query_sets, 1):
+            if brave_dead:
+                print(f"  ⏭ Skipping round {round_idx} — Brave returned no results last round")
+                break
             print(f"\n  --- Candidate round {round_idx} (floor: {floor}) ---")
             new_pool = fetch_events_brave(
                 search_areas=newsletter["search_areas"],
@@ -365,6 +381,8 @@ if __name__ == "__main__":
                 exclude_urls=excluded_urls,
                 extra_queries=extra,
             )
+            if not new_pool:
+                brave_dead = True
             # URL-validate the new pool before paying for Claude
             new_pool, rejected = filter_valid_items(
                 new_pool,

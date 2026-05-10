@@ -1197,9 +1197,15 @@ if __name__ == "__main__":
         MIN_VALID_CANDIDATES = 8
         floor = _upcoming_friday()
         candidates: list[dict] = []
+        brave_dead = False
         for round_idx in range(1, 4):
+            if brave_dead:
+                print(f"  ⏭ Skipping round {round_idx} — Brave returned nothing last round")
+                break
             print(f"\n  --- Free Events candidate round {round_idx} (floor: {floor}) ---")
             new_pool = fetch_candidates(newsletter["search_areas"], excluded_urls=excluded)
+            if not new_pool:
+                brave_dead = True
             kept, past_urls = filter_candidates_by_date(new_pool, floor)
             excluded.update(past_urls)
             seen = {c.get("url") for c in candidates}
