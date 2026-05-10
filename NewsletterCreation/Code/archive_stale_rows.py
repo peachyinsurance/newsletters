@@ -41,7 +41,10 @@ from notion_helper import (  # noqa: E402
 NEWSLETTER  = os.environ.get("NEWSLETTER", "all").strip()
 CUTOFF_DAYS = int(os.environ.get("CUTOFF_DAYS", "5"))
 
-CUTOFF_DATE = date.today() - timedelta(days=CUTOFF_DAYS)
+# CUTOFF_DAYS=0 → archive EVERY row (regardless of date) — full nuke for
+# the chosen newsletter. Otherwise archive rows older than (today - N days).
+ARCHIVE_ALL  = CUTOFF_DAYS == 0
+CUTOFF_DATE  = date.today() - timedelta(days=CUTOFF_DAYS)
 SKIP_STATUSES = {"approved - old", "rejected"}
 
 # (db_id, friendly_label) — order matches landing-page render order roughly.
@@ -101,14 +104,15 @@ def archive_stale_in_db(db_id: str, label: str) -> tuple[int, int]:
         if status in SKIP_STATUSES:
             continue
         date_str = _row_date(props)
-        # Rows with no date — treat as stale (legacy / orphan rows)
-        if date_str:
-            try:
-                row_date = date.fromisoformat(date_str)
-            except ValueError:
-                row_date = None
-            if row_date and row_date >= CUTOFF_DATE:
-                continue  # row is current — keep it
+        if not ARCHIVE_ALL:
+            # Rows with no date — treat as stale (legacy / orphan rows)
+            if date_str:
+                try:
+                    row_date = date.fromisoformat(date_str)
+                except ValueError:
+                    row_date = None
+                if row_date and row_date >= CUTOFF_DATE:
+                    continue  # row is current — keep it
 
         nl = _row_newsletter(props)
         try:
@@ -127,7 +131,10 @@ def archive_stale_in_db(db_id: str, label: str) -> tuple[int, int]:
 def main() -> None:
     print("=" * 60)
     print(f"Archiving stale rows for: {NEWSLETTER!r}")
-    print(f"Cutoff: anything dated before {CUTOFF_DATE} (older than {CUTOFF_DAYS} days)")
+    if ARCHIVE_ALL:
+        print(f"Cutoff: ARCHIVE EVERYTHING (CUTOFF_DAYS=0 — full nuke)")
+    else:
+        print(f"Cutoff: anything dated before {CUTOFF_DATE} (older than {CUTOFF_DAYS} days)")
     print("=" * 60)
 
     total_archived = 0

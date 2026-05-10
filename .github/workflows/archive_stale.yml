@@ -26,7 +26,7 @@ on:
           - 'Perimeter_Post'
           - 'Lewisville_Lake_Lookout'
       cutoff_days:
-        description: 'Archive rows older than N days (default 5 = anything not from this Mon)'
+        description: 'Archive rows older than N days. Use 0 to archive EVERYTHING (full nuke).'
         required: false
         default: '5'
 
