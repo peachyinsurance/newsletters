@@ -97,3 +97,19 @@ jobs:
           NEWSLETTER:                    ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
           STATUS:                        ${{ github.event.inputs.status || 'draft' }}
         run: python "Beehiiv/Code/Send_To_Beehiiv.py"
+
+      # When the newsletter is actually being sent (not a draft), kick off
+      # a poll-counts refresh immediately so the landing page reflects votes
+      # from the moment subscribers start clicking — no waiting for the next
+      # 30-min cron tick. Drafts skip this since there's nothing to poll yet.
+      - name: Trigger initial poll counts update
+        if: ${{ github.event.inputs.status != 'draft' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/update_poll_counts.yml/dispatches \
+            -d '{"ref":"main"}'
+          echo "✓ Poll counts update triggered (post-send)"

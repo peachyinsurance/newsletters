@@ -61,5 +61,5 @@ jobs:
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/business_brief.yml/dispatches \
-            -d '{"ref":"main","inputs":{"chain":"true"}}'
+            -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"${{ github.event.inputs.newsletter || 'all' }}\",\"chain\":\"true\"}}"
           echo "→ Triggered Business Brief"
