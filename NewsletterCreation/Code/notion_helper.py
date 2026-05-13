@@ -580,6 +580,26 @@ def save_pets_to_notion(results: list, newsletter_name: str) -> None:
     print(f"Saving {len(results)} pets to Notion...")
     existing_urls = get_existing_pet_urls(newsletter_name)
     print(f"  Found {len(existing_urls)} existing entries to skip")
+
+    # Flip previous 'approved' rows for this newsletter to 'approved - old'
+    # so the assembler picks this week's batch instead of last week's
+    # manual approval. Matches the real-estate save pattern.
+    try:
+        existing_pages = query_database(NOTION_PETS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+        flipped = 0
+        for page in existing_pages:
+            status = (page["properties"].get("Status", {}).get("select") or {}).get("name", "")
+            if status == "approved":
+                update_page(page["id"], {"Status": {"select": {"name": "approved - old"}}})
+                flipped += 1
+        if flipped:
+            print(f"  Flipped {flipped} previous approved pet(s) → 'approved - old' for {newsletter_name}")
+    except Exception as e:
+        print(f"  Warning: could not flip old approved pets: {e}")
+
     saved = 0
     for data in results:
         source_url = data.get("source_url") or data.get("listing_url", "")

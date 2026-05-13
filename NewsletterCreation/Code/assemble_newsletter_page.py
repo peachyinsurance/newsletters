@@ -656,7 +656,14 @@ def get_approved_pet(newsletter_name: str) -> dict | None:
         if status_name == "approved":
             approved.append(p)
     if approved:
-        print(f"  {len(approved)} approved pet(s) for {newsletter_name}")
+        # Sort by Date Generated desc so the MOST RECENT approval wins
+        # (legacy approved rows that weren't flipped to 'approved - old'
+        # shouldn't beat this week's pick).
+        approved.sort(
+            key=lambda p: (p["properties"].get("Date Generated", {}).get("date") or {}).get("start", ""),
+            reverse=True,
+        )
+        print(f"  {len(approved)} approved pet(s) for {newsletter_name} — using most recent")
         return _pet_row_to_dict(approved[0]["properties"])
 
     # Tier 2 fallback: default winner (most recent batch). default_winner is a
