@@ -1923,6 +1923,21 @@ def get_existing_weekend_event_urls(newsletter_name: str) -> set:
         return set()
 
 
+def _normalize_weekend_url(u: str) -> str:
+    """Normalize a URL for cross-run dedup. Strips query strings, trailing
+    slashes, case, and 'www.' so the same event saved with different URL
+    variants matches as a duplicate.
+    e.g. 'https://www.dreamhack.com/atlanta/tickets/?utm=x'
+       → 'https://dreamhack.com/atlanta/tickets'"""
+    if not u:
+        return ""
+    from urllib.parse import urlparse
+    p = urlparse(u.strip())
+    host = (p.hostname or "").lower().removeprefix("www.")
+    path = (p.path or "/").rstrip("/").lower()
+    return f"{p.scheme}://{host}{path}"
+
+
 def save_weekend_events_to_notion(results: list, newsletter_name: str) -> None:
     """Save weekend event candidates to Notion. Each row is one event.
     Expected fields per item: audience, day, date, emoji, event_name, venue,
@@ -1933,12 +1948,15 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str) -> None:
 
     print(f"  Saving {len(results)} weekend events to Notion for {newsletter_name}...")
     existing_urls = get_existing_weekend_event_urls(newsletter_name)
-    print(f"  Found {len(existing_urls)} existing entries to skip")
+    # Match by normalized URL so query-string / trailing-slash / case
+    # variants of the same event are treated as duplicates.
+    existing_norm = {_normalize_weekend_url(u) for u in existing_urls}
+    print(f"  Found {len(existing_norm)} existing entries to skip")
 
     saved = 0
     for data in results:
         source_url = data.get("source_url", "")
-        if source_url and source_url in existing_urls:
+        if source_url and _normalize_weekend_url(source_url) in existing_norm:
             print(f"  ✗ Skipping duplicate: {data.get('event_name')}")
             continue
 
@@ -1969,6 +1987,10 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str) -> None:
             properties["Date"] = {"date": {"start": date_val}}
 
         create_page(NOTION_WEEKEND_PLANNER_DB_ID, properties)
+        # Add this URL to the in-memory dedup set so a later item in the
+        # same batch with the same normalized URL gets skipped.
+        if source_url:
+            existing_norm.add(_normalize_weekend_url(source_url))
         saved += 1
     print(f"  Saved {saved} new weekend events to Notion for {newsletter_name}")
 

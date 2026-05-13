@@ -492,8 +492,22 @@ if __name__ == "__main__":
         print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
         print(f"{'='*60}")
 
-        existing_urls = get_existing_weekend_event_urls(newsletter["name"])
-        print(f"  {len(existing_urls)} existing URLs in Notion (cross-run dedup)")
+        # Normalize URLs before comparing so the same event with different
+        # query strings / paths / trailing slashes dedupes correctly.
+        # e.g. dreamhack.com/atlanta/tickets/?utm=x → dreamhack.com/atlanta/tickets
+        def _normalize_url(u: str) -> str:
+            if not u:
+                return ""
+            from urllib.parse import urlparse
+            p = urlparse(u.strip())
+            host = (p.hostname or "").lower().removeprefix("www.")
+            path = (p.path or "/").rstrip("/").lower()
+            return f"{p.scheme}://{host}{path}"
+
+        existing_url_set = get_existing_weekend_event_urls(newsletter["name"])
+        # Stored normalized so any URL variant of an already-saved event matches
+        existing_norm = {_normalize_url(u) for u in existing_url_set}
+        print(f"  {len(existing_norm)} existing URLs in Notion (cross-run dedup)")
 
         all_events: list[dict] = []
         for audience in AUDIENCES:
@@ -504,18 +518,42 @@ if __name__ == "__main__":
                     day=day,
                     target_date_iso=weekend[day],
                     skill_prompt=skill_prompt,
-                    existing_urls=existing_urls,
+                    existing_urls=existing_url_set,
                 )
                 all_events.extend(bucket_events)
-                # Track new URLs to avoid re-using within this run across buckets
+                # Track new URLs (both raw and normalized) to avoid re-using
+                # within this run across buckets. Adds BOTH the post-drill URL
+                # and the original aggregator URL so subsequent buckets can't
+                # surface the same event via a different URL variant.
                 for ev in bucket_events:
-                    if ev.get("source_url"):
-                        existing_urls.add(ev["source_url"])
+                    for k in ("source_url", "source_url_aggregator"):
+                        u = ev.get(k)
+                        if u:
+                            existing_url_set.add(u)
+                            existing_norm.add(_normalize_url(u))
                 time.sleep(0.5)
 
         if not all_events:
             print(f"\n  No events accepted for {newsletter['name']}. Skipping save.")
             continue
+
+        # Final within-run dedup: collapse any rows whose normalized URLs
+        # match. Belt-and-suspenders against cross-bucket leaks that slip
+        # past the URL-exclusion logic above (e.g. event picked via Eventbrite
+        # in one bucket and via venue site in another, both drilled to same
+        # primary).
+        seen_norm = set()
+        deduped = []
+        for ev in all_events:
+            n = _normalize_url(ev.get("source_url", ""))
+            if n in seen_norm:
+                print(f"  ✗ within-run dedup: dropping {ev.get('event_name','?')[:50]} ({n})")
+                continue
+            seen_norm.add(n)
+            deduped.append(ev)
+        if len(deduped) != len(all_events):
+            print(f"  ↳ within-run dedup: {len(all_events)} → {len(deduped)} events")
+        all_events = deduped
 
         print(f"\n  Saving {len(all_events)} total events for {newsletter['name']}...")
         save_weekend_events_to_notion(all_events, newsletter["name"])
