@@ -136,11 +136,15 @@ def _absolutize(url: str, base_url: str) -> str:
     return url  # leave alone if we can't resolve
 
 
-def fetch_event_image(source_url: str) -> str:
+def fetch_event_image(source_url: str, _allow_root_fallback: bool = True) -> str:
     """Pull a reliable hero image URL from the source page. Tries (in order):
        1. og:image / twitter:image / image_src meta tags
        2. JSON-LD structured data (schema.org Event.image)
        3. First reasonably-large <img> in the page body (>= 400px width)
+       4. If `_allow_root_fallback` and nothing found, retry once against the
+          site's root URL — e.g. a deep ticket page like
+          `dreamhack.com/atlanta/tickets/` falls back to `dreamhack.com/`,
+          which often hosts the event/site banner as its own og:image.
 
     Each candidate is HEAD-validated to confirm it actually serves an image
     >5 KB before returning. Skips obvious logos, favicons, trackers, etc.
@@ -148,6 +152,31 @@ def fetch_event_image(source_url: str) -> str:
     """
     if not source_url:
         return ""
+
+    # Helper used twice: once for primary fetch, once for root fallback after
+    # a hard fetch failure (page 404, timeout, etc.).
+    def _try_root_fallback(reason: str) -> str:
+        if not _allow_root_fallback:
+            return ""
+        try:
+            from urllib.parse import urlparse, urlunparse
+            parsed = urlparse(source_url)
+            host = (parsed.hostname or "").lower().removeprefix("www.")
+            MARKETPLACE_HOSTS = (
+                "eventbrite.com", "ticketmaster.com", "axs.com", "stubhub.com",
+                "seatgeek.com", "meetup.com", "allevents.in", "facebook.com",
+                "ticketweb.com", "bigtickets.com", "etix.com", "vivenu.com",
+                "tixr.com", "freshtix.com",
+            )
+            if host and not any(host == m or host.endswith("." + m) for m in MARKETPLACE_HOSTS):
+                root = urlunparse((parsed.scheme, parsed.netloc, "/", "", "", ""))
+                if root and root != source_url:
+                    print(f"      ↳ {reason} — retrying root-domain fallback: {root}")
+                    return fetch_event_image(root, _allow_root_fallback=False)
+        except Exception as e:
+            print(f"      ⚠ root fallback skipped: {e}")
+        return ""
+
     try:
         r = requests.get(
             source_url,
@@ -156,10 +185,10 @@ def fetch_event_image(source_url: str) -> str:
             allow_redirects=True,
         )
         if r.status_code != 200 or not r.text:
-            return ""
+            return _try_root_fallback(f"primary fetch returned HTTP {r.status_code}")
         html = r.text
-    except Exception:
-        return ""
+    except Exception as e:
+        return _try_root_fallback(f"primary fetch error: {e}")
 
     SKIP_TOKENS = ("logo", "favicon", "sprite", "icon-", "/icons/",
                    "placeholder", "spacer", "tracker", "pixel.gif",
@@ -246,7 +275,7 @@ def fetch_event_image(source_url: str) -> str:
             return url
 
     print(f"      · no reliable free-event image found ({len(candidates)} candidates rejected)")
-    return ""
+    return _try_root_fallback(f"no usable image on {source_url}")
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
