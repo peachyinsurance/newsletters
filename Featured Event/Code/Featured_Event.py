@@ -509,6 +509,25 @@ if __name__ == "__main__":
         # Flag winner
         results = flag_default_winner(results)
 
+        # Populate image_url for each event by scraping og:image / JSON-LD
+        # from the source URL. Reuses the Free Events helper which has the
+        # full og:image → JSON-LD → body-image fallback chain.
+        try:
+            sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'Free Events', 'Code'))
+            from Free_Events import fetch_event_image
+            for r in results:
+                if r.get("image_url"):
+                    continue
+                url = r.get("source_url") or r.get("ticket_url") or ""
+                if not url:
+                    continue
+                img = fetch_event_image(url)
+                if img:
+                    r["image_url"] = img
+                    print(f"  ↳ scraped image for {r.get('event_name','?')[:50]}: {img[:80]}")
+        except Exception as e:
+            print(f"  ⚠ image scrape skipped ({e}) — events will save without image_url")
+
         # Save to Notion
         save_events_to_notion(results, newsletter["name"])
 

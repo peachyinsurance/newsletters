@@ -853,14 +853,26 @@ def main():
     # Title — same as subject for v1 (Beehiiv distinguishes title vs subject_line)
     title = f"{NEWSLETTER.replace('_', ' ')} — {datetime.today().strftime('%B %d, %Y')}"
 
+    # The header image is generated + published to gh-pages by the
+    # `prepare_header_image.py` step earlier in the workflow. Beehiiv
+    # renders this as the post thumbnail: shows at the top of the email,
+    # on the web post hero, on the newsletter homepage card, and as the
+    # social-share preview (OG image). One field, every surface.
+    thumbnail_url = (
+        f"https://peachyinsurance.github.io/newsletters/gifs/"
+        f"Newsletter_Header_image_{NEWSLETTER}.png"
+    )
+
     # Create the post
     print(f"\n  Creating Beehiiv post (status: {STATUS})…")
+    print(f"  Thumbnail: {thumbnail_url}")
     new_post = client.create_post(
         cfg["publication_id"],
         title=title,
         subject_line=subject,
         content_html=new_body,
         status=STATUS,
+        thumbnail_url=thumbnail_url,
     )
     new_post_id = new_post.get("id", "")
     print(f"  ✓ Post created: {new_post_id}")
