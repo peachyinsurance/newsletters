@@ -17,7 +17,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from pathlib import Path
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
@@ -28,7 +28,7 @@ from notion_helper import (
     get_existing_weekend_event_urls,
 )
 from newsletters_config import NEWSLETTERS, filter_by_env
-from event_date_filter import upcoming_friday, filter_candidates_by_date
+from event_date_filter import upcoming_friday, filter_candidates_by_date, filter_candidates_in_date_range
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -103,12 +103,17 @@ def load_skill_prompt() -> str:
 # 3. WEEKEND DATE MATH
 # ---------------------------------------------------------------------------
 def target_weekend_dates(today: datetime | None = None) -> dict:
-    """Return ISO dates for the upcoming Friday/Saturday/Sunday at least 7 days out.
-    If run on Wednesday, this returns the weekend 9-11 days out (= the weekend after
-    the next Thursday issue)."""
+    """Return ISO dates for the UPCOMING Friday/Saturday/Sunday — i.e. THIS
+    week's weekend, not next-next. If today is already Sat/Sun, snaps to
+    that same weekend's Friday so the run still targets the day-of."""
     today = today or datetime.today()
-    days_until_friday = (4 - today.weekday()) % 7  # 4 == Friday in Python's weekday()
-    days_until_friday += 7  # always look one Friday ahead
+    weekday = today.weekday()  # Mon=0 ... Sun=6
+    # If today is Mon-Fri, days_until_friday is forward to Friday (0 if today is Friday).
+    # If today is Sat/Sun, snap BACK to this weekend's Friday.
+    if weekday <= 4:
+        days_until_friday = 4 - weekday
+    else:  # Sat or Sun
+        days_until_friday = 4 - weekday  # negative — yields this weekend's Friday
     friday = (today + timedelta(days=days_until_friday)).date()
     return {
         "Friday":   friday.isoformat(),
@@ -225,19 +230,22 @@ Audience demographics:
 
 Anchor towns: {', '.join(newsletter['search_areas'])}
 
-Below are pre-filtered Brave Search candidates. Most have already been screened against
-review-site / social / listicle domains, but some legitimate event-listing platforms
-(Eventbrite, Meetup, AllEvents) are now allowed because they surface real local events
-that primary venue websites often don't list.
+Below are pre-filtered candidates. They have ALREADY been screened for:
+  • domain quality (review sites, social, listicles, real-estate noise removed)
+  • date range (only candidates whose page text mentions a date inside the target weekend Fri-Sun remain, with unparseable-date candidates kept as borderline)
+  • duplicate URLs
 
-Filter for events that are real, on the target date, and a fit for the {audience.lower()} audience.
+Your job is to PICK the best {TARGET_PER_BUCKET} for this audience+day and WRITE the
+one-line description per event per the skill's schema. Do NOT re-filter for date,
+relevance, or geography — that's already been done. If a candidate looks off, that's
+a signal the pre-filter missed something — feel free to skip, but the working
+assumption is every candidate in this list is a valid option.
 
 When the same event appears under both an aggregator URL (e.g. Eventbrite) AND a primary
 source URL (the venue's own page), pick the primary by `candidate_index`. We drill
-aggregator picks for an embedded primary link in a post-pass, so picking the aggregator
-won't hurt — but a primary-source pick is preferred when both are visible to you.
+aggregator picks for an embedded primary link in a post-pass.
 
-Pick {TARGET_PER_BUCKET} or fewer strong events. For each, return JSON per the skill's output schema. Use `candidate_index` to reference the source URL — do NOT include raw URLs in the output.
+Use `candidate_index` to reference the source URL — do NOT include raw URLs in the output.
 
 Set every event's `audience` to "{audience}" and `day` to "{day}" and `date` to "{target_date_iso}".
 
@@ -254,6 +262,7 @@ def fetch_and_filter_candidates(
     max_per_query: int,
     excluded_urls: set,
     label: str,
+    target_range: tuple[date, date] | None = None,
 ) -> list[dict]:
     """One pass: Brave -> aggregator filter -> dedup. NO URL validation.
 
@@ -269,12 +278,20 @@ def fetch_and_filter_candidates(
     Claude rejects news-article URLs and stale roundups by content, not
     by URL reachability."""
     query_specs = [{"q": q} for q in queries]
+    # Freshness window: only consider pages Brave indexed in the past 8
+    # weeks. Stale event roundups ("Best Atlanta events of January") are
+    # almost always reposted/syndicated old content. Restricting to recent
+    # crawl-dates drastically cuts the rate of past-event candidates that
+    # we'd otherwise have to date-extract and reject.
+    today = datetime.today().date()
+    freshness_window = f"{(today - timedelta(weeks=8)).isoformat()}to{today.isoformat()}"
     candidates = search_web(
         query_specs=query_specs,
         api_key=BRAVE_NEWS_API_KEY,
         trusted_domains=None,
         max_per_query=max_per_query,
         pause_between=PAUSE_BETWEEN_BRAVE,
+        freshness=freshness_window,
     )
     if not candidates:
         print(f"    [{label}] No Brave results")
@@ -291,14 +308,21 @@ def fetch_and_filter_candidates(
         if before - len(candidates):
             print(f"    [{label}] dropped {before - len(candidates)} already-seen URLs")
 
-    # Date floor: Brave often surfaces last-month roundups whose only
-    # specific dates are past. Drop any candidate whose ONLY parseable
-    # dates fall before this week's Friday.
+    # Strict date filter: candidates must mention a date IN the target
+    # weekend (Fri-Sun of the current week). If no target_range is given,
+    # fall back to the past-only floor.
     before = len(candidates)
-    candidates, past_urls = filter_candidates_by_date(candidates, upcoming_friday())
-    if past_urls:
-        excluded_urls.update(past_urls)
-        print(f"    [{label}] dropped {before - len(candidates)} past-only candidates")
+    if target_range is not None:
+        start, end = target_range
+        candidates, dropped_urls = filter_candidates_in_date_range(candidates, start, end)
+        if dropped_urls:
+            excluded_urls.update(dropped_urls)
+            print(f"    [{label}] dropped {before - len(candidates)} candidates outside {start}..{end}")
+    else:
+        candidates, past_urls = filter_candidates_by_date(candidates, upcoming_friday())
+        if past_urls:
+            excluded_urls.update(past_urls)
+            print(f"    [{label}] dropped {before - len(candidates)} past-only candidates")
 
     print(f"    [{label}] {len(candidates)} candidates ready for Claude")
     return candidates[:30]
@@ -393,10 +417,19 @@ def process_bucket(
     events, run a second broader pass and merge."""
     print(f"\n  [{audience} / {day} / {target_date_iso}]")
 
+    # The target weekend's Fri-Sun range — passed to fetch_and_filter so
+    # only candidates mentioning dates inside this window survive.
+    weekend = target_weekend_dates()
+    target_range = (
+        date.fromisoformat(weekend["Friday"]),
+        date.fromisoformat(weekend["Sunday"]),
+    )
+
     # Pass 1 — primary queries, normal result count
     primary_queries = build_queries(newsletter, audience, day, target_date_iso)
     candidates_p1 = fetch_and_filter_candidates(
-        primary_queries, MAX_RESULTS_PER_QUERY, existing_urls, label="primary"
+        primary_queries, MAX_RESULTS_PER_QUERY, existing_urls,
+        label="primary", target_range=target_range,
     )
     results = call_claude_for_bucket(
         candidates_p1, newsletter, audience, day, target_date_iso, skill_prompt
@@ -412,7 +445,8 @@ def process_bucket(
 
         fallback_queries = build_fallback_queries(newsletter, audience, day, target_date_iso)
         candidates_p2 = fetch_and_filter_candidates(
-            fallback_queries, RETRY_RESULTS_PER_QUERY, retry_excluded, label="retry"
+            fallback_queries, RETRY_RESULTS_PER_QUERY, retry_excluded,
+            label="retry", target_range=target_range,
         )
         more_results = call_claude_for_bucket(
             candidates_p2, newsletter, audience, day, target_date_iso, skill_prompt

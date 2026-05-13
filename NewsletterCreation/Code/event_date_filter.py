@@ -192,3 +192,33 @@ def filter_past_events(events: list[dict], floor: date,
             continue
         kept.append(e)
     return kept
+
+
+def filter_candidates_in_date_range(candidates: list[dict],
+                                    start: date, end: date,
+                                    text_keys: tuple[str, ...] = ("title", "summary")
+                                    ) -> tuple[list[dict], list[str]]:
+    """Stricter sibling of `filter_candidates_by_date`. Keeps a candidate
+    ONLY if at least one parsed date in its text falls inside [start, end]
+    inclusive.
+
+    Used for Weekend Planner: we want only events happening THIS Fri-Sun,
+    not anything later in the month. Candidates with no parseable dates
+    are KEPT (we still let Claude evaluate them — many real events use
+    vague wording like 'this weekend')."""
+    kept, dropped_urls = [], []
+    for c in candidates:
+        text = " ".join(str(c.get(k, "") or "") for k in text_keys)
+        dates = extract_dates_from_text(text)
+        if not dates:
+            kept.append(c)
+            continue
+        if any(start <= d <= end for d in dates):
+            kept.append(c)
+            continue
+        # Has dates but NONE in the target range — drop
+        dropped_urls.append(c.get("url") or c.get("source_url") or "")
+        print(f"    ✗ out-of-range candidate dropped: "
+              f"{(c.get('title') or c.get('event_name') or '')[:70]!r} "
+              f"(dates={[d.isoformat() for d in dates]}, range={start}..{end})")
+    return kept, [u for u in dropped_urls if u]

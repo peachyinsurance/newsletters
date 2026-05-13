@@ -34,6 +34,7 @@ def search_web(
     trusted_domains: set | None = None,
     max_per_query: int = DEFAULT_MAX_RESULTS,
     pause_between: float = DEFAULT_PAUSE_BETWEEN,
+    freshness: str | None = None,
 ) -> list[dict]:
     """
     Run Brave Web Search across a list of query specs.
@@ -61,10 +62,14 @@ def search_web(
         extras = {k: v for k, v in spec.items() if k != "q"}
         print(f"  Searching: {q}")
         try:
+            params = {"q": q, "count": max_per_query}
+            if freshness:
+                # Brave accepts: pd/pw/pm/py OR `YYYY-MM-DDtoYYYY-MM-DD`
+                params["freshness"] = freshness
             res = requests.get(
                 "https://api.search.brave.com/res/v1/web/search",
                 headers=headers,
-                params={"q": q, "count": max_per_query},
+                params=params,
                 timeout=30,
             )
             if res.status_code == 402:
@@ -84,10 +89,15 @@ def search_web(
                     continue
                 seen_urls.add(url)
                 all_results.append({
-                    "title":   item.get("title", ""),
-                    "url":     url,
-                    "source":  domain_of(url),
-                    "summary": item.get("description", ""),
+                    "title":    item.get("title", ""),
+                    "url":      url,
+                    "source":   domain_of(url),
+                    "summary":  item.get("description", ""),
+                    # Brave's `page_age` is when the page was last indexed
+                    # (ISO 8601). Useful as a coarse "was this written
+                    # recently?" signal — stale roundup pages from months
+                    # ago can be dropped before date-extracting their text.
+                    "page_age": item.get("page_age", "") or item.get("age", "") or "",
                     **extras,
                 })
                 kept += 1
