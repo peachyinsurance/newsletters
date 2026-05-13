@@ -48,13 +48,15 @@ MIN_EVENTS_BEFORE_RETRY = 3       # fewer than this on first pass -> retry
 RETRY_RESULTS_PER_QUERY = 20      # broader pass pulls more candidates per query
 
 AGGREGATOR_BLOCKLIST = {
-    "eventbrite.com",
-    "allevents.in",
+    # Kept blocked: review sites, social, listicles, real-estate noise.
+    # Removed in May 2026: eventbrite.com, allevents.in, meetup.com —
+    # those are where 60-80% of legitimate small-venue events live.
+    # We now accept them as candidates and drill the picked event for a
+    # primary-source URL in `prefer_primary_source()` below.
     "patch.com",
     "yelp.com",
     "tripadvisor.com",
     "facebook.com",
-    "meetup.com",
     "reddit.com",
     "groupon.com",
     "youtube.com",
@@ -72,6 +74,16 @@ AGGREGATOR_BLOCKLIST = {
     "redfin.com",
     "zillow.com",
     "trulia.com",
+}
+
+# Domains we still treat as "aggregators" for prefer-primary-source logic.
+# When Claude picks an event whose URL is on one of these, we drill its
+# article body for an embedded primary-source link (official venue/
+# organizer page) and swap if a good candidate exists.
+AGGREGATOR_DRILL_HOSTS = {
+    "eventbrite.com",
+    "allevents.in",
+    "meetup.com",
 }
 
 DAYS = ["Friday", "Saturday", "Sunday"]
@@ -213,8 +225,17 @@ Audience demographics:
 
 Anchor towns: {', '.join(newsletter['search_areas'])}
 
-Below are pre-filtered Brave Search candidates (aggregator domains already removed).
-Filter for events that are real, primary-source-verified, on the target date, and a fit for the {audience.lower()} audience.
+Below are pre-filtered Brave Search candidates. Most have already been screened against
+review-site / social / listicle domains, but some legitimate event-listing platforms
+(Eventbrite, Meetup, AllEvents) are now allowed because they surface real local events
+that primary venue websites often don't list.
+
+Filter for events that are real, on the target date, and a fit for the {audience.lower()} audience.
+
+When the same event appears under both an aggregator URL (e.g. Eventbrite) AND a primary
+source URL (the venue's own page), pick the primary by `candidate_index`. We drill
+aggregator picks for an embedded primary link in a post-pass, so picking the aggregator
+won't hurt — but a primary-source pick is preferred when both are visible to you.
 
 Pick {TARGET_PER_BUCKET} or fewer strong events. For each, return JSON per the skill's output schema. Use `candidate_index` to reference the source URL — do NOT include raw URLs in the output.
 
@@ -327,7 +348,37 @@ def call_claude_for_bucket(
         r["day"] = day
         r["date"] = target_date_iso
         validated.append(r)
+    # Prefer primary sources: if Claude picked an Eventbrite / Meetup /
+    # AllEvents URL, drill the page to find an official venue or organizer
+    # link and swap. Falls back to the aggregator URL on miss.
+    validated = prefer_primary_source(validated)
     return validated
+
+
+def prefer_primary_source(events: list[dict]) -> list[dict]:
+    """For each event whose source_url is on a known aggregator (Eventbrite,
+    Meetup, AllEvents), fetch the page and substitute the official primary
+    URL when one is found. Keeps the aggregator URL as fallback in
+    `source_url_aggregator` for audit / debugging."""
+    try:
+        sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
+        from aggregator_drilldown import find_primary_url, _hostname
+    except Exception as e:
+        print(f"    ⚠ aggregator_drilldown unavailable ({e}) — keeping aggregator URLs")
+        return events
+    for r in events:
+        url = r.get("source_url", "")
+        if not url:
+            continue
+        host = _hostname(url)
+        if not any(host == d or host.endswith("." + d) for d in AGGREGATOR_DRILL_HOSTS):
+            continue
+        primary = find_primary_url(url, title=r.get("event_name", ""))
+        if primary:
+            print(f"    ↳ swapped aggregator URL to primary: {host} → {_hostname(primary)} ({r.get('event_name', '')[:50]})")
+            r["source_url_aggregator"] = url
+            r["source_url"] = primary
+    return events
 
 
 def process_bucket(
