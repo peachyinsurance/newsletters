@@ -56,6 +56,11 @@ jobs:
         run: python Pets/Code/Furry_Friends_Marietta.py
 
       - name: Publish GIFs to gh-pages
+        # Publish even if the Python step crashed midway — earlier newsletters
+        # in the run may have saved Notion rows referencing GIF URLs that
+        # exist only on the runner's local disk. Without this, those URLs
+        # become 404s.
+        if: always()
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |

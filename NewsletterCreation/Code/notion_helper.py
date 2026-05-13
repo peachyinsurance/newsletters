@@ -70,6 +70,13 @@ HEADERS = {
 # GENERIC HELPERS
 # ---------------------------------------------------------------------------
 def query_database(db_id: str, filters: dict = None) -> list:
+    """Query a Notion database with optional filter, paginating until done.
+
+    If a filter is provided and Notion returns HTTP 400 (typically because
+    a `select` filter references an option that doesn't yet exist in the
+    schema — e.g. a newsletter name introduced this run), retry once
+    without the filter and let the caller filter results in Python.
+    Returns an empty list if both attempts fail."""
     url     = f"https://api.notion.com/v1/databases/{db_id}/query"
     payload = {"filter": filters} if filters else {}
     results = []
@@ -79,7 +86,14 @@ def query_database(db_id: str, filters: dict = None) -> list:
     while has_more:
         if cursor:
             payload["start_cursor"] = cursor
-        r = _notion_request("POST", url, json_body=payload)
+        try:
+            r = _notion_request("POST", url, json_body=payload)
+        except requests.exceptions.HTTPError as e:
+            if filters and e.response is not None and e.response.status_code == 400:
+                print(f"  ⚠ Notion 400 on filtered query of {db_id[:8]}… — "
+                      f"retrying unfiltered (callers should filter in Python)")
+                return query_database(db_id, filters=None)
+            raise
         data     = r.json()
         results += data.get("results", [])
         has_more = data.get("has_more", False)
@@ -663,10 +677,23 @@ def approve_pet_in_notion(source_url: str, newsletter_hint: str = "") -> None:
         print(f"{new_status}: {name}")
         
 def get_existing_pet_urls(newsletter_name: str) -> set:
-    pages = query_database(NOTION_PETS_DB_ID, filters={
-        "property": "Newsletter",
-        "select":   {"equals": newsletter_name}
-    })
+    # API-side filter on a select option that doesn't yet exist in the schema
+    # returns HTTP 400. Falls back to fetching all rows and filtering in
+    # Python — slower but resilient to "first run for this newsletter" state.
+    import requests as _r
+    try:
+        pages = query_database(NOTION_PETS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+    except _r.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 400:
+            print(f"  ⓘ Filter failed for '{newsletter_name}' (likely select option not in schema yet) — falling back to client-side filter")
+            pages = query_database(NOTION_PETS_DB_ID)
+            pages = [p for p in pages
+                     if (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
+        else:
+            raise
     urls = set()
     for page in pages:
         props  = page["properties"]

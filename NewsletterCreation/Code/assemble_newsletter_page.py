@@ -588,6 +588,10 @@ def callout_block(text: str, emoji: str = "📝") -> dict:
 # ---------------------------------------------------------------------------
 
 def query_database(db_id: str, filters: dict = None) -> list:
+    """Query a Notion database with optional filter. On HTTP 400 from a
+    filtered query (typical when a select option referenced in the filter
+    hasn't yet been added to the schema — e.g. brand-new newsletter name),
+    retry once unfiltered and let the caller filter in Python."""
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
     payload = {"filter": filters} if filters else {}
     results = []
@@ -597,6 +601,9 @@ def query_database(db_id: str, filters: dict = None) -> list:
         if cursor:
             payload["start_cursor"] = cursor
         r = requests.post(url, headers=HEADERS, json=payload, timeout=30)
+        if r.status_code == 400 and filters:
+            print(f"  ⚠ Notion 400 on filtered query of {db_id[:8]}… — retrying unfiltered")
+            return query_database(db_id, filters=None)
         r.raise_for_status()
         data = r.json()
         results += data.get("results", [])

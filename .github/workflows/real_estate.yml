@@ -55,6 +55,10 @@ jobs:
           if-no-files-found: ignore
 
       - name: Publish images to gh-pages for public URLs
+        # Publish even on partial failure — earlier newsletters in the run
+        # may have saved Notion rows referencing image URLs that exist
+        # only on the runner's local disk.
+        if: always()
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
