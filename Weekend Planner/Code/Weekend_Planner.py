@@ -47,7 +47,7 @@ PAUSE_BETWEEN_BRAVE = 0.5    # rate-limit buffer
 #   - 6 buckets/newsletter (3 days × 2 audiences) × ~3 events/bucket = 18 target
 #   - MIN_EVENTS_BEFORE_RETRY=5 fires the backfill pass more often
 MIN_EVENTS_BEFORE_RETRY = 5       # fewer than this on first pass -> retry
-RETRY_RESULTS_PER_QUERY = 25      # broader pass pulls more candidates per query
+RETRY_RESULTS_PER_QUERY = 20      # Brave hard-caps `count` at 20; sending >20 gets HTTP 422
 CANDIDATE_CAP            = 50     # max candidates sent to Claude per bucket (was 30)
 
 AGGREGATOR_BLOCKLIST = {
