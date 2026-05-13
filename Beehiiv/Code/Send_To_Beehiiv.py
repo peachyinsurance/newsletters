@@ -59,38 +59,24 @@ NEWSLETTER = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
 STATUS     = os.environ.get("STATUS", "draft")
 
 
-def _normalize_post_id(raw: str) -> str:
-    """Beehiiv's API requires post IDs prefixed with 'post_', but the dashboard
-    URL only shows the bare UUID. Auto-prefix so a secret containing either form
-    works."""
-    raw = (raw or "").strip()
-    if not raw:
-        return ""
-    if raw.startswith("post_"):
-        return raw
-    return f"post_{raw}"
+# Per-newsletter Beehiiv config — built dynamically from the central
+# newsletters_config so adding a new newsletter only requires editing
+# that one dict. Each newsletter's beehiiv_env_tag drives which env vars
+# hold its publication + template post IDs.
+def _build_newsletter_config() -> dict:
+    from newsletters_config import NEWSLETTERS_DICT, beehiiv_credentials
+    out: dict[str, dict] = {}
+    for name, nl in NEWSLETTERS_DICT.items():
+        creds = beehiiv_credentials(name)
+        out[name] = {
+            "publication_id":   creds["publication_id"],
+            "template_post_id": creds["template_post_id"],
+            "display_area":     nl.get("display_area", ""),
+            "poll_vote_base":   nl.get("poll_vote_base", ""),
+        }
+    return out
 
-
-# Per-newsletter Beehiiv config — extend when PP is added
-NEWSLETTER_CONFIG = {
-    "East_Cobb_Connect": {
-        "publication_id":   os.environ.get("BEEHIIV_ECC_PUBLICATION_ID", "").strip(),
-        "template_post_id": _normalize_post_id(os.environ.get("BEEHIIV_ECC_TEMPLATE_POST_ID", "")),
-        "display_area":     "East Cobb",
-        # Poll vote-tracking links land on a hosted "thanks for voting!" page
-        # (review-app/public/poll-thanks.html → deployed to gh-pages).
-        # The page reads ?vote=… from the URL, displays it, and redirects back
-        # to the newsletter after 5 seconds. Beehiiv tracks the click on this
-        # URL, so the click count per option = the vote tally.
-        "poll_vote_base":   "https://peachyinsurance.github.io/newsletters/poll-thanks.html?vote={slug}",
-    },
-    # "Perimeter_Post": {
-    #     "publication_id":   os.environ.get("BEEHIIV_PP_PUBLICATION_ID", ""),
-    #     "template_post_id": os.environ.get("BEEHIIV_PP_TEMPLATE_POST_ID", ""),
-    #     "display_area":     "Perimeter",
-    #     "poll_vote_base":   "https://www.perimeterpost.com/?vote={slug}",
-    # },
-}
+NEWSLETTER_CONFIG = _build_newsletter_config()
 
 SUBJECT_SKILL_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-subject-line_auto.md"
 
