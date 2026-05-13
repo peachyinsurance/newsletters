@@ -38,14 +38,17 @@ BRAVE_NEWS_API_KEY = os.environ["BRAVE_NEWS_API_KEY"]
 
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-weekend-planner-skill_auto.md"
 
-TARGET_PER_BUCKET = 8        # upper bound passed to Claude (it picks 5-8)
-QUERIES_PER_BUCKET = 4       # Brave queries per (audience, day) combo
-MAX_RESULTS_PER_QUERY = 10
+TARGET_PER_BUCKET = 8        # upper bound Claude picks per (audience, day) bucket
+QUERIES_PER_BUCKET = 3       # Brave queries per (audience, day) combo (matches build_queries return)
+MAX_RESULTS_PER_QUERY = 15
 PAUSE_BETWEEN_BRAVE = 0.5    # rate-limit buffer
 
-# Adaptive-retry thresholds
-MIN_EVENTS_BEFORE_RETRY = 3       # fewer than this on first pass -> retry
-RETRY_RESULTS_PER_QUERY = 20      # broader pass pulls more candidates per query
+# Adaptive-retry thresholds. Tuned for 15-20 events/newsletter target:
+#   - 6 buckets/newsletter (3 days × 2 audiences) × ~3 events/bucket = 18 target
+#   - MIN_EVENTS_BEFORE_RETRY=5 fires the backfill pass more often
+MIN_EVENTS_BEFORE_RETRY = 5       # fewer than this on first pass -> retry
+RETRY_RESULTS_PER_QUERY = 25      # broader pass pulls more candidates per query
+CANDIDATE_CAP            = 50     # max candidates sent to Claude per bucket (was 30)
 
 AGGREGATOR_BLOCKLIST = {
     # Kept blocked: review sites, social, listicles, real-estate noise.
@@ -149,11 +152,13 @@ def build_queries(newsletter: dict, audience: str, day: str, target_date_iso: st
         return [
             f"{area(0)} family events {day} {date_label}",
             f"{area(1)} kids things to do {month_year}",
+            f"{area(2)} family weekend activities {month_year}",
         ]
     else:  # Adult
         return [
             f"{area(0)} live music {day} {date_label}",
             f"{area(1)} concerts nightlife weekend {month_year}",
+            f"{area(2)} brewery bar event {day} {month_year}",
         ]
 
 
@@ -174,11 +179,13 @@ def build_fallback_queries(newsletter: dict, audience: str, day: str, target_dat
         return [
             f"{area(0)} weekend events {month_year}",
             f"{area(1)} community events {month_year}",
+            f"{area(2)} kids fun things to do {month_year}",
         ]
     else:  # Adult
         return [
             f"{area(0)} nightlife weekend {month_year}",
             f"what's happening {area(1)} {day}",
+            f"{area(2)} bars venues live music {month_year}",
         ]
 
 
@@ -325,7 +332,7 @@ def fetch_and_filter_candidates(
             print(f"    [{label}] dropped {before - len(candidates)} past-only candidates")
 
     print(f"    [{label}] {len(candidates)} candidates ready for Claude")
-    return candidates[:30]
+    return candidates[:CANDIDATE_CAP]
 
 
 def call_claude_for_bucket(
@@ -417,8 +424,10 @@ def process_bucket(
     events, run a second broader pass and merge."""
     print(f"\n  [{audience} / {day} / {target_date_iso}]")
 
-    # The target weekend's Fri-Sun range — passed to fetch_and_filter so
-    # only candidates mentioning dates inside this window survive.
+    # The target weekend's Fri-Sun range — strict. Candidates must mention
+    # a date inside this window OR have no parseable date (those are kept
+    # as borderline, since many real events use vague wording like 'this
+    # weekend' and we don't want to false-drop them).
     weekend = target_weekend_dates()
     target_range = (
         date.fromisoformat(weekend["Friday"]),
