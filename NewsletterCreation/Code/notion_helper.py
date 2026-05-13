@@ -700,9 +700,16 @@ def approve_pet_in_notion(source_url: str, newsletter_hint: str = "") -> None:
         print(f"{new_status}: {name}")
         
 def get_existing_pet_urls(newsletter_name: str) -> set:
-    # API-side filter on a select option that doesn't yet exist in the schema
-    # returns HTTP 400. Falls back to fetching all rows and filtering in
-    # Python — slower but resilient to "first run for this newsletter" state.
+    """Return source URLs of ALL non-rejected pet rows for this newsletter.
+
+    Used at save time to prevent duplicates. Includes `pending` rows from
+    previous runs — without that, the same shelter pet (e.g., a long-stay
+    dog that appears every week in RescueGroups) gets saved as a fresh
+    `pending` row every week, accumulating duplicates indefinitely.
+
+    Only `rejected` rows are excluded — those were explicitly turned down
+    in the review app and shouldn't block future consideration if the
+    candidate scoring/blurb changes."""
     import requests as _r
     try:
         pages = query_database(NOTION_PETS_DB_ID, filters={
@@ -720,8 +727,8 @@ def get_existing_pet_urls(newsletter_name: str) -> set:
     urls = set()
     for page in pages:
         props  = page["properties"]
-        status = props.get("Status", {}).get("select", {})
-        if status and status.get("name") == "rejected":
+        status = (props.get("Status", {}).get("select") or {}).get("name", "")
+        if status == "rejected":
             continue
         url = props.get("Source URL", {}).get("url", "")
         if url:

@@ -1,5 +1,16 @@
 name: Assemble Newsletter Pages
 
+# Concurrency guard: only ONE assemble run for a given newsletter+section
+# may be in-flight at a time. Without this, multiple chain/redo/archive
+# triggers can fire close together, race past notion_clear_page, and each
+# append their content before others finish — leaving the landing page
+# with N duplicate copies of every section. New runs wait for the prior
+# one to finish (we don't cancel — partial cleanup mid-run is worse than
+# a brief queue).
+concurrency:
+  group: assemble-${{ github.event.inputs.newsletter || 'all' }}-${{ github.event.inputs.section || 'all' }}
+  cancel-in-progress: false
+
 on:
   workflow_dispatch:
     inputs:
