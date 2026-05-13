@@ -63,7 +63,10 @@ NOTION_BUSINESS_BRIEF_DB_ID = os.environ.get("NOTION_BUSINESS_BRIEF_DB_ID", "")
 HEADERS = {
     "Authorization":  f"Bearer {NOTION_API_KEY}",
     "Notion-Version": "2022-06-28",
-    "Content-Type":   "application/json"
+    # charset=utf-8 is required — without it, some receivers default to
+    # ISO-8859-1 for application/json bodies, which double-encodes emojis
+    # (⭐ → Ã¢Â­Â etc.) on the round-trip and corrupts stored text.
+    "Content-Type":   "application/json; charset=utf-8",
 }
 
 # ---------------------------------------------------------------------------

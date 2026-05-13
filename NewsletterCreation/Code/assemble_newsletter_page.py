@@ -39,7 +39,9 @@ NOTION_PARENT_PAGE_ID    = os.environ["NOTION_PARENT_PAGE_ID"]
 HEADERS = {
     "Authorization":  f"Bearer {NOTION_API_KEY}",
     "Notion-Version": "2022-06-28",
-    "Content-Type":   "application/json",
+    # charset=utf-8 to prevent emoji double-encoding on round-trip
+    # (see same note in notion_helper.HEADERS)
+    "Content-Type":   "application/json; charset=utf-8",
 }
 
 NEWSLETTERS = newsletter_names()

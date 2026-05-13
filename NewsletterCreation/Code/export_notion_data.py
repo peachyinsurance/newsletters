@@ -70,8 +70,8 @@ def export_pets():
             "animal_type":        extract_text(props.get("Animal Type", {})),
         })
 
-    with open("pets.json", "w") as f:
-        json.dump(pets, f, indent=2)
+    with open("pets.json", "w", encoding="utf-8") as f:
+        json.dump(pets, f, indent=2, ensure_ascii=False)
     print(f"Exported {len(pets)} pets to pets.json")
 
 
@@ -111,8 +111,8 @@ def export_restaurants():
             "festive_promoted":       "yes" if extract_text(props.get("Festive Promoted", {})) else "",
         })
 
-    with open("restaurants.json", "w") as f:
-        json.dump(restaurants, f, indent=2)
+    with open("restaurants.json", "w", encoding="utf-8") as f:
+        json.dump(restaurants, f, indent=2, ensure_ascii=False)
     print(f"Exported {len(restaurants)} restaurants to restaurants.json")
 
 def export_events(): 
@@ -144,8 +144,8 @@ def export_events():
             "default_winner":        "yes" if extract_text(props.get("Default Winner", {})) else "",
         })
 
-    with open("events.json", "w") as f:
-        json.dump(events, f, indent=2)
+    with open("events.json", "w", encoding="utf-8") as f:
+        json.dump(events, f, indent=2, ensure_ascii=False)
     print(f"Exported {len(events)} events to events.json")
 
 if __name__ == "__main__":
