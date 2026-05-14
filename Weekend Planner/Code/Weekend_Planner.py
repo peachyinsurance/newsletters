@@ -442,6 +442,41 @@ def determine_event_days(candidate: dict, target_weekend: dict) -> list[str]:
     if days_found:
         order = ["Friday", "Saturday", "Sunday"]
         return sorted(days_found, key=order.index)
+
+    # Recurring-event fallback: if the candidate text describes a weekly /
+    # ongoing pattern (e.g. "every Friday", "Fridays", "weekly", "every
+    # weekend"), map those weekday words onto the target weekend. This
+    # rescues legitimate recurring events whose snippets don't include a
+    # specific calendar date.
+    import re as _re
+    low = text.lower()
+    recurring_signals = [
+        "every friday", "every saturday", "every sunday",
+        "fridays", "saturdays", "sundays",
+        "every weekend", "every week", "weekly",
+        "each friday", "each saturday", "each sunday",
+        "every other friday", "every other saturday", "every other sunday",
+        "ongoing", "recurring",
+    ]
+    if any(sig in low for sig in recurring_signals):
+        weekday_map = {
+            "friday": "Friday",
+            "saturday": "Saturday",
+            "sunday": "Sunday",
+        }
+        recurring_days = []
+        for word, label in weekday_map.items():
+            # match the weekday word standalone or with "s"/"every"/"each"
+            if _re.search(rf"\b{word}s?\b", low):
+                recurring_days.append(label)
+        if "every weekend" in low or "weekends" in low:
+            for label in ("Friday", "Saturday", "Sunday"):
+                if label not in recurring_days:
+                    recurring_days.append(label)
+        if recurring_days:
+            order = ["Friday", "Saturday", "Sunday"]
+            return sorted(set(recurring_days), key=order.index)
+
     return []
 
 
