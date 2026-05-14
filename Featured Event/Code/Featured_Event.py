@@ -524,12 +524,36 @@ if __name__ == "__main__":
             # listicle with generic "Get tickets" anchor text) are DROPPED
             # from the pool entirely. Otherwise the aggregator URL would
             # remain as the candidate's source_url and end up in Notion.
+            # Listicle detection: roundup pages like "5 things to do",
+            # "weekend checklist", "things to do this weekend" cover many
+            # events. Drilling them collapses everything to one URL, which
+            # then gets reused for unrelated events Claude picks from the
+            # article body. Drop these from the pool entirely.
+            LISTICLE_MARKERS = (
+                "things to do", "things-to-do", "5 things", "10 things",
+                "weekend checklist", "weekend events", "weekend roundup",
+                "weekend guide", "your weekend", "events this weekend",
+                "events this week", "events you absolutely need",
+                "out and about", "what to do this", "what's happening",
+                "upcoming events", "calendar of events", "events calendar",
+                "fun things to do", "guide to events", "things to do in",
+            )
+
+            def _is_listicle(c):
+                blob = f"{c.get('title','')} {c.get('url','')}".lower()
+                return any(m in blob for m in LISTICLE_MARKERS)
+
             drilled_count = 0
             dropped_no_primary = 0
+            dropped_listicle = 0
             keep_pool = []
             for c in new_pool:
                 url = c.get("url", "")
                 if is_aggregator_url(url):
+                    if _is_listicle(c):
+                        dropped_listicle += 1
+                        print(f"  ✗ dropped (aggregator listicle, covers many events): {url}  |  {c.get('title','?')}")
+                        continue
                     print(f"  ↳ aggregator detected: {url}")
                     drill_down_candidate(c)
                     if c.get("drilled"):
@@ -544,6 +568,8 @@ if __name__ == "__main__":
             new_pool = keep_pool
             if drilled_count:
                 print(f"  ↳ drilled {drilled_count} aggregator URLs to primary sources")
+            if dropped_listicle:
+                print(f"  ↳ dropped {dropped_listicle} aggregator listicles (multi-event roundups)")
             if dropped_no_primary:
                 print(f"  ↳ dropped {dropped_no_primary} aggregator candidates (drill failed)")
 

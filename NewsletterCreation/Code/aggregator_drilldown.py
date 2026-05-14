@@ -108,12 +108,25 @@ _SKIP_TARGET_HOSTS = (
     "jdoqocy.com", "dpbolvw.net", "tkqlhce.com", "anrdoezrs.net",
     # App download / store CTAs ("Download our app")
     "itunes.apple.com", "apps.apple.com", "play.google.com",
+    # Newsletter signup widgets (Mailchimp, Constant Contact, etc.) —
+    # local-news sites embed a "Send Us Your News!" signup form under the
+    # masthead, which scores high on heading proximity for unrelated events.
+    "list-manage.com", "mailchi.mp", "constantcontact.com",
+    "campaign-archive.com", "lp.constantcontactpages.com",
+    # Generic email/print actions
+    "mailto:", "javascript:",
 )
 
 
 def _hostname(url: str) -> str:
     try:
-        return (urlparse(url).hostname or "").lower().lstrip("www.")
+        host = (urlparse(url).hostname or "").lower()
+        # Strip the literal "www." prefix (NOT lstrip, which treats the
+        # argument as a character set and would mangle hosts like "wa.me"
+        # into "a.me" by stripping the leading 'w').
+        if host.startswith("www."):
+            host = host[4:]
+        return host
     except Exception:
         return ""
 

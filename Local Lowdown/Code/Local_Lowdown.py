@@ -33,11 +33,12 @@ BRAVE_NEWS_API_KEY  = os.environ["BRAVE_NEWS_API_KEY"]
 
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-local-lowdown-skill_auto.md"
 
-MAX_ARTICLES = 15
-MIN_ARTICLES = 8   # minimum eligible articles before sending to Claude
+MAX_ARTICLES = 50  # Brave News API max per query — pull the full window
+MIN_ARTICLES = 15  # minimum eligible articles before sending to Claude
 MIN_STORIES  = 3   # minimum stories Claude must select, otherwise retry
 MAX_STORIES  = 5   # cap on stories saved (target range is 3-5)
-MAX_RETRIES  = 2   # how many fetch rounds to attempt
+MAX_RETRIES  = 3   # how many fetch rounds to attempt
+RETRY_TERMS_PER_ROUND = 3  # how many retry terms to use per round
 
 # Topics to exclude — keep the newsletter PG and community-focused.
 # The Local Lowdown should feel like good news + civic updates, not a crime
@@ -498,8 +499,8 @@ if __name__ == "__main__":
                     break
                 print(f"\n  Retry {attempt}/{MAX_RETRIES} — only {len(articles)} eligible articles, need {MIN_ARTICLES}")
                 # Use next batch of retry terms
-                extra_terms = retry_terms[:2]
-                retry_terms = retry_terms[2:]
+                extra_terms = retry_terms[:RETRY_TERMS_PER_ROUND]
+                retry_terms = retry_terms[RETRY_TERMS_PER_ROUND:]
                 print(f"  Broadening search with: {extra_terms}")
                 extra_articles = fetch_news_brave(extra_terms)
                 # Deduplicate against what we already have
@@ -542,8 +543,8 @@ if __name__ == "__main__":
                 break
 
             print(f"\n  Only {stories_count} stories selected (need {MIN_STORIES}), fetching more articles...")
-            extra_terms = retry_terms[:2]
-            retry_terms = retry_terms[2:]
+            extra_terms = retry_terms[:RETRY_TERMS_PER_ROUND]
+            retry_terms = retry_terms[RETRY_TERMS_PER_ROUND:]
             print(f"  Broadening search with: {extra_terms}")
             extra_articles = fetch_news_brave(extra_terms)
             existing_urls = {a["url"] for a in articles}
