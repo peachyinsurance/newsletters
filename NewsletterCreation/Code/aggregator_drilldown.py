@@ -100,14 +100,34 @@ def is_aggregator_url(url: str) -> bool:
     return _host_in(_hostname(url), AGGREGATOR_DOMAINS)
 
 
+def _browser_get(url: str, timeout: int = 10):
+    """Fetch a URL using curl_cffi with Chrome TLS impersonation when
+    available — defeats Cloudflare bot detection that blocks plain
+    `requests` calls. Falls back to `requests` if curl_cffi isn't
+    installed in the environment.
+
+    Returns the response object (curl_cffi or requests) or None on error."""
+    try:
+        from curl_cffi import requests as _cffi
+        try:
+            return _cffi.get(url, impersonate="chrome120",
+                             timeout=timeout, allow_redirects=True)
+        except Exception:
+            pass
+    except ImportError:
+        pass
+    # Fallback to plain requests
+    try:
+        return requests.get(url, headers={"User-Agent": BROWSER_UA},
+                            timeout=timeout, allow_redirects=True)
+    except requests.RequestException:
+        return None
+
+
 def fetch_page_text(url: str, timeout: int = 10) -> str:
     """Fetch a page's body text (HTML stripped). Empty string on error."""
-    try:
-        r = requests.get(url, headers={"User-Agent": BROWSER_UA},
-                         timeout=timeout, allow_redirects=True)
-        if r.status_code >= 400 or not r.text:
-            return ""
-    except requests.RequestException:
+    r = _browser_get(url, timeout=timeout)
+    if not r or r.status_code >= 400 or not r.text:
         return ""
     try:
         from bs4 import BeautifulSoup
@@ -132,12 +152,8 @@ def find_primary_url(aggregator_url: str, title: str = "") -> str | None:
         from bs4 import BeautifulSoup
     except Exception:
         return None
-    try:
-        r = requests.get(aggregator_url, headers={"User-Agent": BROWSER_UA},
-                         timeout=10, allow_redirects=True)
-        if r.status_code >= 400 or not r.text:
-            return None
-    except requests.RequestException:
+    r = _browser_get(aggregator_url, timeout=10)
+    if not r or r.status_code >= 400 or not r.text:
         return None
 
     soup = BeautifulSoup(r.text, "html.parser")

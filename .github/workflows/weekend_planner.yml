@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install requests anthropic
+      - run: pip install requests anthropic beautifulsoup4 curl_cffi
       - name: Generate Weekend Planner
         env:
           CLAUDE_API_KEY:               ${{ secrets.CLAUDE_API_KEY }}

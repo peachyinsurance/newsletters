@@ -34,7 +34,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - run: pip install requests anthropic beautifulsoup4
+      - run: pip install requests anthropic beautifulsoup4 curl_cffi
 
       - name: Generate Free Events
         env:
