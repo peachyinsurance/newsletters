@@ -499,12 +499,42 @@ if __name__ == "__main__":
                 print(f"  ⏭ Skipping round {round_idx} — Brave returned no results last round")
                 break
             print(f"\n  --- Candidate round {round_idx} (floor: {floor}) ---")
-            new_pool = fetch_events_brave(
-                search_areas=newsletter["search_areas"],
-                display_area=newsletter["display_area"],
-                exclude_urls=excluded_urls,
-                extra_queries=extra,
+
+            # Brave cache lives in the repo at Featured Event/Code/brave_cache/
+            # so it's available in CI and local runs without setup. Iterate
+            # on filtering/drill/Claude logic without burning Brave quota.
+            # To refresh: delete the cache file, or set BRAVE_CACHE_REFRESH=1
+            # to force-overwrite, or set BRAVE_CACHE_DISABLE=1 to bypass.
+            cache_disabled = bool(os.environ.get("BRAVE_CACHE_DISABLE"))
+            cache_dir = os.environ.get(
+                "BRAVE_CACHE_DIR",
+                str(Path(__file__).parent / "brave_cache"),
             )
+            cache_path = None
+            new_pool = None
+            if not cache_disabled:
+                Path(cache_dir).mkdir(parents=True, exist_ok=True)
+                safe_name = newsletter["name"].replace("/", "_")
+                cache_path = Path(cache_dir) / f"{safe_name}_round{round_idx}.json"
+                if cache_path.exists() and not os.environ.get("BRAVE_CACHE_REFRESH"):
+                    try:
+                        new_pool = json.loads(cache_path.read_text(encoding="utf-8"))
+                        print(f"  ↺ Loaded {len(new_pool)} candidates from cache: {cache_path}")
+                    except Exception as e:
+                        print(f"  ⚠ Cache read failed ({e}); falling back to Brave")
+                        new_pool = None
+
+            if new_pool is None:
+                new_pool = fetch_events_brave(
+                    search_areas=newsletter["search_areas"],
+                    display_area=newsletter["display_area"],
+                    exclude_urls=excluded_urls,
+                    extra_queries=extra,
+                )
+                if cache_path is not None and new_pool:
+                    cache_path.write_text(json.dumps(new_pool, indent=2), encoding="utf-8")
+                    print(f"  ✓ Saved {len(new_pool)} candidates to cache: {cache_path}")
+
             if not new_pool:
                 brave_dead = True
             # NOTE: deliberately NOT URL-validating here. HEAD/GET-validation
