@@ -309,6 +309,12 @@ Candidates:
     # Discard any URLs Claude may have provided directly.
     candidates_by_index = {i: c for i, c in enumerate(candidates, 1)}
     validated = []
+    # Dedup: Claude sometimes returns the same candidate_index for multiple
+    # events (e.g., one Atlanta Dream candidate ending up labeled both
+    # 'Atlanta Dream vs Aces' and 'Marcus King Band' because both names
+    # appeared in the same source article). Each source URL should map
+    # to at MOST one event. Keep the first occurrence per index.
+    seen_indices: set[int] = set()
     for r in results:
         idx = r.get("candidate_index")
         try:
@@ -319,7 +325,38 @@ Candidates:
         if not source:
             print(f"  ✗ Rejecting event with invalid candidate_index {idx}: {r.get('event_name', '?')}")
             continue
-        r["source_url"] = source.get("url", "")
+        if idx in seen_indices:
+            print(f"  ✗ Rejecting duplicate candidate_index {idx}: {r.get('event_name', '?')} "
+                  f"(same source URL already used by an earlier event)")
+            continue
+
+        # Venue-vs-host sanity check: if the event's venue name has no
+        # token overlap with the source URL's host AND the URL doesn't
+        # mention any event-name tokens, Claude probably conflated two
+        # events from the same source article. Drop it.
+        candidate_url = source.get("url", "") or ""
+        event_name    = r.get("event_name", "") or ""
+        venue         = r.get("venue", "") or ""
+        from urllib.parse import urlparse as _up
+        host = (_up(candidate_url).hostname or "").lower().removeprefix("www.")
+        import re as _re_venue
+        host_tokens  = set(_re_venue.findall(r"[a-z]{4,}", host))
+        url_tokens   = set(_re_venue.findall(r"[a-z]{4,}", candidate_url.lower()))
+        event_tokens = set(_re_venue.findall(r"[a-z]{4,}", event_name.lower())) | \
+                       set(_re_venue.findall(r"[a-z]{4,}", venue.lower()))
+        # Skip the check for fully-generic event hosts (Eventbrite, Ticketmaster
+        # etc.) — those won't contain event-name tokens by design.
+        GENERIC_TICKETING_HOSTS = ("eventbrite.com", "ticketmaster.com", "axs.com",
+                                    "stubhub.com", "seatgeek.com", "tixr.com",
+                                    "bigtickets.com")
+        skip_check = any(host == g or host.endswith("." + g) for g in GENERIC_TICKETING_HOSTS)
+        if not skip_check and event_tokens and not (event_tokens & url_tokens) and not (event_tokens & host_tokens):
+            print(f"  ✗ Rejecting venue/host mismatch: '{event_name}' at '{venue}' "
+                  f"vs URL '{candidate_url[:60]}' — no event tokens in URL")
+            continue
+
+        seen_indices.add(idx)
+        r["source_url"] = candidate_url
         r["ticket_url"] = source.get("ticket_url", "") or ""
         r.pop("candidate_index", None)
 
