@@ -28,7 +28,7 @@ from event_date_filter import (
     filter_candidates_by_date,
     filter_past_events as _filter_past_events,
 )
-from aggregator_drilldown import drill_down_candidate, is_aggregator_url
+from aggregator_drilldown import is_aggregator_url, expand_listicle
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -573,39 +573,37 @@ if __name__ == "__main__":
                 blob = f"{c.get('title','')} {c.get('url','')}".lower()
                 return any(m in blob for m in LISTICLE_MARKERS)
 
-            drilled_count = 0
+            # Unified handling: every aggregator URL gets expanded. This
+            # covers both multi-event listicles and "single-event" articles
+            # whose pages also link to several related/sibling events.
+            # If expansion yields nothing we keep the original aggregator
+            # URL so the date filter and Claude still see the candidate.
+            expanded_count = 0
+            expanded_total_links = 0
             kept_original = 0
-            dropped_listicle = 0
             keep_pool = []
             for c in new_pool:
                 url = c.get("url", "")
                 if is_aggregator_url(url):
-                    if _is_listicle(c):
-                        dropped_listicle += 1
-                        print(f"  ✗ dropped (aggregator listicle, covers many events): {url}  |  {c.get('title','?')}")
-                        continue
-                    print(f"  ↳ aggregator detected: {url}")
-                    drill_down_candidate(c)
-                    if c.get("drilled"):
-                        drilled_count += 1
-                        print(f"      ✓ drilled to primary: {c.get('url','')}")
+                    print(f"  ↳ aggregator detected, expanding: {url}")
+                    expanded = expand_listicle(url)
+                    if expanded:
+                        expanded_count += 1
+                        expanded_total_links += len(expanded)
+                        for sub in expanded:
+                            print(f"      ↳ + extracted event: {sub['title'][:80]} → {sub['url']}")
+                        keep_pool.extend(expanded)
                     else:
-                        # Drill failed, but this is a single-event aggregator
-                        # page (we already filtered out listicles), so the
-                        # original URL is still the best source we have.
-                        # Keep it rather than discarding a viable candidate.
                         kept_original += 1
-                        print(f"      ↳ keeping original aggregator URL (no primary found): {url}")
-                    keep_pool.append(c)
+                        print(f"      ↳ no event links found, keeping original: {url}")
+                        keep_pool.append(c)
                 else:
                     keep_pool.append(c)
             new_pool = keep_pool
-            if drilled_count:
-                print(f"  ↳ drilled {drilled_count} aggregator URLs to primary sources")
-            if dropped_listicle:
-                print(f"  ↳ dropped {dropped_listicle} aggregator listicles (multi-event roundups)")
+            if expanded_count:
+                print(f"  ↳ expanded {expanded_count} aggregator pages into {expanded_total_links} new candidates")
             if kept_original:
-                print(f"  ↳ kept {kept_original} aggregator candidates with original URL (drill found no better)")
+                print(f"  ↳ kept {kept_original} aggregator candidates with original URL (no expansion)")
 
             # Date-floor filter — scan title + summary + article body
             # (always present for aggregator candidates) + primary_text

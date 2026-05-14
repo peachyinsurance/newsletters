@@ -82,6 +82,8 @@ AGGREGATOR_DOMAINS: set[str] = {
 }
 
 # Anchor text that tells us nothing — skip when picking primary URLs.
+HEADING_TAGS = ("h1", "h2", "h3", "h4")
+
 GENERIC_ANCHOR_TEXT: set[str] = {
     "click here", "here", "click", "more", "more info", "more information",
     "read more", "learn more", "register", "register here", "sign up",
@@ -235,7 +237,6 @@ def find_primary_url(aggregator_url: str, title: str = "") -> str | None:
     # Build a map: for each <a>, find its containing section by walking up
     # to the previous heading (h1/h2/h3). The heading's text is the section
     # label; links share heading-context if they fall under the same one.
-    HEADING_TAGS = ("h1", "h2", "h3")
 
     def _section_heading_for(elem) -> str:
         """Walk previous siblings/parents to find the nearest preceding
@@ -314,6 +315,184 @@ def find_primary_url(aggregator_url: str, title: str = "") -> str | None:
     print(f"      ↳ drilled '{aggregator_url[:60]}…' → '{best[1][:80]}' "
           f"({', '.join(via)}, score={best[0]})")
     return best[1]
+
+
+def expand_listicle(aggregator_url: str, max_links: int = 20) -> list[dict]:
+    """Scrape a listicle/roundup page and return a list of candidate event
+    dicts — one per outbound link that looks like an individual event page.
+
+    Unlike `find_primary_url` (which collapses to a single best link),
+    this returns ALL plausible event links. Use it on listicles that
+    cover many events, so each event becomes its own pipeline candidate
+    instead of being dropped.
+
+    Returns: list of dicts with keys `title`, `url`, `summary`, `source`,
+    `source_listicle` (the aggregator URL we extracted from). Empty list
+    if the page can't be fetched or has no qualifying links.
+
+    Filters applied per link:
+      - same-host links dropped (those are nav, not events)
+      - other aggregator domains dropped
+      - _SKIP_TARGET_HOSTS dropped (social, share widgets, etc.)
+      - duplicate URLs deduped
+      - generic anchors (\"click here\", \"read more\") dropped unless
+        there's a heading providing context — we use the heading as title
+    """
+    try:
+        from bs4 import BeautifulSoup
+    except Exception:
+        return []
+    r = _browser_get(aggregator_url, timeout=10)
+    if not r or r.status_code >= 400 or not r.text:
+        return []
+
+    soup = BeautifulSoup(r.text, "html.parser")
+    src_host = _hostname(aggregator_url)
+    candidate_bodies = soup.find_all(["article", "main"])
+    if candidate_bodies:
+        body = max(candidate_bodies, key=lambda el: len(el.find_all("a", href=True)))
+    else:
+        body = soup
+
+    def _section_heading_for(elem):
+        prev = elem.find_previous(HEADING_TAGS)
+        return prev.get_text(strip=True) if prev else ""
+
+    def _section_text_for(elem, max_chars: int = 800) -> str:
+        """Collect the text of the section the anchor lives in.
+
+        Strategy A (preferred): walk forward from the nearest preceding
+        heading until the next heading of equal-or-higher rank, gathering
+        all text. This captures the typical listicle pattern:
+            <h2>Event Name</h2>
+            <p>Date, venue, price, description ...</p>
+            <p>... <a href='event-site'>Get tickets</a></p>
+
+        Strategy B (fallback): walk up to the nearest <li>/<section>/<div>
+        ancestor and grab its text. Used when the page doesn't use
+        headings between events (e.g., all events live as <li> items
+        in a single <ul>).
+        """
+        # Strategy A: heading-bounded section
+        heading = elem.find_previous(HEADING_TAGS)
+        if heading is not None:
+            chunks = []
+            for sib in heading.find_all_next():
+                if sib is elem:
+                    chunks.append(sib.get_text(" ", strip=True))
+                    continue
+                if sib.name in HEADING_TAGS:
+                    # Stop at next heading of equal/higher rank
+                    if HEADING_TAGS.index(sib.name) <= HEADING_TAGS.index(heading.name):
+                        break
+                if sib.name in ("p", "li", "div", "span", "em", "strong", "br"):
+                    txt = sib.get_text(" ", strip=True)
+                    if txt:
+                        chunks.append(txt)
+                if sum(len(c) for c in chunks) > max_chars:
+                    break
+            text = " ".join(chunks)
+            if len(text) > 30:  # got meaningful section text
+                return text[:max_chars]
+
+        # Strategy B: walk up to a list-item / section ancestor
+        for ancestor in elem.parents:
+            if ancestor.name in ("li", "section", "article", "div"):
+                txt = ancestor.get_text(" ", strip=True)
+                if 30 < len(txt) < 3000:  # sane bounds
+                    return txt[:max_chars]
+        return ""
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    # Normalized URL of the listicle itself so we don't re-emit it
+    self_clean = aggregator_url.split("#")[0].rstrip("/")
+    self_path = urlparse(aggregator_url).path.rstrip("/")
+    # Site-navigation paths we never want to keep as "events", even when
+    # they live on the same host as the listicle.
+    NAV_PATH_HINTS = (
+        "/category/", "/categories/", "/tag/", "/tags/", "/author/",
+        "/contact", "/about", "/privacy", "/terms", "/subscribe",
+        "/login", "/signup", "/register", "/advertise", "/sitemap",
+        "/feed", "/rss", "/search",
+    )
+
+    for a in body.find_all("a", href=True):
+        href = a["href"].strip()
+        if href.startswith("/"):
+            href = urljoin(aggregator_url, href)
+        if not href.startswith("http"):
+            continue
+        host = _hostname(href)
+        if not host:
+            continue
+        # Always skip share-widget / social / affiliate hosts (mailto,
+        # wa.me, addtoany, list-manage, etc.)
+        if any(h in host for h in _SKIP_TARGET_HOSTS):
+            continue
+
+        url_clean = href.split("#")[0].rstrip("/")
+        # Drop self-reference (the listicle linking back to itself, often
+        # via "permalink" or "share this article" widgets).
+        if url_clean == self_clean:
+            continue
+
+        # Same-host handling: KEEP same-host links to OTHER pages (e.g.
+        # eastcobber.com listicle linking to eastcobber.com/event/foo).
+        # Only drop nav/category/tag URLs and links to the listicle itself.
+        same_host = (host == src_host)
+        path_lower = urlparse(url_clean).path.lower()
+        if same_host:
+            if any(hint in path_lower for hint in NAV_PATH_HINTS):
+                continue
+            # If the path is empty or just '/', it's the site root — nav.
+            if not path_lower or path_lower == "/":
+                continue
+            # If it's the same path as the listicle (e.g. only a query-
+            # string differs), drop.
+            if path_lower.rstrip("/") == self_path.lower():
+                continue
+        else:
+            # External link: drop OTHER aggregator hubs (listicle hubs that
+            # would just lead to more roundups), but keep everything else.
+            if _host_in(host, AGGREGATOR_DOMAINS):
+                continue
+
+        if url_clean in seen:
+            continue
+        seen.add(url_clean)
+
+        anchor = (a.get_text(strip=True) or "").strip()
+        heading = _section_heading_for(a)
+        section_text = _section_text_for(a)
+        # Prefer the heading as title (listicles typically format as
+        # <h2>Event Name</h2> ... <a>Get Tickets</a>). Fall back to anchor.
+        title = heading or anchor
+        if not title or len(title) < 4:
+            continue
+        # Skip pure navigation / generic anchors with no heading context
+        if not heading and anchor.lower() in GENERIC_ANCHOR_TEXT:
+            continue
+
+        # Build a summary that prefers full section context over bare
+        # anchor text — this gives date/venue/price info to the date
+        # filter and Claude.
+        summary = section_text or (anchor if anchor != title else "")
+
+        out.append({
+            "title":           title[:200],
+            "url":             url_clean,
+            "summary":         summary[:800],
+            "anchor_text":     anchor[:200],
+            "section_heading": heading[:200],
+            "article_text":    section_text[:2000],  # picked up by date filter
+            "source":          host,
+            "source_listicle": aggregator_url,
+        })
+        if len(out) >= max_links:
+            break
+
+    return out
 
 
 def drill_down_candidate(candidate: dict) -> dict:
