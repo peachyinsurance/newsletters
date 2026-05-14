@@ -528,14 +528,17 @@ if __name__ == "__main__":
             dropped_no_primary = 0
             keep_pool = []
             for c in new_pool:
-                if is_aggregator_url(c.get("url", "")):
+                url = c.get("url", "")
+                if is_aggregator_url(url):
+                    print(f"  ↳ aggregator detected: {url}")
                     drill_down_candidate(c)
                     if c.get("drilled"):
                         drilled_count += 1
+                        print(f"      ✓ drilled to primary: {c.get('url','')}")
                         keep_pool.append(c)
                     else:
                         dropped_no_primary += 1
-                        print(f"  ✗ dropped (aggregator, no primary found): {c.get('title','?')[:70]}")
+                        print(f"      ✗ dropped (aggregator, no primary found): {url}  |  {c.get('title','?')}")
                 else:
                     keep_pool.append(c)
             new_pool = keep_pool
