@@ -411,9 +411,12 @@ def prefer_primary_source(events: list[dict]) -> list[dict]:
 
 def determine_event_days(candidate: dict, target_weekend: dict) -> list[str]:
     """Read the candidate's title + summary for date mentions and map them
-    to the Friday/Saturday/Sunday of the target weekend. Returns the list of
-    days (e.g. ['Saturday', 'Sunday'] for a 2-day festival, ['Friday'] for
-    Fri-only, or ['Saturday'] as a default when no dates parse cleanly).
+    to the Friday/Saturday/Sunday of the target weekend.
+
+    Hard rule: the candidate text MUST mention a date inside the target
+    weekend (Fri/Sat/Sun). If no parsed date matches, return [] so the
+    caller drops the pick — DON'T default to Saturday, which used to ship
+    past events labeled as this Saturday.
 
     target_weekend = {'Friday': '2026-05-15', 'Saturday': '2026-05-16',
                       'Sunday': '2026-05-17'}
@@ -423,7 +426,8 @@ def determine_event_days(candidate: dict, target_weekend: dict) -> list[str]:
                                  'NewsletterCreation', 'Code'))
     from event_date_filter import extract_dates_from_text
 
-    text = " ".join(str(candidate.get(k, "") or "") for k in ("title", "summary"))
+    text = " ".join(str(candidate.get(k, "") or "") for k in
+                    ("title", "summary", "full_text"))
     parsed = extract_dates_from_text(text)
     weekend_dates = {
         _date.fromisoformat(target_weekend["Friday"]):   "Friday",
@@ -436,12 +440,9 @@ def determine_event_days(candidate: dict, target_weekend: dict) -> list[str]:
         if label and label not in days_found:
             days_found.append(label)
     if days_found:
-        # Preserve canonical order Fri → Sat → Sun
         order = ["Friday", "Saturday", "Sunday"]
         return sorted(days_found, key=order.index)
-    # No specific day mentions matched the target weekend — default to
-    # Saturday (the most common single-day event placement).
-    return ["Saturday"]
+    return []
 
 
 def call_claude_for_audience(
@@ -746,10 +747,18 @@ if __name__ == "__main__":
                     filtered_picks.append(pick)
                 picks = filtered_picks
 
-            # Expand each pick into one row per day the event runs
+            # Expand each pick into one row per day the event runs. Hard
+            # rule: skip any pick whose source candidate doesn't show a
+            # date inside the target weekend (Fri/Sat/Sun). The old behavior
+            # of defaulting to Saturday let past events ship.
             for pick in picks:
                 source_cand = pick.pop("_source_candidate", {})
                 days = determine_event_days(source_cand, weekend)
+                if not days:
+                    print(f"      ✗ dropped (no date matches target weekend "
+                          f"{weekend['Friday']}..{weekend['Sunday']}): "
+                          f"{pick.get('event_name','?')[:60]}")
+                    continue
                 for day_name in days:
                     row = dict(pick)  # shallow copy per day
                     row["day"]  = day_name
