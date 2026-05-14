@@ -550,6 +550,19 @@ if __name__ == "__main__":
                         return candidate
                 return ""
 
+            # Track image URLs we've already assigned to an event in THIS
+            # batch. If the same image URL gets scraped for multiple events,
+            # it's almost certainly a sitewide widget / affiliate banner
+            # (e.g., DreamHack banner appearing on multiple aggregator
+            # pages' og:image) — not the actual event's photo. Force
+            # Stage-2 fallback for subsequent events.
+            used_image_urls: set[str] = set()
+
+            def _normalize_img(u: str) -> str:
+                """Strip query params for dedup so the same image with
+                different cache-bust query strings still matches."""
+                return u.split("?")[0].split("#")[0].rstrip("/").lower()
+
             for r in results:
                 if r.get("image_url"):
                     continue
@@ -557,12 +570,24 @@ if __name__ == "__main__":
                 # Stage 1: page-scrape
                 img = fetch_event_image(url) if url else ""
                 stage = "page-scrape"
+                # Batch-level dedup: if this image already got assigned to
+                # an earlier event, it's a recurring widget — skip and
+                # force fallback.
+                if img and _normalize_img(img) in used_image_urls:
+                    print(f"  ⚠ scraped image already used by an earlier event — forcing Brave fallback for {r.get('event_name','?')[:50]}")
+                    img = ""
                 # Stage 2: Brave Image Search fallback
                 if not img:
                     img = _brave_image_fallback(r.get("event_name", ""))
                     stage = "brave-image-search"
+                    # Apply batch-dedup to the fallback result too —
+                    # unlikely to recur but possible
+                    if img and _normalize_img(img) in used_image_urls:
+                        print(f"  ⚠ Brave-search image also already used — leaving event without image_url for {r.get('event_name','?')[:50]}")
+                        img = ""
                 if img:
                     r["image_url"] = img
+                    used_image_urls.add(_normalize_img(img))
                     print(f"  ↳ image found for {r.get('event_name','?')[:50]} ({stage}): {img[:80]}")
                 else:
                     print(f"  · no image found for {r.get('event_name','?')[:50]} (both stages failed)")

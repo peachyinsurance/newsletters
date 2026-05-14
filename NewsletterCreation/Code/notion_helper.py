@@ -113,15 +113,48 @@ def update_page(page_id: str, properties: dict) -> dict:
     return r.json()
 
 def create_page(db_id: str, properties: dict) -> dict:
-    r = _notion_request(
-        "POST",
-        "https://api.notion.com/v1/pages",
-        json_body={"parent": {"database_id": db_id}, "properties": properties},
-    )
-    if not r.ok:
-        print(f"  Notion error: {r.text[:500]}")
-    r.raise_for_status()
-    return r.json()
+    """Create a Notion page. On 400 with a property-not-found error,
+    automatically drop the offending property and retry once — keeps a
+    save batch alive when the DB schema is missing a newly-added column.
+
+    Logs which property was dropped so it's visible in run output (run
+    Setup Notion Databases to add it permanently)."""
+    import json as _json
+    try:
+        r = _notion_request(
+            "POST",
+            "https://api.notion.com/v1/pages",
+            json_body={"parent": {"database_id": db_id}, "properties": properties},
+        )
+        return r.json()
+    except requests.exceptions.HTTPError as e:
+        if e.response is None or e.response.status_code != 400:
+            raise
+        # Try to parse Notion's "property not found" error and retry without it
+        try:
+            err = e.response.json()
+            msg = err.get("message", "") or e.response.text
+        except Exception:
+            msg = e.response.text
+        # Notion's typical message: "X is not a property that exists" or
+        # "X is not a property of this database"
+        import re as _re
+        m = _re.search(r"^([^\n]+?)\s+is not (?:a property|a valid|of this)", msg)
+        if not m:
+            print(f"  Notion 400 error (not a missing-property issue): {msg[:500]}")
+            raise
+        bad_prop = m.group(1).strip().strip("'\"")
+        if bad_prop not in properties:
+            print(f"  Notion 400 mentioned property '{bad_prop}' but it's not in our payload: {msg[:300]}")
+            raise
+        print(f"  ⚠ Notion DB missing column '{bad_prop}' — saving row without it (run Setup Notion Databases to add the column)")
+        retry_props = {k: v for k, v in properties.items() if k != bad_prop}
+        r = _notion_request(
+            "POST",
+            "https://api.notion.com/v1/pages",
+            json_body={"parent": {"database_id": db_id}, "properties": retry_props},
+        )
+        return r.json()
 
 def archive_page(page_id: str) -> dict:
     """Archive (soft-delete) a Notion page."""
