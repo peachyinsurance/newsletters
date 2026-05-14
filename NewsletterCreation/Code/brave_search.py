@@ -110,3 +110,60 @@ def search_web(
         time.sleep(pause_between)
 
     return all_results
+
+
+def search_images(query: str, api_key: str, max_results: int = 5,
+                  timeout: int = 15) -> list[dict]:
+    """Call Brave Image Search and return raw result dicts.
+
+    Each result has the shape:
+      {
+        "title":     str,
+        "image_url": str,     # original source image (may be hotlink-blocked)
+        "thumbnail": str,     # Brave-hosted CDN URL (always serves)
+        "source":    str,     # publisher domain
+        "page_url":  str,     # the page the image was found on
+      }
+
+    Returns [] on error or empty result. Caller is responsible for HEAD-
+    validating image_url / thumbnail and choosing which to use.
+
+    Uses the same Brave subscription as `search_web` — image search is
+    included in the Search plan ($5/1k requests)."""
+    if not query.strip():
+        return []
+    headers = {
+        "Accept":              "application/json",
+        "Accept-Encoding":     "gzip",
+        "X-Subscription-Token": api_key,
+    }
+    try:
+        r = requests.get(
+            "https://api.search.brave.com/res/v1/images/search",
+            headers=headers,
+            params={"q": query, "count": max_results, "safesearch": "strict"},
+            timeout=timeout,
+        )
+        if r.status_code == 402:
+            print(f"    Brave Image Search quota exhausted (402) — skipping")
+            return []
+        if r.status_code != 200:
+            print(f"    Brave Image Search status {r.status_code} — {r.text[:160]}")
+            return []
+        data = r.json()
+    except Exception as e:
+        print(f"    Brave Image Search error: {e}")
+        return []
+
+    out: list[dict] = []
+    for item in data.get("results", []):
+        props = item.get("properties") or {}
+        thumb = (item.get("thumbnail") or {}).get("src", "")
+        out.append({
+            "title":     item.get("title", ""),
+            "image_url": props.get("url", "") or thumb,
+            "thumbnail": thumb,
+            "source":    (item.get("meta_url") or {}).get("hostname", ""),
+            "page_url":  item.get("url", ""),
+        })
+    return out

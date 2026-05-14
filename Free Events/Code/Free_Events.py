@@ -192,7 +192,18 @@ def fetch_event_image(source_url: str, _allow_root_fallback: bool = True) -> str
 
     SKIP_TOKENS = ("logo", "favicon", "sprite", "icon-", "/icons/",
                    "placeholder", "spacer", "tracker", "pixel.gif",
-                   "1x1", "blank.gif", "transparent.png")
+                   "1x1", "blank.gif", "transparent.png",
+                   # Affiliate / ad-network CDNs that get embedded as
+                   # widgets on many event pages — the og:image picked up
+                   # is the SAME ad image across all those pages, which
+                   # then gets wrongly mapped to multiple different events.
+                   "grouponcdn.com", "groupon.com/image",
+                   "jdoqocy.com", "dpbolvw.net", "tkqlhce.com",
+                   "anrdoezrs.net", "kqzyfj.com",
+                   "amazon-adsystem", "doubleclick",
+                   "googlesyndication", "googleadservices",
+                   "rakuten.com/img", "shareasale.com/image",
+                   "impactradius", "linksynergy.com")
 
     candidates: list[str] = []
 

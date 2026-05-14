@@ -183,6 +183,16 @@ def find_primary_url(aggregator_url: str, title: str = "") -> str | None:
         return None
     candidates.sort(key=lambda x: -x[0])
     best = candidates[0]
+    # Require REAL title-overlap. Without this, a drill that doesn't find
+    # the candidate's specific event in the article will return the
+    # highest-scoring OTHER anchor — which means EventA gets EventB's URL.
+    # (Symptom: Marcus King's drill returning DreamHack's URL when fox5
+    # featured DreamHack but not Marcus King.)
+    MIN_OVERLAP_SCORE = 3  # any anchor with ≥1 token match crosses this (overlap × 3)
+    if best[0] < MIN_OVERLAP_SCORE:
+        print(f"      ⚠ drill found no anchor matching '{title[:50]}' in "
+              f"{_hostname(aggregator_url)} (best score {best[0]}) — keeping aggregator URL")
+        return None
     print(f"      ↳ drilled '{aggregator_url[:60]}…' → '{best[1][:80]}' "
           f"(anchor='{best[2][:50]}', score={best[0]})")
     return best[1]

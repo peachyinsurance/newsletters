@@ -509,24 +509,65 @@ if __name__ == "__main__":
         # Flag winner
         results = flag_default_winner(results)
 
-        # Populate image_url for each event by scraping og:image / JSON-LD
-        # from the source URL. Reuses the Free Events helper which has the
-        # full og:image → JSON-LD → body-image fallback chain.
+        # Populate image_url for each event in two stages:
+        #   Stage 1: scrape the source URL's og:image / JSON-LD / body-image
+        #            (includes root-domain fallback). Free, no API cost.
+        #   Stage 2: if Stage 1 found nothing, Brave Image Search using the
+        #            event name + display area as the query. Picks the best
+        #            non-stock, non-affiliate result. Uses your existing
+        #            Brave subscription ($0.005/request).
         try:
             sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'Free Events', 'Code'))
-            from Free_Events import fetch_event_image
+            from Free_Events import fetch_event_image, _image_looks_real
+            from brave_search import search_images
+
+            BRAVE_IMAGE_SKIP_HOSTS = (
+                # Stock photo / watermark sites Claude shouldn't surface
+                "shutterstock.com", "gettyimages.com", "istockphoto.com",
+                "alamy.com", "depositphotos.com", "dreamstime.com",
+                "stock.adobe.com", "123rf.com",
+                # Affiliate / ad CDNs (consistent with og:image SKIP_TOKENS)
+                "grouponcdn.com", "jdoqocy.com", "dpbolvw.net",
+                "tkqlhce.com", "anrdoezrs.net",
+            )
+
+            def _brave_image_fallback(event_name: str) -> str:
+                """Last-resort image find via Brave Image Search."""
+                if not BRAVE_NEWS_API_KEY:
+                    return ""
+                query = f"{event_name} {newsletter['display_area']}"
+                results = search_images(query, BRAVE_NEWS_API_KEY, max_results=5)
+                if not results:
+                    return ""
+                for img in results:
+                    candidate = img.get("image_url") or img.get("thumbnail") or ""
+                    if not candidate:
+                        continue
+                    cl = candidate.lower()
+                    if any(host in cl for host in BRAVE_IMAGE_SKIP_HOSTS):
+                        continue
+                    if _image_looks_real(candidate):
+                        return candidate
+                return ""
+
             for r in results:
                 if r.get("image_url"):
                     continue
                 url = r.get("source_url") or r.get("ticket_url") or ""
-                if not url:
-                    continue
-                img = fetch_event_image(url)
+                # Stage 1: page-scrape
+                img = fetch_event_image(url) if url else ""
+                stage = "page-scrape"
+                # Stage 2: Brave Image Search fallback
+                if not img:
+                    img = _brave_image_fallback(r.get("event_name", ""))
+                    stage = "brave-image-search"
                 if img:
                     r["image_url"] = img
-                    print(f"  ↳ scraped image for {r.get('event_name','?')[:50]}: {img[:80]}")
+                    print(f"  ↳ image found for {r.get('event_name','?')[:50]} ({stage}): {img[:80]}")
+                else:
+                    print(f"  · no image found for {r.get('event_name','?')[:50]} (both stages failed)")
         except Exception as e:
-            print(f"  ⚠ image scrape skipped ({e}) — events will save without image_url")
+            print(f"  ⚠ image lookup skipped ({e}) — events will save without image_url")
 
         # Save to Notion
         save_events_to_notion(results, newsletter["name"])
