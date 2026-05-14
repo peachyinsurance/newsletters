@@ -38,14 +38,14 @@ BRAVE_NEWS_API_KEY = os.environ["BRAVE_NEWS_API_KEY"]
 
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-weekend-planner-skill_auto.md"
 
-TARGET_PER_AUDIENCE = 10     # upper bound Claude picks per audience (Family OR Adult)
-MIN_PER_AUDIENCE    = 5      # below this, we fire a retry pass with broader queries
+TARGET_PER_AUDIENCE = 18     # upper bound Claude picks per audience (Family OR Adult); ~6/day × 3 days
+MIN_PER_AUDIENCE    = 9      # below this, we fire a retry pass with broader queries (~3/day)
 MAX_RESULTS_PER_QUERY = 15
 PAUSE_BETWEEN_BRAVE = 0.5    # rate-limit buffer
 
 # Backfill if Claude returns fewer than MIN_PER_AUDIENCE picks for an audience.
 RETRY_RESULTS_PER_QUERY = 20      # Brave hard-caps `count` at 20; sending >20 gets HTTP 422
-CANDIDATE_CAP            = 80     # max candidates sent to Claude per audience (pooled across 3 days)
+CANDIDATE_CAP            = 120    # max candidates sent to Claude per audience (pooled across 3 days)
 
 AGGREGATOR_BLOCKLIST = {
     # Kept blocked: review sites, social, listicles, real-estate noise.
@@ -70,11 +70,41 @@ AGGREGATOR_BLOCKLIST = {
     "viator.com",
     "events12.com",
     "eventcrazy.com",
+    # Listicle / "things to do this weekend" roundup hubs. These pages list
+    # many events in one article — when Claude picks an event mentioned
+    # inside, the candidate_index URL points to the roundup, not the
+    # actual event, so the event text and link end up disconnected.
+    "mommypoppins.com",
+    "thrillist.com",
+    "timeout.com",
+    "365atlanta.com",
+    "accessatlanta.com",
+    "365thingsindallas.com",
     # Real-estate domains pollute area-based queries
     "redfin.com",
     "zillow.com",
     "trulia.com",
 }
+
+# URL-path patterns that signal a listicle/roundup even on a domain we
+# don't blanket-block. Same problem as the listicle hubs above: candidate
+# URL is the roundup, not the event Claude writes about. Checked on the
+# URL path, case-insensitive.
+LISTICLE_URL_HINTS = (
+    "/things-to-do",
+    "/things_to_do",
+    "/best-of",
+    "/best-",
+    "/top-",
+    "/guide-to-",
+    "/guide/",
+    "/roundup",
+    "/listicle",
+    "/weekend-guide",
+    "/what-to-do",
+    "/events-this-weekend",
+    "/things-to-do-this-weekend",
+)
 
 # Domains we still treat as "aggregators" for prefer-primary-source logic.
 # When Claude picks an event whose URL is on one of these, we drill its
@@ -191,7 +221,14 @@ def build_fallback_queries(newsletter: dict, audience: str, day: str, target_dat
 # ---------------------------------------------------------------------------
 def is_aggregator(url: str) -> bool:
     host = domain_of(url)
-    return any(host == d or host.endswith("." + d) for d in AGGREGATOR_BLOCKLIST)
+    if any(host == d or host.endswith("." + d) for d in AGGREGATOR_BLOCKLIST):
+        return True
+    # Listicle URL-path heuristic: catches "things-to-do" / "best-of" /
+    # weekend-guide patterns on domains we don't blanket-block.
+    path = url.lower()
+    if any(hint in path for hint in LISTICLE_URL_HINTS):
+        return True
+    return False
 
 
 def filter_aggregators(candidates: list[dict]) -> list[dict]:
