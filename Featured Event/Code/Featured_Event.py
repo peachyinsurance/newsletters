@@ -544,7 +544,7 @@ if __name__ == "__main__":
                 return any(m in blob for m in LISTICLE_MARKERS)
 
             drilled_count = 0
-            dropped_no_primary = 0
+            kept_original = 0
             dropped_listicle = 0
             keep_pool = []
             for c in new_pool:
@@ -559,10 +559,14 @@ if __name__ == "__main__":
                     if c.get("drilled"):
                         drilled_count += 1
                         print(f"      ✓ drilled to primary: {c.get('url','')}")
-                        keep_pool.append(c)
                     else:
-                        dropped_no_primary += 1
-                        print(f"      ✗ dropped (aggregator, no primary found): {url}  |  {c.get('title','?')}")
+                        # Drill failed, but this is a single-event aggregator
+                        # page (we already filtered out listicles), so the
+                        # original URL is still the best source we have.
+                        # Keep it rather than discarding a viable candidate.
+                        kept_original += 1
+                        print(f"      ↳ keeping original aggregator URL (no primary found): {url}")
+                    keep_pool.append(c)
                 else:
                     keep_pool.append(c)
             new_pool = keep_pool
@@ -570,8 +574,8 @@ if __name__ == "__main__":
                 print(f"  ↳ drilled {drilled_count} aggregator URLs to primary sources")
             if dropped_listicle:
                 print(f"  ↳ dropped {dropped_listicle} aggregator listicles (multi-event roundups)")
-            if dropped_no_primary:
-                print(f"  ↳ dropped {dropped_no_primary} aggregator candidates (drill failed)")
+            if kept_original:
+                print(f"  ↳ kept {kept_original} aggregator candidates with original URL (drill found no better)")
 
             # Date-floor filter — scan title + summary + article body
             # (always present for aggregator candidates) + primary_text

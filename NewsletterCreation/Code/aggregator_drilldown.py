@@ -108,6 +108,10 @@ _SKIP_TARGET_HOSTS = (
     "jdoqocy.com", "dpbolvw.net", "tkqlhce.com", "anrdoezrs.net",
     # App download / store CTAs ("Download our app")
     "itunes.apple.com", "apps.apple.com", "play.google.com",
+    # News archive / search portals — drilling MDJ etc. sometimes lands
+    # on the archive search ("Search the MDJ's archives") instead of a
+    # real event page. These are not primary sources.
+    "newsbank.com", "archive.org", "web.archive.org",
     # Newsletter signup widgets (Mailchimp, Constant Contact, etc.) —
     # local-news sites embed a "Send Us Your News!" signup form under the
     # masthead, which scores high on heading proximity for unrelated events.
