@@ -172,8 +172,21 @@ def evaluate_and_write_events(
     """Send candidates + demographics to Claude. Returns top events with blurbs."""
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
 
-    # Tag each candidate with a 1-based index for safe URL matching post-Claude
-    indexed_candidates = [{**c, "candidate_index": i} for i, c in enumerate(candidates, 1)]
+    # Tag each candidate with a 1-based index for safe URL matching post-Claude.
+    # IMPORTANT: strip `article_text` / `primary_text` / `original_url` from
+    # what Claude sees. Those fields are kept on the candidate dict for our
+    # date-filter use, but when Claude sees an aggregator listicle's full
+    # body text, it picks multiple events from that one candidate and
+    # assigns them all the same candidate_index → all events get the same
+    # source URL after our index-→-URL attach step. Forcing Claude to see
+    # only title+url+summary makes 1 candidate map to ≤1 event.
+    INTERNAL_FIELDS = {"article_text", "primary_text", "original_url",
+                       "drilled", "source_url_aggregator", "page_age"}
+    indexed_candidates = []
+    for i, c in enumerate(candidates, 1):
+        clean = {k: v for k, v in c.items() if k not in INTERNAL_FIELDS}
+        clean["candidate_index"] = i
+        indexed_candidates.append(clean)
     candidates_json = json.dumps(indexed_candidates, indent=2)
     demo_summary = (
         f"Median household income: {demographics['median_income']}\n"
