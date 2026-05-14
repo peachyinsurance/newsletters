@@ -52,9 +52,13 @@ From the provided scraped articles, choose 3-5 stories. Prioritize in this order
 - Are county-wide or statewide with no specific local connection to the coverage area
 - Duplicate content that may appear elsewhere in the newsletter
 - Have no clear "so what" for the reader
-- Involve violent crime (murder, assault, robbery, domestic violence, shootings)
+- Involve violent crime (murder, assault, robbery, domestic violence, shootings, stabbings)
+- Involve arrests, indictments, sentencing, court proceedings, or "charged with" stories. The Lowdown is not a police blotter.
+- Involve fatal accidents, deadly fires, drownings, "person killed in", "found dead", or any tragic-death framing
+- Involve lawsuits, scandals, fraud, embezzlement, misconduct, harassment, or resignations under pressure
+- Involve public-health negatives (outbreaks, food recalls for contamination, overdoses, suicide)
 - Are partisan political content (candidate endorsements, party-line debates). Non-partisan civic items like voting deadlines, referendums, and local government meetings are fine.
-- Are disturbing, graphic, or not family-friendly
+- Are disturbing, graphic, sad, or not family-friendly. **Default bias: skew positive and useful.** Readers come to the Lowdown to feel informed about their neighborhood, not depressed. If a story's dominant emotional read is grim, drop it.
 - Link to paywalled sources where readers can't access the full article. Prefer free, publicly accessible sources.
 - **Are event roundups / "things to do" lists / weekend guides** — Local Lowdown is NEWS, not event listings. Dedicated event coverage lives in other newsletter sections. If the article title or summary reads like "5 things to do this weekend", "weekend events", "things to do in X", "what's happening", "upcoming events calendar" — DROP IT.
 
@@ -190,4 +194,7 @@ Before returning output, verify:
 - Lead with the highest-impact story
 - No em dashes anywhere
 - Bold key details for scanning
-- If fewer than 3 viable stories exist in the input, return what you have and note the gap in `dropped_stories`
+- **Target range: 3 to 5 stories. This is a hard target, not a suggestion.** Never return 1 or 2. Never return 6 or more. If the input is thin, lean toward including borderline-but-positive civic/business/school items so you hit the 3-story floor. If the input is rich, ruthlessly cut to your top 5.
+- Returning 2 stories is a failure mode — if you only see 2 strong stories, add the next-best civic/business/school item to reach 3, even if it's slightly weaker.
+- Returning 6+ is also a failure mode — cut to your strongest 5.
+- If fewer than 3 viable stories exist in the input (rare), return what you have and note the gap in `dropped_stories`

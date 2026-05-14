@@ -36,17 +36,45 @@ SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter
 MAX_ARTICLES = 15
 MIN_ARTICLES = 8   # minimum eligible articles before sending to Claude
 MIN_STORIES  = 3   # minimum stories Claude must select, otherwise retry
+MAX_STORIES  = 5   # cap on stories saved (target range is 3-5)
 MAX_RETRIES  = 2   # how many fetch rounds to attempt
 
-# Topics to exclude — keep the newsletter PG and community-focused
+# Topics to exclude — keep the newsletter PG and community-focused.
+# The Local Lowdown should feel like good news + civic updates, not a crime
+# blotter or obituary column. When in doubt, drop it.
 EXCLUDED_KEYWORDS = {
-    "murder", "homicide", "killed", "stabbed", "shooting", "shot dead",
-    "manslaughter", "assault", "rape", "sexual assault", "domestic violence",
-    "arson", "robbery", "carjacking", "kidnapping", "abduction",
-    "skeletal remains", "body found", "death investigation",
-    "drug bust", "drug trafficking", "overdose",
-    "trump", "biden", "desantis", "GOP", "democrat", "republican",
-    "partisan", "impeach", "indictment", "arraign",
+    # Violent / serious crime
+    "murder", "homicide", "killed", "kills", "killing", "stabbed", "stabbing",
+    "shooting", "shooter", "shot dead", "gunfire", "gunman", "gunshot",
+    "manslaughter", "assault", "assaulted", "rape", "raped", "sexual assault",
+    "domestic violence", "arson", "robbery", "robbed", "carjacking",
+    "kidnapping", "kidnapped", "abduction", "abducted", "hostage",
+    "skeletal remains", "body found", "death investigation", "homicide",
+    "human trafficking", "child porn", "molested", "molestation",
+    "abuse", "abused", "abuser", "predator", "groomed", "grooming",
+    # Drugs
+    "drug bust", "drug trafficking", "overdose", "fentanyl", "meth lab",
+    # Arrests / courts (negative tone)
+    "arrested", "arrest of", "charged with", "indicted", "indictment",
+    "arraigned", "arraign", "convicted", "sentenced", "plead guilty",
+    "pleaded guilty", "guilty plea", "fugitive", "wanted suspect",
+    "police chase", "manhunt", "standoff", "swat",
+    # Fatal accidents / disasters
+    "fatal", "fatally", "deadly", "dies in", "killed in", "died in",
+    "found dead", "pronounced dead", "tragic death", "tragedy", "tragic",
+    "drowned", "drowning", "house fire", "deadly fire", "wildfire victim",
+    "plane crash", "fatal crash", "head-on crash", "rollover crash",
+    "pedestrian killed", "cyclist killed", "hit-and-run", "hit and run",
+    # Public health negatives
+    "outbreak", "salmonella", "e. coli", "listeria", "recall hazard",
+    "suicide", "self-harm",
+    # Lawsuits / scandals
+    "lawsuit", "sued", "sues", "scandal", "fraud", "embezzle", "embezzlement",
+    "scam", "scammed", "ponzi", "indicted", "investigation into",
+    "misconduct", "harassment", "fired for", "resigns amid", "steps down amid",
+    # Partisan politics
+    "trump", "biden", "desantis", "gop", "democrat", "republican",
+    "partisan", "impeach",
 }
 
 # Domains with metered/soft paywalls that slip past automated detection
@@ -181,12 +209,12 @@ def fetch_news_brave(search_terms: list[str]) -> list[dict]:
                 # Check blocked domains (metered paywalls that slip past detection)
                 hostname = item.get("meta_url", {}).get("hostname", "") if isinstance(item.get("meta_url"), dict) else ""
                 if any(domain in url.lower() or domain in hostname.lower() for domain in BLOCKED_DOMAINS):
-                    print(f"    ✗ Skipping blocked domain: {hostname or url[:50]}")
+                    print(f"    ✗ Skipping blocked domain ({hostname}): {url}")
                     continue
 
                 # Skip pure event-aggregator sites (no real news content)
                 if any(domain in url.lower() or domain in hostname.lower() for domain in AGGREGATOR_DOMAINS):
-                    print(f"    ✗ Skipping event-aggregator site: {hostname or url[:50]}")
+                    print(f"    ✗ Skipping event-aggregator site ({hostname}): {url}")
                     continue
 
                 # Skip articles that are event lists / "things to do" roundups — we want NEWS
@@ -198,8 +226,7 @@ def fetch_news_brave(search_terms: list[str]) -> list[dict]:
 
                 # Check for paywall
                 if is_paywalled(url):
-                    source = hostname or url[:50]
-                    print(f"    ✗ Skipping paywalled: {source}")
+                    print(f"    ✗ Skipping paywalled ({hostname}): {url}")
                     continue
 
                 seen_urls.add(url)
@@ -316,10 +343,10 @@ Articles:
             if not url:
                 continue
             if is_paywalled(url):
-                print(f"    ✗ Removed paywalled source: {article.get('source', '')} ({url[:50]})")
+                print(f"    ✗ Removed paywalled source: {article.get('source', '')} ({url})")
                 continue
             if not validate_url(url):
-                print(f"    ✗ Removed dead source URL: {article.get('source', '')} ({url[:50]})")
+                print(f"    ✗ Removed dead source URL: {article.get('source', '')} ({url})")
                 continue
             rebuilt.append({
                 "url":   url,
@@ -328,6 +355,12 @@ Articles:
         story["source_urls"] = rebuilt
         # Drop the transient field from output
         story.pop("source_article_indexes", None)
+
+    # Enforce 3-5 target range: cap at MAX_STORIES if Claude returns too many
+    if len(stories) > MAX_STORIES:
+        print(f"  Claude returned {len(stories)} stories, trimming to top {MAX_STORIES}")
+        result["stories"] = stories[:MAX_STORIES]
+        stories = result["stories"]
 
     print(f"  Claude selected {len(stories)} stories")
     for s in stories:
