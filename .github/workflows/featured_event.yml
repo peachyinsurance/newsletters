@@ -41,6 +41,29 @@ jobs:
           NOTION_EVENTS_DB_ID:      ${{ secrets.NOTION_EVENTS_DB_ID }}
           NEWSLETTER:               ${{ github.event.inputs.newsletter || 'all' }}
         run: python "Featured Event/Code/Featured_Event.py"
+      - name: Commit Brave cache for local debugging
+        if: ${{ always() }}
+        run: |
+          set -e
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Only do anything if the cache dir has files
+          if [ -d "Featured Event/Code/brave_cache" ] && [ -n "$(ls -A 'Featured Event/Code/brave_cache' 2>/dev/null)" ]; then
+            git add "Featured Event/Code/brave_cache"
+            if git diff --staged --quiet; then
+              echo "No cache changes to commit"
+            else
+              git commit -m "chore: update Featured Event Brave cache [skip ci]"
+              # Retry-on-conflict: rebase against latest main, then push
+              for attempt in 1 2 3; do
+                git pull --rebase origin main && git push origin HEAD:main && break
+                echo "Push attempt $attempt failed, retrying..."
+                sleep 3
+              done
+            fi
+          else
+            echo "No cache dir or empty; skipping commit"
+          fi
       - name: Trigger newsletter page rebuild
         if: ${{ (github.event.inputs.chain || 'true') == 'false' }}
         env:
