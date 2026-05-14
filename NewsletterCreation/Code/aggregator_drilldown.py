@@ -93,12 +93,23 @@ GENERIC_ANCHOR_TEXT: set[str] = {
 # Hosts we never want to drill INTO (social, redirects, maps, paywalls).
 _SKIP_TARGET_HOSTS = (
     "facebook.com", "twitter.com", "x.com", "instagram.com", "linkedin.com",
-    "youtube.com", "youtu.be", "tiktok.com",
+    "youtube.com", "youtu.be", "tiktok.com", "threads.net",
     # Maps / directions — these often appear under event headings
     # (address-as-link), but they're not the event's source page.
     "google.com", "goo.gl", "maps.app.goo.gl", "maps.apple.com",
+    # Universal share-button widgets / social-share redirects.
+    # cobbcountycourier.com / mdjonline.com embed these under EVERY event
+    # section — they score high on heading-proximity but are share URLs
+    # that wrap the article itself, not links to a primary venue page.
+    "addtoany.com", "addthis.com", "sharethis.com",
+    "wa.me", "api.whatsapp.com", "t.me",  # WhatsApp / Telegram share
+    "pinterest.com/pin/create", "reddit.com/submit",
+    "linkedin.com/shareArticle", "twitter.com/intent",
+    "mailto:", "sms:",  # mail / SMS share links — usually scheme:, but defensive
     # Affiliate redirect networks (rare in drill targets but defensive)
     "jdoqocy.com", "dpbolvw.net", "tkqlhce.com", "anrdoezrs.net",
+    # App download / store CTAs ("Download our app")
+    "itunes.apple.com", "apps.apple.com", "play.google.com",
 )
 
 
