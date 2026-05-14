@@ -1078,6 +1078,7 @@ def _event_row_to_dict(props: dict) -> dict:
         "blurb":       _rt("Blurb"),
         "source_url":  props.get("Source URL", {}).get("url", ""),
         "ticket_url":  props.get("Ticket URL", {}).get("url", ""),
+        "image_url":   props.get("Image URL", {}).get("url", ""),
         "score":       props.get("Total Score", {}).get("number", 0),
     }
 
@@ -1553,6 +1554,22 @@ def _build_weekend_planner(newsletter_name: str) -> list[dict]:
         d = ev.get("day", "")
         if a in grouped and d in grouped[a]:
             grouped[a][d].append(ev)
+
+    # Sort each (audience, day) bucket alphabetically by event_name.
+    # Case-insensitive, strips leading "The "/"A "/"An " articles so
+    # 'The Marietta Greek Festival' sorts under M, not T.
+    import re as _re_sort
+    def _sort_key(ev: dict) -> str:
+        name = (ev.get("event_name") or "").strip()
+        # Strip a single leading article + ordinal prefixes ("36th Annual ...")
+        # so headline qualifiers don't dictate the order
+        name = _re_sort.sub(r"^(the|a|an)\s+", "", name, flags=_re_sort.IGNORECASE)
+        name = _re_sort.sub(r"^\d+(st|nd|rd|th)?\s+(annual\s+)?", "",
+                            name, flags=_re_sort.IGNORECASE)
+        return name.lower()
+    for a in grouped:
+        for d in grouped[a]:
+            grouped[a][d].sort(key=_sort_key)
 
     # Pick a date label per day from any event in that bucket (they should all share)
     def _day_header(day: str, bucket_events: list[dict]) -> str:
