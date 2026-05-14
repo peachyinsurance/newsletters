@@ -330,29 +330,60 @@ Candidates:
                   f"(same source URL already used by an earlier event)")
             continue
 
-        # Venue-vs-host sanity check: if the event's venue name has no
-        # token overlap with the source URL's host AND the URL doesn't
-        # mention any event-name tokens, Claude probably conflated two
-        # events from the same source article. Drop it.
+        # Venue-vs-host sanity check: if the event's name+venue tokens have
+        # no DISTINCTIVE overlap with the source URL, Claude probably
+        # conflated two events from the same source article (e.g., labeling
+        # an Atlanta Dream URL as Marcus King's source). Drop it.
+        #
+        # Distinctive = non-generic. Common nouns ('band', 'festival',
+        # 'concert', 'theater', etc.) and common geo words ('atlanta',
+        # 'georgia') match too many unrelated URLs and cause false positives.
         candidate_url = source.get("url", "") or ""
         event_name    = r.get("event_name", "") or ""
         venue         = r.get("venue", "") or ""
         from urllib.parse import urlparse as _up
         host = (_up(candidate_url).hostname or "").lower().removeprefix("www.")
         import re as _re_venue
-        host_tokens  = set(_re_venue.findall(r"[a-z]{4,}", host))
-        url_tokens   = set(_re_venue.findall(r"[a-z]{4,}", candidate_url.lower()))
-        event_tokens = set(_re_venue.findall(r"[a-z]{4,}", event_name.lower())) | \
-                       set(_re_venue.findall(r"[a-z]{4,}", venue.lower()))
+
+        VENUE_STOP_TOKENS = {
+            # Common event-type words
+            "band", "festival", "event", "events", "show", "shows", "tour",
+            "live", "music", "concert", "concerts", "party", "annual",
+            "weekend", "evening", "night", "presents", "feat", "ticket",
+            "tickets", "presents",
+            # Venue-type words
+            "theatre", "theater", "arena", "stadium", "venue", "center",
+            "centre", "park", "fest",
+            # Geo (covers our newsletter regions and metros)
+            "atlanta", "georgia", "metro", "north", "south", "east", "west",
+            "downtown", "uptown", "midtown",
+            "dallas", "texas", "fort", "worth",
+            "cobb", "marietta", "roswell", "alpharetta",
+            "dunwoody", "brookhaven", "sandy", "springs",
+            "lewisville", "denton", "flower", "mound",
+        }
+        def _tokens(s: str) -> set[str]:
+            tokens = set(_re_venue.findall(r"[a-z]{4,}", s.lower()))
+            return tokens - VENUE_STOP_TOKENS
+
+        event_tokens = _tokens(event_name) | _tokens(venue)
+        # For URL matching, use the lowercased URL as a flat string so an
+        # event token like 'greek' matches 'mariettagreekfestival.com'
+        # (one un-hyphenated token) via substring containment. Pure-token
+        # intersection misses these compound domain names.
+        url_lower = candidate_url.lower()
+
         # Skip the check for fully-generic event hosts (Eventbrite, Ticketmaster
         # etc.) — those won't contain event-name tokens by design.
         GENERIC_TICKETING_HOSTS = ("eventbrite.com", "ticketmaster.com", "axs.com",
                                     "stubhub.com", "seatgeek.com", "tixr.com",
                                     "bigtickets.com")
         skip_check = any(host == g or host.endswith("." + g) for g in GENERIC_TICKETING_HOSTS)
-        if not skip_check and event_tokens and not (event_tokens & url_tokens) and not (event_tokens & host_tokens):
+        url_has_event_token = any(tok in url_lower for tok in event_tokens)
+        if not skip_check and event_tokens and not url_has_event_token:
             print(f"  ✗ Rejecting venue/host mismatch: '{event_name}' at '{venue}' "
-                  f"vs URL '{candidate_url[:60]}' — no event tokens in URL")
+                  f"vs URL '{candidate_url[:60]}' (no distinctive tokens in URL; "
+                  f"event_keywords={sorted(event_tokens)[:5]})")
             continue
 
         seen_indices.add(idx)
