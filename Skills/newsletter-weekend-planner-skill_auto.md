@@ -44,9 +44,11 @@ Pick the best **{TARGET_PER_AUDIENCE}** or fewer events that fit this audience p
 
 1. **Obvious wrong-audience mismatch.** If you're picking for Adult and a candidate is clearly a kids-only event (e.g., toddler storytime), skip it — it'll get picked by Family. Conversely if you're picking for Family and it's a 21+ event, skip.
 
-2. **Obviously past or cancelled.** If the candidate's title plainly says "Cancelled" or references a clearly-past date the pre-filter missed, drop.
+2. **Wrong weekend — HARD RULE.** Every event MUST happen on the Friday, Saturday, or Sunday of the target weekend dates shown in the user prompt (look for the `Target weekend: Fri YYYY-MM-DD / Sat YYYY-MM-DD / Sun YYYY-MM-DD` line). If the candidate's title, summary, or full_text doesn't show a date that falls on one of those three days, DROP IT. This overrides "trust the pre-filter" — past events with vague titles slipped through before, and the pipeline now drops anything you pick whose source text doesn't confirm a target-weekend date. Better to return fewer events than to ship past ones.
 
-3. **Duplicate event under different URLs.** If two candidates obviously describe the same event (same name, same date), pick the better one and skip the other.
+3. **Obviously cancelled.** If the candidate's title or summary plainly says "Cancelled" or "Postponed", drop.
+
+4. **Duplicate event under different URLs.** If two candidates obviously describe the same event (same name, same date), pick the better one and skip the other.
 
 If the candidate's summary doesn't include time/address/price, **infer reasonable defaults from context** (e.g., "library storytime" → 10-11 AM; "Friday night concert" → 7-9 PM; "farmers market" → 8 AM-12 PM). Use "Check website" or empty fields rather than dropping the event — the published format tolerates missing details.
 
