@@ -77,10 +77,15 @@ GENERIC_ANCHOR_TEXT: set[str] = {
     "facebook", "twitter", "instagram", "x.com",
 }
 
-# Hosts we never want to drill INTO (social, redirects, paywalls).
+# Hosts we never want to drill INTO (social, redirects, maps, paywalls).
 _SKIP_TARGET_HOSTS = (
     "facebook.com", "twitter.com", "x.com", "instagram.com", "linkedin.com",
-    "youtube.com", "youtu.be", "tiktok.com", "google.com",
+    "youtube.com", "youtu.be", "tiktok.com",
+    # Maps / directions — these often appear under event headings
+    # (address-as-link), but they're not the event's source page.
+    "google.com", "goo.gl", "maps.app.goo.gl", "maps.apple.com",
+    # Affiliate redirect networks (rare in drill targets but defensive)
+    "jdoqocy.com", "dpbolvw.net", "tkqlhce.com", "anrdoezrs.net",
 )
 
 
@@ -143,10 +148,18 @@ def find_primary_url(aggregator_url: str, title: str = "") -> str | None:
     """Fetch an aggregator article and return its single best primary URL —
     the most relevant non-aggregator external link.
 
-    Heuristic ranking:
-      1. Anchor text overlaps the article title (longest token overlap wins)
-      2. Otherwise the first prominent external link in the article body
-      3. Skip generic anchors ('register', 'tickets'), social, other aggregators
+    Three matching signals (combined):
+      1. **URL-slug match** — link's URL contains event-title tokens
+         (mariettagreekfestival.com matches 'Marietta Greek Festival')
+      2. **Heading proximity** — link sits in the section under an <h2>/<h3>
+         whose text matches the event title (catches "Get tickets"-style
+         generic anchors in listicle layouts)
+      3. **Anchor-text match** — link's anchor text matches event title
+         (original heuristic, still works for inline mentions)
+
+    Score per link: sum of (slug_overlap×4) + (heading_overlap×4) + (anchor_overlap×3) + length_bonus.
+    Need a minimum score to return a match — otherwise we'd assign the
+    wrong primary URL when no real match exists.
     """
     try:
         from bs4 import BeautifulSoup
@@ -157,12 +170,47 @@ def find_primary_url(aggregator_url: str, title: str = "") -> str | None:
         return None
 
     soup = BeautifulSoup(r.text, "html.parser")
-    body = soup.find("article") or soup.find("main") or soup
+    # Use the LARGEST <article> or <main> container by link count — some
+    # pages have multiple <article> elements (sidebar widgets, related
+    # stories, the actual body), and the first one in document order is
+    # often a sidebar that doesn't contain the real content. Falling back
+    # to the full document is fine because our host/aggregator/social
+    # filters drop sidebar noise anyway.
     src_host = _hostname(aggregator_url)
+    candidate_bodies = soup.find_all(["article", "main"])
+    if candidate_bodies:
+        body = max(candidate_bodies, key=lambda el: len(el.find_all("a", href=True)))
+    else:
+        body = soup
 
-    title_tokens = {t for t in re.findall(r"\w+", (title or "").lower()) if len(t) > 3}
+    title_tokens = {t for t in re.findall(r"\w+", (title or "").lower())
+                    if len(t) > 3 and not t.isdigit()}
 
-    candidates: list[tuple[int, str, str]] = []  # (score, url, anchor)
+    def _tokens_of(text: str) -> set[str]:
+        return {t for t in re.findall(r"\w+", (text or "").lower())
+                if len(t) > 3 and not t.isdigit()}
+
+    def _overlap(other_tokens: set[str]) -> int:
+        return len(title_tokens & other_tokens) if title_tokens else 0
+
+    # Build a map: for each <a>, find its containing section by walking up
+    # to the previous heading (h1/h2/h3). The heading's text is the section
+    # label; links share heading-context if they fall under the same one.
+    HEADING_TAGS = ("h1", "h2", "h3")
+
+    def _section_heading_for(elem) -> str:
+        """Walk previous siblings/parents to find the nearest preceding
+        heading. Returns the heading text (or '')."""
+        # Try previous siblings first (typical listicle: <h2>X</h2><p>...<a>...</a>)
+        cur = elem
+        for _ in range(50):  # cap walk depth
+            prev = cur.find_previous(HEADING_TAGS)
+            if prev:
+                return prev.get_text(strip=True)
+            break
+        return ""
+
+    candidates: list[tuple[int, str, str, str]] = []  # (score, url, anchor, heading)
     seen_urls: set[str] = set()
 
     for a in body.find_all("a", href=True):
@@ -181,36 +229,51 @@ def find_primary_url(aggregator_url: str, title: str = "") -> str | None:
         url_clean = href.split("#")[0].rstrip("/")
         if url_clean in seen_urls:
             continue
+        seen_urls.add(url_clean)
 
         anchor = (a.get_text(strip=True) or "")[:200]
         anchor_lower = anchor.lower().strip()
-        if len(anchor_lower) < 4 or anchor_lower in GENERIC_ANCHOR_TEXT:
-            continue
+        # Generic anchors don't disqualify here (a "Get tickets" link under
+        # the right heading is still the right URL) — but anchor scoring is
+        # 0 for them so they need the heading or URL-slug signal to win.
+        is_generic = len(anchor_lower) < 4 or anchor_lower in GENERIC_ANCHOR_TEXT
 
-        seen_urls.add(url_clean)
+        anchor_tokens = set() if is_generic else _tokens_of(anchor)
+        anchor_score = _overlap(anchor_tokens) * 3
 
-        # Score: token-overlap with title (×3), then reward longer anchors
-        anchor_tokens = {t for t in re.findall(r"\w+", anchor_lower) if len(t) > 3}
-        overlap = len(title_tokens & anchor_tokens)
-        score = overlap * 3 + min(len(anchor), 40) // 10
-        candidates.append((score, url_clean, anchor))
+        # URL slug match — split host + path on non-word chars
+        slug_tokens = _tokens_of(re.sub(r"[^\w]+", " ", href))
+        slug_score = _overlap(slug_tokens) * 4
+
+        # Heading proximity
+        heading_text = _section_heading_for(a)
+        heading_tokens = _tokens_of(heading_text)
+        heading_score = _overlap(heading_tokens) * 4
+
+        length_bonus = 0 if is_generic else min(len(anchor), 40) // 10
+
+        score = anchor_score + slug_score + heading_score + length_bonus
+        if score > 0:
+            candidates.append((score, url_clean, anchor, heading_text))
 
     if not candidates:
         return None
     candidates.sort(key=lambda x: -x[0])
     best = candidates[0]
-    # Require REAL title-overlap. Without this, a drill that doesn't find
-    # the candidate's specific event in the article will return the
-    # highest-scoring OTHER anchor — which means EventA gets EventB's URL.
-    # (Symptom: Marcus King's drill returning DreamHack's URL when fox5
-    # featured DreamHack but not Marcus King.)
-    MIN_OVERLAP_SCORE = 3  # any anchor with ≥1 token match crosses this (overlap × 3)
-    if best[0] < MIN_OVERLAP_SCORE:
-        print(f"      ⚠ drill found no anchor matching '{title[:50]}' in "
+    # Minimum score: any single ≥1-token match in EITHER slug, heading, or
+    # anchor gets a score of 3 or 4. We require ≥4 to ensure we have either
+    # a URL-slug or heading match (the strong signals), not just a weak
+    # anchor coincidence.
+    MIN_SCORE = 4
+    if best[0] < MIN_SCORE:
+        print(f"      ⚠ drill found no strong match for '{title[:50]}' in "
               f"{_hostname(aggregator_url)} (best score {best[0]}) — keeping aggregator URL")
         return None
+    via = []
+    if best[2]: via.append(f"anchor='{best[2][:30]}'")
+    if best[3]: via.append(f"heading='{best[3][:30]}'")
     print(f"      ↳ drilled '{aggregator_url[:60]}…' → '{best[1][:80]}' "
-          f"(anchor='{best[2][:50]}', score={best[0]})")
+          f"({', '.join(via)}, score={best[0]})")
     return best[1]
 
 

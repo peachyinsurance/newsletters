@@ -438,14 +438,30 @@ if __name__ == "__main__":
             # be timeless ("returns for 36th annual event") while the official
             # site shows the actual date — which our date filter can then
             # check against `primary_text`.
+            #
+            # Aggregator candidates whose drill FAILS (e.g. AJC "10 events"
+            # listicle with generic "Get tickets" anchor text) are DROPPED
+            # from the pool entirely. Otherwise the aggregator URL would
+            # remain as the candidate's source_url and end up in Notion.
             drilled_count = 0
+            dropped_no_primary = 0
+            keep_pool = []
             for c in new_pool:
                 if is_aggregator_url(c.get("url", "")):
                     drill_down_candidate(c)
                     if c.get("drilled"):
                         drilled_count += 1
+                        keep_pool.append(c)
+                    else:
+                        dropped_no_primary += 1
+                        print(f"  ✗ dropped (aggregator, no primary found): {c.get('title','?')[:70]}")
+                else:
+                    keep_pool.append(c)
+            new_pool = keep_pool
             if drilled_count:
                 print(f"  ↳ drilled {drilled_count} aggregator URLs to primary sources")
+            if dropped_no_primary:
+                print(f"  ↳ dropped {dropped_no_primary} aggregator candidates (drill failed)")
 
             # Date-floor filter — scan title + summary + article body
             # (always present for aggregator candidates) + primary_text
