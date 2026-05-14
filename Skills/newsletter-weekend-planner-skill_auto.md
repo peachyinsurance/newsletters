@@ -28,21 +28,27 @@ This is not a calendar dump. It is a curation. **Aim for 5-8 strong events per a
 
 ## The Two Jobs
 
-### Job 1: Filter and verify the candidates
+### Job 1: Pick the best candidates for the audience
 
-The pipeline gives you a list of Brave Search hits. Many will be junk (news articles about events, tangentially related pages, listings that aren't actual events). Your job is to filter aggressively and verify the keepers.
+The pipeline gives you a list of Brave Search candidates. **They have ALREADY been screened by the pipeline** for:
+- Domain quality (review sites, social, listicles, real-estate noise removed)
+- Date range (each candidate mentions at least one date within the target weekend Fri-Sun)
+- Duplicate URLs
+- Past events
 
-**Verification rules**
+**Your job is to PICK and WRITE — not to re-filter.** Treat every candidate in the list as a valid option. Don't drop candidates because their URL looks like a news article, because the time/price isn't in the summary snippet, or because the wording is vague — the pipeline already validated they're plausible weekend-of events.
 
-1. **Primary sources only.** The candidate URL must be the event organizer's site, the venue's site, or the official municipal/parks/library page. Aggregator domains have already been excluded by the pipeline, but you may still see news articles or summaries — those don't count as primary sources. If the only source for an event is an article rather than the event's own page, drop it.
+Pick the best **{TARGET_PER_AUDIENCE}** or fewer events that fit this audience profile. Quality of the pick comes from fit-for-audience, geographic relevance, and editorial mix — NOT from rejecting candidates.
 
-2. **Confirm the date and the year.** Many event pages get reused. The candidate's title and summary may reference the right weekend, but if anything looks off (year mismatch, vague "this weekend" wording, last year's date), drop it. You can only see the title/url/summary of each candidate — when in doubt, drop.
+**Only drop in these specific cases:**
 
-3. **Confirm the time, address, price.** All three fields appear in the published format. If any is missing or unclear from the candidate summary, you can either drop the event or use plausible defaults from context (e.g., "library storytime" usually 10-11 AM; "distillery tour" usually evening). Never invent specific times you can't justify.
+1. **Obvious wrong-audience mismatch.** If you're picking for Adult and a candidate is clearly a kids-only event (e.g., toddler storytime), skip it — it'll get picked by Family. Conversely if you're picking for Family and it's a 21+ event, skip.
 
-4. **Watch for "moved" or "canceled" notices.** Annual festivals sometimes move dates or venues. Sanity-check anything that sounds too perfect.
+2. **Obviously past or cancelled.** If the candidate's title plainly says "Cancelled" or references a clearly-past date the pre-filter missed, drop.
 
-5. **Sold out / registration closed events can still be included** if they are noteworthy — flag the status clearly so readers know not to plan around them.
+3. **Duplicate event under different URLs.** If two candidates obviously describe the same event (same name, same date), pick the better one and skip the other.
+
+If the candidate's summary doesn't include time/address/price, **infer reasonable defaults from context** (e.g., "library storytime" → 10-11 AM; "Friday night concert" → 7-9 PM; "farmers market" → 8 AM-12 PM). Use "Check website" or empty fields rather than dropping the event — the published format tolerates missing details.
 
 **Geography rules**
 
@@ -142,8 +148,9 @@ Note the link mechanic: visible anchor text is the **root domain with `www.` kep
 | Em dashes in descriptions | Violates the standing rule and looks AI-generated |
 | Hype words ("exciting", "amazing", "must-see") | Reads like a press release, not a neighbor |
 | Adult events that are just family events with adult framing | Adult pane should feel genuinely adult-targeted (distilleries, late shows, 21+, etc.) |
-| Pulling an event from a candidate without a clear date/time match | If the candidate's summary doesn't pin the event to the target date, drop it |
-| Padding with weak events to hit the 5-8 target | Better to return 3 strong than 8 mid |
+| Re-filtering candidates the pipeline already validated | The pipeline did date/domain/dup screening upstream — trust it and pick |
+| Dropping a candidate because time/price isn't in the snippet | Infer reasonable defaults from context; only drop on clear wrong-audience or cancellation |
+| Padding with weak events instead of returning the strong picks | Return what fits the audience well; don't pad, but also don't under-pick valid options |
 
 ---
 

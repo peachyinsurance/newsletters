@@ -1939,25 +1939,47 @@ def _normalize_weekend_url(u: str) -> str:
 
 
 def save_weekend_events_to_notion(results: list, newsletter_name: str) -> None:
-    """Save weekend event candidates to Notion. Each row is one event.
+    """Save weekend event candidates to Notion. Each row is one event×day.
     Expected fields per item: audience, day, date, emoji, event_name, venue,
-    address, time, price, source_url, description, scoring_notes."""
+    address, time, price, source_url, description, scoring_notes.
+
+    Dedup key is (normalized_url, audience, day) — a multi-day event
+    legitimately gets one row per day, but the SAME (event, audience, day)
+    combination from a previous run is treated as a duplicate."""
     if not NOTION_WEEKEND_PLANNER_DB_ID:
         print("  No NOTION_WEEKEND_PLANNER_DB_ID set, skipping Notion save")
         return
 
     print(f"  Saving {len(results)} weekend events to Notion for {newsletter_name}...")
-    existing_urls = get_existing_weekend_event_urls(newsletter_name)
-    # Match by normalized URL so query-string / trailing-slash / case
-    # variants of the same event are treated as duplicates.
-    existing_norm = {_normalize_weekend_url(u) for u in existing_urls}
-    print(f"  Found {len(existing_norm)} existing entries to skip")
+
+    # Pull existing rows with full (url, audience, day) tuples for dedup.
+    # Falls back to URL-only matching if any of those fields are missing.
+    existing_keys: set[tuple[str, str, str]] = set()
+    try:
+        pages = query_database(NOTION_WEEKEND_PLANNER_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+        for page in pages:
+            props = page["properties"]
+            u   = props.get("Source URL", {}).get("url", "") or ""
+            aud = (props.get("Audience", {}).get("select") or {}).get("name", "")
+            day = (props.get("Day", {}).get("select") or {}).get("name", "")
+            existing_keys.add((_normalize_weekend_url(u), aud, day))
+    except Exception:
+        pass
+    print(f"  Found {len(existing_keys)} existing (url, audience, day) tuples to skip")
 
     saved = 0
     for data in results:
         source_url = data.get("source_url", "")
-        if source_url and _normalize_weekend_url(source_url) in existing_norm:
-            print(f"  ✗ Skipping duplicate: {data.get('event_name')}")
+        key = (
+            _normalize_weekend_url(source_url),
+            data.get("audience", ""),
+            data.get("day", ""),
+        )
+        if source_url and key in existing_keys:
+            print(f"  ✗ Skipping duplicate: {data.get('event_name')} ({key[1]}/{key[2]})")
             continue
 
         nl_display = newsletter_name.replace("_", " ")
@@ -1987,10 +2009,9 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str) -> None:
             properties["Date"] = {"date": {"start": date_val}}
 
         create_page(NOTION_WEEKEND_PLANNER_DB_ID, properties)
-        # Add this URL to the in-memory dedup set so a later item in the
-        # same batch with the same normalized URL gets skipped.
-        if source_url:
-            existing_norm.add(_normalize_weekend_url(source_url))
+        # Add this row's tuple to the in-memory dedup set so a later item
+        # in the same batch with the same (url, audience, day) gets skipped.
+        existing_keys.add(key)
         saved += 1
     print(f"  Saved {saved} new weekend events to Notion for {newsletter_name}")
 

@@ -699,9 +699,25 @@ if __name__ == "__main__":
 
         # Audience-pooled architecture:
         #   • Family processed first → list of events with day(s) extracted
-        #   • Family URLs added to exclusion → Adult can't repeat any event
+        #   • Family URLs AND event-name tokens added to exclusion → Adult
+        #     can't repeat any event even via a different URL or rephrasing
         #   • Adult processed second on the remaining candidate space
         # Each picked event expands to N rows (one per day it runs).
+        import re as _re_audience
+
+        def _event_name_key(name: str) -> str:
+            """Normalize event name for fuzzy cross-audience matching.
+            'Marietta Greek Festival' and '36th Annual Marietta Greek Festival'
+            both reduce to {'greek', 'festival', 'marietta'} (after dropping
+            year/qualifier tokens and short words)."""
+            tokens = _re_audience.findall(r"\w+", (name or "").lower())
+            STOP = {"the", "and", "for", "with", "at", "an", "a", "of", "on",
+                    "to", "annual", "th", "st", "nd", "rd"}
+            return frozenset(t for t in tokens
+                             if len(t) > 2 and not t.isdigit() and t not in STOP)
+
+        family_name_keys: set[frozenset] = set()
+
         all_events: list[dict] = []
         for audience in AUDIENCES:  # ["Family", "Adult"] — Family first
             picks = process_audience(
@@ -711,6 +727,25 @@ if __name__ == "__main__":
                 skill_prompt=skill_prompt,
                 existing_urls=existing_url_set,
             )
+            # Cross-audience name dedup for Adult: drop picks whose name-key
+            # significantly overlaps a Family pick's name-key.
+            if audience == "Adult" and family_name_keys:
+                filtered_picks = []
+                for pick in picks:
+                    pk = _event_name_key(pick.get("event_name", ""))
+                    if not pk:
+                        filtered_picks.append(pick)
+                        continue
+                    overlap_with_family = max(
+                        (len(pk & fam_pk) / max(len(pk), 1) for fam_pk in family_name_keys),
+                        default=0,
+                    )
+                    if overlap_with_family >= 0.6:  # ≥60% token overlap = same event
+                        print(f"      ✗ cross-audience dedup: dropping Adult '{pick.get('event_name','?')[:50]}' (matches Family pick)")
+                        continue
+                    filtered_picks.append(pick)
+                picks = filtered_picks
+
             # Expand each pick into one row per day the event runs
             for pick in picks:
                 source_cand = pick.pop("_source_candidate", {})
@@ -721,7 +756,12 @@ if __name__ == "__main__":
                     row["date"] = weekend[day_name]
                     all_events.append(row)
                 print(f"      ↳ {pick.get('event_name','?')[:50]} runs: {days}")
-            # Cross-audience dedup: Family's URLs become Adult's exclusions
+            # Track Family's name-keys so Adult can avoid them
+            if audience == "Family":
+                for pick in picks:
+                    family_name_keys.add(_event_name_key(pick.get("event_name", "")))
+            # URL-based cross-audience exclusion (belt-and-suspenders alongside
+            # name-token matching above)
             for pick in picks:
                 for k in ("source_url", "source_url_aggregator"):
                     u = pick.get(k)
