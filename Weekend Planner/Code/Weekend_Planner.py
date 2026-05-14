@@ -573,9 +573,10 @@ def process_audience(
     print(f"    Primary pass: {len(results)} events accepted")
 
     # Backfill if below MIN_PER_AUDIENCE
+    seen_candidate_urls = {c["url"] for c in candidates}
     if len(results) < MIN_PER_AUDIENCE:
         print(f"    Retrying broader (only {len(results)} events, want ≥{MIN_PER_AUDIENCE})")
-        retry_excluded = set(existing_urls) | {c["url"] for c in candidates}
+        retry_excluded = set(existing_urls) | seen_candidate_urls
         retry_queries: list[str] = []
         for day in DAYS:
             retry_queries.extend(build_fallback_queries(newsletter, audience, day, target_weekend[day]))
@@ -593,7 +594,57 @@ def process_audience(
                 results.append(r)
                 seen.add(r["source_url"])
                 added += 1
+        seen_candidate_urls |= {c["url"] for c in candidates_p2}
         print(f"    Retry pass added {added} events ({audience} total: {len(results)})")
+
+    # Per-day gap fill — hard rule: each of Fri/Sat/Sun must have at least
+    # one pick per audience. After primary + retry, check which days the
+    # current picks actually cover (via the source candidate's text) and
+    # fire targeted queries for any day with zero coverage.
+    def _covered_days(events: list[dict]) -> set[str]:
+        covered = set()
+        for ev in events:
+            cand = ev.get("_source_candidate", {})
+            for d in determine_event_days(cand, target_weekend):
+                covered.add(d)
+        return covered
+
+    covered = _covered_days(results)
+    missing = [d for d in DAYS if d not in covered]
+    if missing:
+        print(f"    Day coverage gap: {missing} uncovered — running targeted gap-fill")
+        gap_excluded = set(existing_urls) | seen_candidate_urls | {r["source_url"] for r in results}
+        seen = {r["source_url"] for r in results}
+        for day in missing:
+            gap_queries = (
+                build_queries(newsletter, audience, day, target_weekend[day])
+                + build_fallback_queries(newsletter, audience, day, target_weekend[day])
+            )
+            gap_target_range = (date.fromisoformat(target_weekend[day]),
+                                date.fromisoformat(target_weekend[day]))
+            gap_candidates = fetch_and_filter_candidates(
+                gap_queries, RETRY_RESULTS_PER_QUERY, gap_excluded,
+                label=f"{audience.lower()} gap-fill {day}",
+                target_range=gap_target_range,
+            )
+            gap_picks = call_claude_for_audience(
+                gap_candidates, newsletter, audience, target_weekend, skill_prompt
+            )
+            added_for_day = 0
+            for r in gap_picks:
+                if not r.get("source_url") or r["source_url"] in seen:
+                    continue
+                day_match = day in determine_event_days(r.get("_source_candidate", {}), target_weekend)
+                if not day_match:
+                    continue
+                results.append(r)
+                seen.add(r["source_url"])
+                added_for_day += 1
+            gap_excluded |= {c["url"] for c in gap_candidates}
+            if added_for_day:
+                print(f"    ✓ Gap-fill {day}: added {added_for_day}")
+            else:
+                print(f"    ⚠ Gap-fill {day}: still no coverage after targeted query")
 
     print(f"    ✓ {len(results)} {audience} events accepted")
     for r in results:
