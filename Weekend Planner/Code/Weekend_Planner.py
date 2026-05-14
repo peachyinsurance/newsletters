@@ -38,17 +38,14 @@ BRAVE_NEWS_API_KEY = os.environ["BRAVE_NEWS_API_KEY"]
 
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-weekend-planner-skill_auto.md"
 
-TARGET_PER_BUCKET = 8        # upper bound Claude picks per (audience, day) bucket
-QUERIES_PER_BUCKET = 3       # Brave queries per (audience, day) combo (matches build_queries return)
+TARGET_PER_AUDIENCE = 10     # upper bound Claude picks per audience (Family OR Adult)
+MIN_PER_AUDIENCE    = 5      # below this, we fire a retry pass with broader queries
 MAX_RESULTS_PER_QUERY = 15
 PAUSE_BETWEEN_BRAVE = 0.5    # rate-limit buffer
 
-# Adaptive-retry thresholds. Tuned for 15-20 events/newsletter target:
-#   - 6 buckets/newsletter (3 days × 2 audiences) × ~3 events/bucket = 18 target
-#   - MIN_EVENTS_BEFORE_RETRY=5 fires the backfill pass more often
-MIN_EVENTS_BEFORE_RETRY = 5       # fewer than this on first pass -> retry
+# Backfill if Claude returns fewer than MIN_PER_AUDIENCE picks for an audience.
 RETRY_RESULTS_PER_QUERY = 20      # Brave hard-caps `count` at 20; sending >20 gets HTTP 422
-CANDIDATE_CAP            = 50     # max candidates sent to Claude per bucket (was 30)
+CANDIDATE_CAP            = 80     # max candidates sent to Claude per audience (pooled across 3 days)
 
 AGGREGATOR_BLOCKLIST = {
     # Kept blocked: review sites, social, listicles, real-estate noise.
@@ -412,6 +409,197 @@ def prefer_primary_source(events: list[dict]) -> list[dict]:
     return events
 
 
+def determine_event_days(candidate: dict, target_weekend: dict) -> list[str]:
+    """Read the candidate's title + summary for date mentions and map them
+    to the Friday/Saturday/Sunday of the target weekend. Returns the list of
+    days (e.g. ['Saturday', 'Sunday'] for a 2-day festival, ['Friday'] for
+    Fri-only, or ['Saturday'] as a default when no dates parse cleanly).
+
+    target_weekend = {'Friday': '2026-05-15', 'Saturday': '2026-05-16',
+                      'Sunday': '2026-05-17'}
+    """
+    from datetime import date as _date
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..',
+                                 'NewsletterCreation', 'Code'))
+    from event_date_filter import extract_dates_from_text
+
+    text = " ".join(str(candidate.get(k, "") or "") for k in ("title", "summary"))
+    parsed = extract_dates_from_text(text)
+    weekend_dates = {
+        _date.fromisoformat(target_weekend["Friday"]):   "Friday",
+        _date.fromisoformat(target_weekend["Saturday"]): "Saturday",
+        _date.fromisoformat(target_weekend["Sunday"]):   "Sunday",
+    }
+    days_found = []
+    for d in parsed:
+        label = weekend_dates.get(d)
+        if label and label not in days_found:
+            days_found.append(label)
+    if days_found:
+        # Preserve canonical order Fri → Sat → Sun
+        order = ["Friday", "Saturday", "Sunday"]
+        return sorted(days_found, key=order.index)
+    # No specific day mentions matched the target weekend — default to
+    # Saturday (the most common single-day event placement).
+    return ["Saturday"]
+
+
+def call_claude_for_audience(
+    candidates: list[dict],
+    newsletter: dict,
+    audience: str,
+    target_weekend: dict,
+    skill_prompt: str,
+) -> list[dict]:
+    """Ask Claude to pick the best events for one audience across the whole
+    weekend. Returns validated event dicts WITHOUT day/date assignment —
+    those are derived from each candidate's text after Claude picks.
+    URLs reattached from candidate_index.
+
+    Two anchor dates passed in the prompt so Claude has full context, but
+    Claude is told the candidate set was already date-filtered for the target
+    weekend and should not re-filter."""
+    if not candidates:
+        return []
+
+    indexed = [{**c, "candidate_index": i} for i, c in enumerate(candidates, 1)]
+    candidates_json = json.dumps(indexed, indent=2)
+
+    d = newsletter["demographics"]
+    demo_summary = (
+        f"Median household income: {d['median_income']}\n"
+        f"Median age: {d['median_age']}\n"
+        f"Family skew: {d['family_skew']}\n"
+        f"Homeownership rate: {d['homeownership']}\n"
+        f"Education level: {d['education']}"
+    )
+
+    user_prompt = f"""
+Newsletter: {newsletter['name'].replace('_', ' ')} ({newsletter['display_area']})
+Audience: {audience}
+Target weekend: Fri {target_weekend['Friday']} / Sat {target_weekend['Saturday']} / Sun {target_weekend['Sunday']}
+
+Audience demographics:
+{demo_summary}
+
+Anchor towns: {', '.join(newsletter['search_areas'])}
+
+The candidates below have ALREADY been screened for: domain quality, date
+range (each candidate mentions at least one Fri/Sat/Sun date in the target
+weekend), duplicates. Your job is to PICK the best {TARGET_PER_AUDIENCE} or
+fewer for the {audience.lower()} audience and WRITE the event description.
+Do NOT re-filter for date, geography, or relevance — that's already done.
+
+CRITICAL: each event belongs to ONLY ONE audience (Family OR Adult). Do not
+include events that would feel equally appropriate for the OTHER audience —
+pick the audience it fits best, leave it for that audience's pool.
+
+We will determine which days each event runs based on extracted dates in
+the candidate text — you do NOT need to assign days. Just return the event
+picks per the skill's schema. Use `candidate_index` to reference URLs — do
+NOT include raw URLs in the output.
+
+Candidates:
+{candidates_json}
+"""
+
+    try:
+        results = call_with_json_output(
+            api_key=CLAUDE_API_KEY,
+            system=skill_prompt,
+            user_content=user_prompt,
+        )
+    except Exception as e:
+        print(f"    ✗ Claude error: {e}")
+        return []
+    if not results:
+        return []
+
+    candidates_by_index = {i: c for i, c in enumerate(candidates, 1)}
+    validated = []
+    for r in results:
+        idx = r.get("candidate_index")
+        try:
+            idx = int(idx) if idx is not None else None
+        except Exception:
+            idx = None
+        source = candidates_by_index.get(idx) if idx is not None else None
+        if not source:
+            print(f"    ✗ Rejecting event with invalid candidate_index {idx}: {r.get('event_name', '?')}")
+            continue
+        r["source_url"] = source.get("url", "")
+        r["audience"] = audience
+        # Attach the source candidate so we can later derive days from its text
+        r["_source_candidate"] = source
+        r.pop("candidate_index", None)
+        validated.append(r)
+    validated = prefer_primary_source(validated)
+    return validated
+
+
+def process_audience(
+    newsletter: dict,
+    audience: str,
+    target_weekend: dict,
+    skill_prompt: str,
+    existing_urls: set,
+) -> list[dict]:
+    """Pool all 3 days' worth of Brave queries for one audience, send Claude
+    one call, return the picked events. Each returned event includes a
+    `_source_candidate` field so the caller can extract its days."""
+    print(f"\n  ━━━ {audience} pool ━━━")
+
+    target_range = (
+        date.fromisoformat(target_weekend["Friday"]),
+        date.fromisoformat(target_weekend["Sunday"]),
+    )
+
+    # Pool Brave queries across Friday + Saturday + Sunday for this audience.
+    # Dedup is handled inside fetch_and_filter_candidates via `seen_urls`
+    # within search_web, plus the excluded_urls set we maintain externally.
+    all_queries: list[str] = []
+    for day in DAYS:
+        all_queries.extend(build_queries(newsletter, audience, day, target_weekend[day]))
+
+    candidates = fetch_and_filter_candidates(
+        all_queries, MAX_RESULTS_PER_QUERY, existing_urls,
+        label=f"{audience.lower()} primary", target_range=target_range,
+    )
+
+    results = call_claude_for_audience(
+        candidates, newsletter, audience, target_weekend, skill_prompt
+    )
+    print(f"    Primary pass: {len(results)} events accepted")
+
+    # Backfill if below MIN_PER_AUDIENCE
+    if len(results) < MIN_PER_AUDIENCE:
+        print(f"    Retrying broader (only {len(results)} events, want ≥{MIN_PER_AUDIENCE})")
+        retry_excluded = set(existing_urls) | {c["url"] for c in candidates}
+        retry_queries: list[str] = []
+        for day in DAYS:
+            retry_queries.extend(build_fallback_queries(newsletter, audience, day, target_weekend[day]))
+        candidates_p2 = fetch_and_filter_candidates(
+            retry_queries, RETRY_RESULTS_PER_QUERY, retry_excluded,
+            label=f"{audience.lower()} retry", target_range=target_range,
+        )
+        more = call_claude_for_audience(
+            candidates_p2, newsletter, audience, target_weekend, skill_prompt
+        )
+        seen = {r["source_url"] for r in results}
+        added = 0
+        for r in more:
+            if r["source_url"] and r["source_url"] not in seen:
+                results.append(r)
+                seen.add(r["source_url"])
+                added += 1
+        print(f"    Retry pass added {added} events ({audience} total: {len(results)})")
+
+    print(f"    ✓ {len(results)} {audience} events accepted")
+    for r in results:
+        print(f"      - {r.get('emoji', '')} {r.get('event_name', '?')}")
+    return results
+
+
 def process_bucket(
     newsletter: dict,
     audience: str,
@@ -509,51 +697,71 @@ if __name__ == "__main__":
         existing_norm = {_normalize_url(u) for u in existing_url_set}
         print(f"  {len(existing_norm)} existing URLs in Notion (cross-run dedup)")
 
+        # Audience-pooled architecture:
+        #   • Family processed first → list of events with day(s) extracted
+        #   • Family URLs added to exclusion → Adult can't repeat any event
+        #   • Adult processed second on the remaining candidate space
+        # Each picked event expands to N rows (one per day it runs).
         all_events: list[dict] = []
-        for audience in AUDIENCES:
-            for day in DAYS:
-                bucket_events = process_bucket(
-                    newsletter=newsletter,
-                    audience=audience,
-                    day=day,
-                    target_date_iso=weekend[day],
-                    skill_prompt=skill_prompt,
-                    existing_urls=existing_url_set,
-                )
-                all_events.extend(bucket_events)
-                # Track new URLs (both raw and normalized) to avoid re-using
-                # within this run across buckets. Adds BOTH the post-drill URL
-                # and the original aggregator URL so subsequent buckets can't
-                # surface the same event via a different URL variant.
-                for ev in bucket_events:
-                    for k in ("source_url", "source_url_aggregator"):
-                        u = ev.get(k)
-                        if u:
-                            existing_url_set.add(u)
-                            existing_norm.add(_normalize_url(u))
-                time.sleep(0.5)
+        for audience in AUDIENCES:  # ["Family", "Adult"] — Family first
+            picks = process_audience(
+                newsletter=newsletter,
+                audience=audience,
+                target_weekend=weekend,
+                skill_prompt=skill_prompt,
+                existing_urls=existing_url_set,
+            )
+            # Expand each pick into one row per day the event runs
+            for pick in picks:
+                source_cand = pick.pop("_source_candidate", {})
+                days = determine_event_days(source_cand, weekend)
+                for day_name in days:
+                    row = dict(pick)  # shallow copy per day
+                    row["day"]  = day_name
+                    row["date"] = weekend[day_name]
+                    all_events.append(row)
+                print(f"      ↳ {pick.get('event_name','?')[:50]} runs: {days}")
+            # Cross-audience dedup: Family's URLs become Adult's exclusions
+            for pick in picks:
+                for k in ("source_url", "source_url_aggregator"):
+                    u = pick.get(k)
+                    if u:
+                        existing_url_set.add(u)
+                        existing_norm.add(_normalize_url(u))
+            time.sleep(0.5)
 
         if not all_events:
             print(f"\n  No events accepted for {newsletter['name']}. Skipping save.")
             continue
 
-        # Final within-run dedup: collapse any rows whose normalized URLs
-        # match. Belt-and-suspenders against cross-bucket leaks that slip
-        # past the URL-exclusion logic above (e.g. event picked via Eventbrite
-        # in one bucket and via venue site in another, both drilled to same
-        # primary).
-        seen_norm = set()
+        # Final within-run dedup: same (normalized_url, day) tuple is a true
+        # duplicate. Same URL on different days of the same audience is OK
+        # (multi-day events legitimately appear on each day). Same URL
+        # across audiences should NOT happen given the cross-audience
+        # exclusion set above — this is belt-and-suspenders.
+        seen = set()
         deduped = []
         for ev in all_events:
-            n = _normalize_url(ev.get("source_url", ""))
-            if n in seen_norm:
-                print(f"  ✗ within-run dedup: dropping {ev.get('event_name','?')[:50]} ({n})")
+            key = (_normalize_url(ev.get("source_url", "")),
+                   ev.get("audience", ""), ev.get("day", ""))
+            if key in seen:
+                print(f"  ✗ within-run dedup: dropping {ev.get('event_name','?')[:50]} ({key[2]})")
                 continue
-            seen_norm.add(n)
+            seen.add(key)
             deduped.append(ev)
         if len(deduped) != len(all_events):
-            print(f"  ↳ within-run dedup: {len(all_events)} → {len(deduped)} events")
+            print(f"  ↳ within-run dedup: {len(all_events)} → {len(deduped)} rows")
         all_events = deduped
+
+        # Report final counts per audience to verify mins are met
+        from collections import Counter
+        per_audience = Counter()
+        for ev in all_events:
+            per_audience[ev["audience"]] += 1
+        for aud in AUDIENCES:
+            count = per_audience.get(aud, 0)
+            mark = "✓" if count >= MIN_PER_AUDIENCE else "⚠"
+            print(f"  {mark} {aud}: {count} rows (min {MIN_PER_AUDIENCE})")
 
         print(f"\n  Saving {len(all_events)} total events for {newsletter['name']}...")
         save_weekend_events_to_notion(all_events, newsletter["name"])

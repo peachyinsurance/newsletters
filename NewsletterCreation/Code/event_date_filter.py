@@ -89,6 +89,16 @@ _MONTH_DAY_RE = re.compile(
     r"\s+(?P<day>\d{1,2})(?:st|nd|rd|th)?(?:[\s,-]+(?P<year>\d{4}))?",
     re.IGNORECASE,
 )
+# Matches "May 16-17" / "May 16 - 17" / "May 16th-17th" — same-month ranges.
+# day2 must be numerically > day1 and ≤ 31. We expand the range so each
+# day in [day1..day2] is yielded as its own date.
+_MONTH_DAY_RANGE_RE = re.compile(
+    r"\b(?P<mon>january|february|march|april|may|june|july|august|"
+    r"september|sept|october|november|december|jan|feb|mar|apr|jun|jul|aug|oct|nov|dec)\.?"
+    r"\s+(?P<d1>\d{1,2})(?:st|nd|rd|th)?\s*[-–—]\s*(?P<d2>\d{1,2})(?:st|nd|rd|th)?"
+    r"(?:[\s,-]+(?P<year>\d{4}))?",
+    re.IGNORECASE,
+)
 _SLASH_DATE_RE = re.compile(
     r"\b(?P<m>\d{1,2})/(?P<d>\d{1,2})(?:/(?P<y>\d{2,4}))?\b"
 )
@@ -109,7 +119,37 @@ def extract_dates_from_text(text: str, today: date | None = None) -> list[date]:
             return d.replace(year=today.year + 1)
         return d
 
+    # Run range matcher FIRST and track spans we've covered so the single-
+    # day matcher doesn't also add the start day separately (would be
+    # duplicative). For each range, expand to every day in between.
+    range_spans: list[tuple[int, int]] = []
+    for m in _MONTH_DAY_RANGE_RE.finditer(text):
+        mo = _MONTHS.get(m.group("mon").lower())
+        if not mo:
+            continue
+        try:
+            d1 = int(m.group("d1"))
+            d2 = int(m.group("d2"))
+            if not (1 <= d1 <= 31 and 1 <= d2 <= 31 and d2 >= d1):
+                continue
+            year = int(m.group("year")) if m.group("year") else today.year
+            anchor = date(year, mo, d1)
+            if not m.group("year"):
+                anchor = _anchor_year(anchor)
+            year_used = anchor.year
+            for d_num in range(d1, d2 + 1):
+                try:
+                    found.append(date(year_used, mo, d_num))
+                except (ValueError, TypeError):
+                    continue
+            range_spans.append(m.span())
+        except (ValueError, TypeError):
+            continue
+
     for m in _MONTH_DAY_RE.finditer(text):
+        # Skip matches that fall inside a range we already expanded
+        if any(s <= m.start() and m.end() <= e for s, e in range_spans):
+            continue
         mo = _MONTHS.get(m.group("mon").lower())
         if not mo:
             continue
