@@ -17,7 +17,7 @@ import re
 import sys
 import json
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 
 sys.path.append(os.path.dirname(__file__))
 from newsletters_config import newsletter_names
