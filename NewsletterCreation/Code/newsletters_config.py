@@ -32,6 +32,13 @@ Every per-newsletter knob in the pipeline reads from this dict. Field reference:
                               e.g. "ECC" → reads BEEHIIV_ECC_PUBLICATION_ID and
                               BEEHIIV_ECC_TEMPLATE_POST_ID from environment.
   poll_vote_base              URL template for poll vote tracking — {slug} placeholder
+  excluded_venues             List of venue names (lowercased substring match) that
+                              are out of range for this newsletter. Used by Weekend
+                              Planner as a HARD exclusion — Claude never picks an
+                              event whose venue or address contains one of these.
+  excluded_cities             List of city names (lowercased substring match) that
+                              are out of range for this newsletter. Same HARD
+                              exclusion semantics as excluded_venues.
 """
 
 # Real-estate tiers shared across newsletters today. If a market needs different
@@ -70,6 +77,8 @@ NEWSLETTERS_DICT = {
         "website":              "https://www.eastcobbconnect.com/",
         "beehiiv_env_tag":      "ECC",
         "poll_vote_base":       "https://peachyinsurance.github.io/newsletters/poll-thanks.html?vote={slug}",
+        "excluded_venues":      [],  # to be populated when Jason sends the ECC list
+        "excluded_cities":      [],
     },
 
     "Perimeter_Post": {
@@ -95,6 +104,21 @@ NEWSLETTERS_DICT = {
         "website":              "https://www.perimeterpost.com/",
         "beehiiv_env_tag":      "PP",
         "poll_vote_base":       "https://peachyinsurance.github.io/newsletters/poll-thanks.html?vote={slug}",
+        "excluded_venues": [
+            "truist park",
+            "the battery atlanta",
+            "the battery",
+            "center for puppetry arts",
+            "fernbank museum",
+            "children's museum of atlanta",
+            "ameris bank amphitheatre",
+            "atlanta botanical garden",
+            "high museum of art",
+            "atlanta symphony hall",
+            "fox theatre",
+            "asw distillery",
+        ],
+        "excluded_cities": ["roswell", "alpharetta"],
     },
 
     "Lewisville_Lake_Lookout": {
@@ -125,6 +149,8 @@ NEWSLETTERS_DICT = {
         "website":              "https://www.lewisvillelakelookout.com/",
         "beehiiv_env_tag":      "LLL",
         "poll_vote_base":       "https://peachyinsurance.github.io/newsletters/poll-thanks.html?vote={slug}",
+        "excluded_venues":      [],  # to be populated when Jason sends the LLL list
+        "excluded_cities":      [],
     },
 }
 

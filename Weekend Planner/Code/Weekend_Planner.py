@@ -566,6 +566,30 @@ def call_claude_for_audience(
         f"Education level: {d['education']}"
     )
 
+    # HARD exclusion list per newsletter. Editorial guidance from Jason: each
+    # newsletter has venues / cities that are out of range even if they show
+    # up in candidate results. Substring match, case-insensitive, against
+    # venue + address. No "big event worth the drive" override — if it's on
+    # the list, it's out.
+    excluded_venues = newsletter.get("excluded_venues") or []
+    excluded_cities = newsletter.get("excluded_cities") or []
+    exclusion_block = ""
+    if excluded_venues or excluded_cities:
+        lines = ["", "OUT OF RANGE — DO NOT PICK any event whose venue or address",
+                 "matches one of these (case-insensitive substring match):"]
+        if excluded_venues:
+            lines.append("Venues:")
+            for v in excluded_venues:
+                lines.append(f"  - {v}")
+        if excluded_cities:
+            lines.append("Cities:")
+            for c in excluded_cities:
+                lines.append(f"  - {c}")
+        lines.append("This is a HARD rule. Even a major event at one of these")
+        lines.append("venues / in one of these cities should be SKIPPED — they")
+        lines.append("are outside this newsletter's coverage area.")
+        exclusion_block = "\n".join(lines)
+
     user_prompt = f"""
 Newsletter: {newsletter['name'].replace('_', ' ')} ({newsletter['display_area']})
 Audience: {audience}
@@ -575,6 +599,7 @@ Audience demographics:
 {demo_summary}
 
 Anchor towns: {', '.join(newsletter['search_areas'])}
+{exclusion_block}
 
 The candidates below have ALREADY been screened by the pipeline for:
 domain quality, date range, duplicates, AND target-weekend day mapping.
@@ -612,6 +637,8 @@ Candidates:
         return []
 
     candidates_by_index = {i: c for i, c in enumerate(candidates, 1)}
+    excluded_venues = [v.lower() for v in (newsletter.get("excluded_venues") or [])]
+    excluded_cities = [c.lower() for c in (newsletter.get("excluded_cities") or [])]
     validated = []
     for r in results:
         idx = r.get("candidate_index")
@@ -623,6 +650,17 @@ Candidates:
         if not source:
             print(f"    ✗ Rejecting event with invalid candidate_index {idx}: {r.get('event_name', '?')}")
             continue
+        # HARD exclusion enforcement. Substring match on venue + address +
+        # event_name (some events name the venue in the title). Belt-and-
+        # suspenders alongside the prompt-side OUT OF RANGE block.
+        if excluded_venues or excluded_cities:
+            haystack = " | ".join(str(r.get(k, "") or "") for k in
+                                  ("venue", "address", "event_name")).lower()
+            hit = next((v for v in excluded_venues if v in haystack), None) \
+                  or next((c for c in excluded_cities if c in haystack), None)
+            if hit:
+                print(f"    ✗ Rejecting out-of-range event '{r.get('event_name','?')[:50]}' (matched: {hit})")
+                continue
         r["source_url"] = source.get("url", "")
         r["audience"] = audience
         # Attach the source candidate so we can later derive days from its text
