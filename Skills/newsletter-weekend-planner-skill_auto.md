@@ -32,23 +32,23 @@ This is not a calendar dump. It is a curation. **Aim for 5-8 strong events per a
 
 The pipeline gives you a list of Brave Search candidates. **They have ALREADY been screened by the pipeline** for:
 - Domain quality (review sites, social, listicles, real-estate noise removed)
-- Date range (each candidate mentions at least one date within the target weekend Fri-Sun)
+- Date and day mapping — each candidate carries a `days` field listing which target-weekend days (Friday / Saturday / Sunday) it runs on
 - Duplicate URLs
 - Past events
 
-**Your job is to PICK and WRITE — not to re-filter.** Treat every candidate in the list as a valid option. Don't drop candidates because their URL looks like a news article, because the time/price isn't in the summary snippet, or because the wording is vague — the pipeline already validated they're plausible weekend-of events.
+**Trust the `days` field.** The pipeline determined the day(s) by parsing the candidate's title, summary, and article body — and it dropped anything that didn't pin to the target weekend before you ever saw it. You do NOT need to verify the date or infer the day yourself. If a candidate is in the list, the pipeline already confirmed it runs on this weekend.
 
-Pick the best **{TARGET_PER_AUDIENCE}** or fewer events that fit this audience profile. Quality of the pick comes from fit-for-audience, geographic relevance, and editorial mix — NOT from rejecting candidates.
+**Your job is to PICK and WRITE — not to re-filter.** Aim for a mix that covers Friday, Saturday, AND Sunday. The candidate `days` field tells you which day(s) each option runs — use it to balance your picks across the weekend.
+
+Pick the best **{TARGET_PER_AUDIENCE}** or fewer events that fit this audience profile. Quality of the pick comes from fit-for-audience, geographic relevance, and editorial mix (including day coverage) — NOT from rejecting candidates.
 
 **Only drop in these specific cases:**
 
 1. **Obvious wrong-audience mismatch.** If you're picking for Adult and a candidate is clearly a kids-only event (e.g., toddler storytime), skip it — it'll get picked by Family. Conversely if you're picking for Family and it's a 21+ event, skip.
 
-2. **Wrong weekend — HARD RULE.** Every event MUST happen on the Friday, Saturday, or Sunday of the target weekend dates shown in the user prompt (look for the `Target weekend: Fri YYYY-MM-DD / Sat YYYY-MM-DD / Sun YYYY-MM-DD` line). If the candidate's title, summary, or full_text doesn't show a date that falls on one of those three days, DROP IT. This overrides "trust the pre-filter" — past events with vague titles slipped through before, and the pipeline now drops anything you pick whose source text doesn't confirm a target-weekend date. Better to return fewer events than to ship past ones.
+2. **Obviously cancelled.** If the candidate's title or summary plainly says "Cancelled" or "Postponed", drop.
 
-3. **Obviously cancelled.** If the candidate's title or summary plainly says "Cancelled" or "Postponed", drop.
-
-4. **Duplicate event under different URLs.** If two candidates obviously describe the same event (same name, same date), pick the better one and skip the other.
+3. **Duplicate event under different URLs.** If two candidates obviously describe the same event (same name, same date), pick the better one and skip the other.
 
 If the candidate's summary doesn't include time/address/price, **infer reasonable defaults from context** (e.g., "library storytime" → 10-11 AM; "Friday night concert" → 7-9 PM; "farmers market" → 8 AM-12 PM). Use "Check website" or empty fields rather than dropping the event — the published format tolerates missing details.
 
