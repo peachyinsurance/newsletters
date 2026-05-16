@@ -339,28 +339,63 @@ def fetch_and_filter_candidates(
         print(f"    [{label}] No Brave results")
         return []
 
-    # Aggregator handling: instead of dropping listicle hubs and "things-
-    # to-do" pages outright, expand each into its constituent event URLs.
-    # Each expanded candidate inherits the listicle's title + URL as a
-    # date-hint signal so the date filter has something to anchor on
-    # even when the child page itself has vague wording.
+    # Aggregator handling: ONLY expand aggregator URLs that look like
+    # listicles. Tag archives, business directories, news landing pages
+    # and bare homepages get kept as single candidates instead of being
+    # expanded into their sidebar/related-stories noise.
     try:
         from aggregator_drilldown import expand_listicle as _expand_listicle
     except Exception:
         _expand_listicle = None
 
+    # Listicle title/URL markers (mirrors Featured Event).
+    _LISTICLE_MARKERS = (
+        "things to do", "things-to-do", "5 things", "10 things",
+        "weekend checklist", "weekend events", "weekend roundup",
+        "weekend guide", "your weekend", "events this weekend",
+        "events this week", "events you absolutely need",
+        "out and about", "what to do this", "what's happening",
+        "upcoming events", "calendar of events", "events calendar",
+        "fun things to do", "guide to events", "things to do in",
+    )
+    _NON_LISTICLE_URL_PATTERNS = (
+        "/tag/", "/tags/", "/category/", "/categories/",
+        "/author/", "/authors/", "/archives/", "/archive/",
+        "/business/listing/", "/businesses/",
+        "/news/local", "/news/police", "/news/crime",
+    )
+
+    def _is_listicle(c: dict) -> bool:
+        blob = f"{c.get('title','')} {c.get('url','')}".lower()
+        return any(m in blob for m in _LISTICLE_MARKERS)
+
+    def _is_landing_or_archive(url: str) -> bool:
+        from urllib.parse import urlparse as _up
+        p = _up(url)
+        path = (p.path or "").lower().rstrip("/")
+        if not path:
+            return True
+        return any(pat in path for pat in _NON_LISTICLE_URL_PATTERNS)
+
     expanded_count = 0
     expanded_total = 0
+    kept_single    = 0
     dropped_count  = 0
     keep_pool = []
     for c in candidates:
-        if not is_aggregator(c.get("url", "")):
+        url = c.get("url", "")
+        if not is_aggregator(url):
             keep_pool.append(c)
             continue
         if _expand_listicle is None:
             dropped_count += 1
             continue
-        events = _expand_listicle(c.get("url", ""), listicle_title=c.get("title", ""))
+        if _is_landing_or_archive(url) or not _is_listicle(c):
+            # Not actually a listicle — keep as single candidate.
+            keep_pool.append(c)
+            kept_single += 1
+            continue
+        events = _expand_listicle(url, listicle_title=c.get("title", ""))
         if events:
             expanded_count += 1
             expanded_total += len(events)
@@ -369,6 +404,8 @@ def fetch_and_filter_candidates(
             dropped_count += 1
     if expanded_count:
         print(f"    [{label}] expanded {expanded_count} listicle(s) into {expanded_total} candidates")
+    if kept_single:
+        print(f"    [{label}] kept {kept_single} aggregator(s) as single candidate (not a listicle)")
     if dropped_count:
         print(f"    [{label}] dropped {dropped_count} aggregator(s) that yielded no events")
     candidates = keep_pool
