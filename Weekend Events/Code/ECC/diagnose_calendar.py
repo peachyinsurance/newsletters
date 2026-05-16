@@ -14,40 +14,46 @@ import sys
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(__file__))
-from ecc_event_webscraper import fetch_page_events, normalize_event, SOURCE_URL
+from ecc_event_webscraper import fetch_page_events, normalize_event, SOURCES
 
 
 def main() -> int:
-    print(f"Diagnostic walk of {SOURCE_URL}\n")
+    print(f"Diagnostic walk of {len(SOURCES)} source(s):")
+    for s in SOURCES:
+        print(f"  - {s}")
+    print()
 
     # url -> { "title": str, "dates": list[str] }
     by_url: dict[str, dict] = defaultdict(lambda: {"title": "", "dates": []})
     pages_seen = 0
     raw_total = 0
-    page = 1
-    while True:
-        events = fetch_page_events(page)
-        if not events:
-            print(f"  [page {page}] no events — stopping")
-            break
-        pages_seen += 1
-        raw_total += len(events)
-        new_on_page = 0
-        for raw in events:
-            ev = normalize_event(raw)
-            url = ev.get("source_url", "")
-            if not url:
-                continue
-            if url not in by_url:
-                new_on_page += 1
-            by_url[url]["title"] = ev.get("event_name", "")[:80] or by_url[url]["title"]
-            date_str = ev["start_date"].isoformat() if ev.get("start_date") else "(no-date)"
-            by_url[url]["dates"].append(date_str)
-        print(f"  [page {page}] {len(events)} events  ({new_on_page} URLs new this page)")
-        if new_on_page == 0:
-            print(f"  [page {page}] all events already seen — stopping")
-            break
-        page += 1
+    for source_url in SOURCES:
+        print(f"━━ {source_url} ━━")
+        page = 1
+        while True:
+            events = fetch_page_events(source_url, page)
+            if not events:
+                print(f"  [page {page}] no events — stopping")
+                break
+            pages_seen += 1
+            raw_total += len(events)
+            new_on_page = 0
+            for raw in events:
+                ev = normalize_event(raw)
+                url = ev.get("source_url", "")
+                if not url:
+                    continue
+                if url not in by_url:
+                    new_on_page += 1
+                by_url[url]["title"] = ev.get("event_name", "")[:80] or by_url[url]["title"]
+                date_str = ev["start_date"].isoformat() if ev.get("start_date") else "(no-date)"
+                by_url[url]["dates"].append(date_str)
+            print(f"  [page {page}] {len(events)} events  ({new_on_page} URLs new this page)")
+            if new_on_page == 0:
+                print(f"  [page {page}] all events already seen — stopping")
+                break
+            page += 1
+        print()
 
     print()
     print(f"=== Summary ===")

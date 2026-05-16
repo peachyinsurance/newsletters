@@ -1,20 +1,33 @@
 #!/usr/bin/env python3
-"""Scrape travelcobb.org/cobb-county-events/ and save upcoming events to
-the Weekend Events Notion DB.
+"""Scrape ECC event sources and save upcoming events to the Weekend
+Events Notion DB.
 
-travelcobb.org uses The Events Calendar WordPress plugin, which embeds
-clean JSON-LD `Event` objects on every list page. No HTML scraping
-needed — we just parse the JSON.
+Currently scrapes:
+  - travelcobb.org/cobb-county-events/
+  - visitmariettaga.com/events/
 
-Pagination: `?tribe_paged=N` (1, 2, 3, ...). Each page returns up to 20
-events. Walk every page until one returns no events (end of calendar).
+Both sites use The Events Calendar WordPress plugin, which embeds clean
+JSON-LD `Event` objects on every list page. No HTML scraping needed —
+we just parse the JSON.
 
-Dedup: by Source URL (each event has a unique permalink on travelcobb.org).
-Skip rows where the URL already exists in the DB, and only upload new
-events.
+Pagination: `?tribe_paged=N` (1, 2, 3, ...). Walk pages until one of:
+  - the page returns no events (end of calendar),
+  - the page has zero new (URL, date) occurrences (calendar wrapped —
+    over-range page numbers redirect to a previously-walked page on
+    some Events Calendar themes), or
+  - every event on the page falls past window_end.
 
-Date filter: skip any event whose startDate is before today (multi-day
-events that started in the past are still considered past).
+Recurring events: travelcobb (and similar sites) list one calendar
+entry per occurrence, all sharing the same Source URL but with
+distinct JSON-LD startDate values. We dedup by (URL, date) tuple
+during the scan so each occurrence is evaluated independently. When
+saving, we keep one row per URL using the EARLIEST in-window date —
+so a weekly market lands in Notion with the soonest upcoming Friday
+as its date.
+
+Date window: from today through upcoming_friday + END_WINDOW_DAYS.
+Events before today are past; events after the window are too far out
+to be useful for the weekly newsletter.
 
 Newsletter tag: every row saved here is tagged with the NEWSLETTER env
 var (defaults to East_Cobb_Connect — that's what ECC stands for in the
@@ -25,7 +38,7 @@ import os
 import re
 import sys
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -33,21 +46,34 @@ import requests
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
 from notion_helper import HEADERS as NOTION_HEADERS, query_database  # noqa: E402
+from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
 
 NOTION_API_KEY = os.environ["NOTION_API_KEY"]
 WEEKEND_EVENTS_DB_ID = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
 NEWSLETTER = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
 
-SOURCE_URL  = "https://travelcobb.org/cobb-county-events/"
+SOURCES = [
+    "https://travelcobb.org/cobb-county-events/",
+    "https://visitmariettaga.com/events/",
+]
+# Back-compat alias for any older script that imports SOURCE_URL.
+SOURCE_URL = SOURCES[0]
+# How many days past this week's upcoming Friday count as "in window".
+# Matches the Featured Event picker's date window so every event Featured
+# Event might choose is guaranteed to be in the DB.
+END_WINDOW_DAYS = 14
 USER_AGENT  = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120"
 
 
 # ---------------------------------------------------------------------------
 # Scrape one page
 # ---------------------------------------------------------------------------
-def fetch_page_events(page: int) -> list[dict]:
-    """Return a list of JSON-LD Event objects from one paginated page."""
-    url = SOURCE_URL if page == 1 else f"{SOURCE_URL}?tribe_paged={page}"
+def fetch_page_events(source_url: str, page: int = 1) -> list[dict]:
+    """Return a list of JSON-LD Event objects from one paginated page of
+    `source_url`. Page 1 hits the bare URL; pages ≥2 use ?tribe_paged=N
+    (sites running The Events Calendar plugin may 301 to a pretty URL
+    like /events/page/N/, but we follow redirects so either works)."""
+    url = source_url if page == 1 else f"{source_url}?tribe_paged={page}"
     try:
         r = requests.get(url, timeout=15, headers={"User-Agent": USER_AGENT},
                          allow_redirects=True)
@@ -215,55 +241,104 @@ def main() -> int:
     if not WEEKEND_EVENTS_DB_ID:
         print("✗ NOTION_WEEKEND_EVENTS_DB_ID is not set in env.")
         return 1
-    print(f"Scraping {SOURCE_URL}")
-    print(f"  → Notion DB:  {WEEKEND_EVENTS_DB_ID[:8]}…")
-    print(f"  → Newsletter: {NEWSLETTER}")
+
+    today      = date.today()
+    window_end = _upcoming_friday(today) + timedelta(days=END_WINDOW_DAYS)
+
+    print(f"Sources ({len(SOURCES)}):")
+    for s in SOURCES:
+        print(f"  - {s}")
+    print(f"  → Notion DB:    {WEEKEND_EVENTS_DB_ID[:8]}…")
+    print(f"  → Newsletter:   {NEWSLETTER}")
+    print(f"  → Date window:  {today} → {window_end}")
     print()
 
     existing = existing_source_urls(WEEKEND_EVENTS_DB_ID)
     print(f"Dedup: {len(existing)} URLs already in DB\n")
-    today = date.today()
 
-    seen_urls: set[str] = set()
+    # Track every (url, date) occurrence we've evaluated this run, across
+    # sources and pages. Used both for wrap detection (server redirecting
+    # over-range page numbers to a valid page) and to avoid double-
+    # processing the same occurrence listed on both sites.
+    seen_occurrences: set[tuple[str, str]] = set()
+
+    # One row per URL — the earliest in-window occurrence wins. Built up
+    # across all sources, then saved at the end.
+    by_url: dict[str, dict] = {}
+
+    skipped_past   = 0
+    skipped_future = 0
+
+    for source_url in SOURCES:
+        print(f"━━ {source_url} ━━")
+        page = 1
+        while True:
+            events = fetch_page_events(source_url, page)
+            if not events:
+                print(f"  [page {page}] no events — stopping")
+                break
+            new_occurrences = 0
+            all_past_end    = True  # flips False as soon as one event ≤ window_end
+            for raw in events:
+                ev = normalize_event(raw)
+                url = ev.get("source_url", "")
+                sd  = ev.get("start_date")
+                if not url or not sd:
+                    continue
+                key = (url, sd.isoformat())
+                if key in seen_occurrences:
+                    continue
+                seen_occurrences.add(key)
+                new_occurrences += 1
+                if sd > window_end:
+                    skipped_future += 1
+                    continue
+                all_past_end = False
+                if sd < today:
+                    skipped_past += 1
+                    continue
+                # In window — keep the earliest occurrence for this URL.
+                existing_ev = by_url.get(url)
+                if existing_ev is None or sd < existing_ev["start_date"]:
+                    by_url[url] = ev
+            print(f"  [page {page}] {len(events)} listings  "
+                  f"({new_occurrences} new occurrences)")
+            # Stop conditions:
+            #   (a) page brought zero new (URL, date) tuples — server has
+            #       redirected over-range page numbers to a valid page,
+            #       calendar has wrapped.
+            #   (b) every new event on the page is past window_end — calendar
+            #       is sorted ascending so later pages would only be further
+            #       out. (Only fires when new_occurrences > 0; otherwise
+            #       all_past_end is its initial True from an empty filter set.)
+            if new_occurrences == 0:
+                print(f"  [page {page}] all occurrences already seen (calendar wrapped) — stopping")
+                break
+            if all_past_end:
+                print(f"  [page {page}] every event past {window_end} — stopping")
+                break
+            page += 1
+        print()
+
+    # Sort candidates by start_date for a readable insert log.
+    candidates = sorted(by_url.values(),
+                        key=lambda e: e["start_date"] or date.max)
     inserted = 0
     skipped_existing = 0
-    skipped_past = 0
-    page = 1
-    while True:
-        events = fetch_page_events(page)
-        if not events:
-            print(f"  [page {page}] no events — stopping")
-            break
-        print(f"  [page {page}] {len(events)} events")
-        new_urls_this_page = 0
-        for raw in events:
-            ev = normalize_event(raw)
-            url = ev.get("source_url", "")
-            if not url or url in seen_urls:
-                continue
-            seen_urls.add(url)
-            new_urls_this_page += 1
-            if url in existing:
-                skipped_existing += 1
-                continue
-            if ev["start_date"] and ev["start_date"] < today:
-                skipped_past += 1
-                continue
-            if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER):
-                inserted += 1
-                print(f"      ✓ {ev['start_date']}  {ev['event_name'][:60]}")
-        # WordPress's Events Calendar sometimes redirects over-range page
-        # numbers (?tribe_paged=999) back to a valid page instead of
-        # returning 404. When that happens, every event on the "new" page
-        # is already in seen_urls and we'd loop forever. If a page brings
-        # zero new URLs, the calendar has wrapped — stop.
-        if new_urls_this_page == 0:
-            print(f"  [page {page}] all events already seen (calendar wrapped) — stopping")
-            break
-        page += 1
+    print(f"━━ Saving {len(candidates)} in-window candidates ━━")
+    for ev in candidates:
+        url = ev["source_url"]
+        if url in existing:
+            skipped_existing += 1
+            continue
+        if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER):
+            inserted += 1
+            print(f"  ✓ {ev['start_date']}  {ev['event_name'][:60]}")
     print()
-    print(f"✓ Done. Inserted {inserted}, skipped {skipped_existing} existing, "
-          f"{skipped_past} past")
+    print(f"✓ Done. Inserted {inserted}, "
+          f"skipped {skipped_existing} existing, "
+          f"{skipped_past} past, "
+          f"{skipped_future} beyond {window_end}")
     return 0
 
 
