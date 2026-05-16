@@ -34,7 +34,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install requests anthropic beautifulsoup4 curl_cffi
+      - run: |
+          pip install requests anthropic beautifulsoup4 curl_cffi Pillow
+          # Open Sans (closest open-source analog to Canva Sans) for the
+          # Canva-style header + body composites.
+          sudo apt-get update -qq && sudo apt-get install -y -qq fonts-open-sans || true
       - name: Generate Featured Event
         env:
           CLAUDE_API_KEY:           ${{ secrets.CLAUDE_API_KEY }}

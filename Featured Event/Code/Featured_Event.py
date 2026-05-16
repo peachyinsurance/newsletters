@@ -837,25 +837,39 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"  ⚠ header pre-build skipped ({e})")
 
-        # Pre-build a 1-3 frame GIF from the event's image_candidates so
-        # the Featured Event body in the Notion landing page can show a
-        # rotating preview (mirrors the Restaurant Radar GIF pattern).
+        # Pre-build the Canva-style "event body GIF" for each event:
+        # animated frames of up to 4 candidate photos composited into the
+        # body template's chroma blob, with title / location / address /
+        # date text overlays repeated on every frame.
         try:
-            from gif_maker import create_gif_from_urls
+            from header_image_maker import build_event_body_gif
             from pathlib import Path as _Path
             gif_out_dir = _Path(__file__).parent.parent.parent / "Beehiiv" / "Code" / "output"
             gif_out_dir.mkdir(parents=True, exist_ok=True)
             for idx, r in enumerate(results):
-                cands = r.get("image_candidates") or []
-                # Limit to 1-3 candidates (skip the chosen image since the
-                # header banner already shows it; show the alternates).
+                # Build a frame list: chosen image first, then alternates
+                # (so frame 1 always matches the static fallback).
                 main = r.get("image_url") or ""
-                frame_urls = [u for u in cands if u != main][:3]
+                cands = r.get("image_candidates") or []
+                frame_urls: list[str] = []
+                if main:
+                    frame_urls.append(main)
+                for u in cands:
+                    if u not in frame_urls:
+                        frame_urls.append(u)
+                    if len(frame_urls) >= 4:
+                        break
                 if not frame_urls:
                     continue
-                title = r.get("event_name") or f"event_{idx}"
+                title = r.get("event_name") or ""
                 try:
-                    gif_bytes = create_gif_from_urls(frame_urls)
+                    gif_bytes = build_event_body_gif(
+                        title         = title,
+                        location_name = r.get("venue")   or "",
+                        address       = r.get("address") or "",
+                        date          = r.get("date")    or "",
+                        photo_urls    = frame_urls,
+                    )
                 except Exception as e:
                     print(f"    · GIF build failed for {title[:50]}: {e}")
                     continue
@@ -866,7 +880,7 @@ if __name__ == "__main__":
                 (gif_out_dir / fname).write_bytes(gif_bytes)
                 cache_bust = int(datetime.today().timestamp())
                 r["gif_url"] = f"https://peachyinsurance.github.io/newsletters/gifs/{fname}?v={cache_bust}"
-                print(f"    ✓ built event GIF: {fname} ({len(frame_urls)} frames)")
+                print(f"    ✓ built event body GIF: {fname} ({len(frame_urls)} frames, {len(gif_bytes):,} bytes)")
         except Exception as e:
             print(f"  ⚠ event GIF build skipped ({e})")
 

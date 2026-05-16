@@ -32,7 +32,7 @@ from notion_helper import (   # noqa: E402
     query_database,
     HEADERS,
 )
-from header_image_maker import build_header_image  # noqa: E402
+from header_image_maker import build_header_image, build_event_body_gif  # noqa: E402
 
 GH_PAGES_BASE = "https://peachyinsurance.github.io/newsletters/gifs"
 
@@ -123,6 +123,35 @@ def main() -> int:
             print(f"  ⚠ Could not save Header Image URL — continuing")
         else:
             print(f"  ✓ Header Image URL → {header_url}")
+
+        # 5. Rebuild the Canva-style body GIF with the newly chosen image
+        # as frame 1 (followed by the remaining Image Candidates).
+        import json as _json
+        ic_text = _extract_text(props.get("Image Candidates", {}))
+        try:
+            candidates = _json.loads(ic_text) if ic_text else []
+        except Exception:
+            candidates = []
+        frame_urls = [image_url] + [u for u in candidates if u != image_url][:3]
+        venue   = _extract_text(props.get("Venue", {}))
+        address = _extract_text(props.get("Address", {}))
+        date    = _extract_text(props.get("Date", {}))
+        try:
+            gif_bytes = build_event_body_gif(
+                title=title, location_name=venue, address=address, date=date,
+                photo_urls=frame_urls,
+            )
+        except Exception as e:
+            print(f"  · body GIF rebuild failed: {e}")
+            gif_bytes = b""
+        if gif_bytes:
+            safe = "".join(c if c.isalnum() else "_" for c in title)[:40] or "event"
+            gif_fname = f"event_gif_{nl_name}_{safe}.gif"
+            (out_dir / gif_fname).write_bytes(gif_bytes)
+            gif_cache_bust = int(time.time())
+            gif_url = f"{GH_PAGES_BASE}/{gif_fname}?v={gif_cache_bust}"
+            patch_notion_field(page_id, "GIF URL", gif_url)
+            print(f"  ✓ Body GIF → {gif_url}")
 
     return 0
 
