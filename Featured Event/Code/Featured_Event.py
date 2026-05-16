@@ -723,10 +723,39 @@ if __name__ == "__main__":
             # Stage-2 fallback for subsequent events.
             used_image_urls: set[str] = set()
 
+            import re as _re_img
+
             def _normalize_img(u: str) -> str:
-                """Strip query params for dedup so the same image with
-                different cache-bust query strings still matches."""
-                return u.split("?")[0].split("#")[0].rstrip("/").lower()
+                """Normalize an image URL for dedup. Beyond stripping query
+                strings, this collapses WordPress-style size variants of the
+                same image so `foo-300x300.jpg`, `foo-1024x768.jpg`,
+                `foo-scaled.jpg`, `foo-e1739815584876.jpg` and `foo.jpg`
+                all map to the same key.
+
+                Patterns handled (all WP / common CMS conventions):
+                  -WIDTHxHEIGHT  (e.g. -300x300, -1024x768)
+                  -scaled        (full-size variant)
+                  -edited / -rotated / -cropped
+                  -e<digits>     (timestamp suffix the WP editor adds)
+                """
+                u = u.split("?")[0].split("#")[0].rstrip("/").lower()
+                # Split extension off so we can clean the stem
+                m = _re_img.match(r"^(.*)(\.[a-z]{2,4})$", u)
+                if m:
+                    stem, ext = m.group(1), m.group(2)
+                else:
+                    stem, ext = u, ""
+                # Strip recognized WP/CMS size & edit suffixes (repeatedly,
+                # to handle stacked variants like `foo-scaled-1024x768.jpg`)
+                while True:
+                    new = _re_img.sub(
+                        r"(-\d+x\d+|-scaled|-edited|-rotated|-cropped|-e\d{6,})$",
+                        "", stem,
+                    )
+                    if new == stem:
+                        break
+                    stem = new
+                return stem + ext
 
             MAX_GALLERY = 8  # max candidate images saved per event
 
