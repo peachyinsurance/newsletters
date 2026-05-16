@@ -1,3 +1,15 @@
+// Decode a base64 GitHub content blob as UTF-8.
+// `atob()` returns a byte-string (one JS char per byte, 0–255). If the
+// underlying content is UTF-8, multi-byte sequences end up as separate
+// Latin-1 characters and you get classic "â¯" / "âââ" mojibake. Round-trip
+// through Uint8Array + TextDecoder fixes it once, globally.
+export function decodeBase64Utf8(b64) {
+  const cleaned = (b64 || "").replace(/\n/g, "");
+  if (!cleaned) return "";
+  const bytes = Uint8Array.from(atob(cleaned), c => c.charCodeAt(0));
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
 export function parseBullets(notes) {
   if (!notes) return [];
   return notes.split("\n").map(b => b.replace(/^•\s*/, "").trim()).filter(Boolean);

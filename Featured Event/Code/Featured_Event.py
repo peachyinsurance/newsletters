@@ -500,19 +500,19 @@ if __name__ == "__main__":
                 break
             print(f"\n  --- Candidate round {round_idx} (floor: {floor}) ---")
 
-            # Brave cache lives in the repo at Featured Event/Code/brave_cache/
-            # so it's available in CI and local runs without setup. Iterate
-            # on filtering/drill/Claude logic without burning Brave quota.
-            # To refresh: delete the cache file, or set BRAVE_CACHE_REFRESH=1
-            # to force-overwrite, or set BRAVE_CACHE_DISABLE=1 to bypass.
-            cache_disabled = bool(os.environ.get("BRAVE_CACHE_DISABLE"))
-            cache_dir = os.environ.get(
-                "BRAVE_CACHE_DIR",
-                str(Path(__file__).parent / "brave_cache"),
-            )
+            # Brave cache (OFF by default — debugging aid only).
+            # To use locally: set BRAVE_CACHE_ENABLE=1, optionally with
+            # BRAVE_CACHE_DIR=path and BRAVE_CACHE_REFRESH=1 to force a
+            # fresh fetch. In CI / production we always hit Brave directly
+            # so the candidate pool tracks the current week.
+            cache_enabled = bool(os.environ.get("BRAVE_CACHE_ENABLE"))
             cache_path = None
             new_pool = None
-            if not cache_disabled:
+            if cache_enabled:
+                cache_dir = os.environ.get(
+                    "BRAVE_CACHE_DIR",
+                    str(Path(__file__).parent / "brave_cache"),
+                )
                 Path(cache_dir).mkdir(parents=True, exist_ok=True)
                 safe_name = newsletter["name"].replace("/", "_")
                 cache_path = Path(cache_dir) / f"{safe_name}_round{round_idx}.json"

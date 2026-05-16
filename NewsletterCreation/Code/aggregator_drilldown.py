@@ -415,6 +415,30 @@ def expand_listicle(aggregator_url: str, max_links: int = 20) -> list[dict]:
         "/contact", "/about", "/privacy", "/terms", "/subscribe",
         "/login", "/signup", "/register", "/advertise", "/sitemap",
         "/feed", "/rss", "/search",
+        # News-site account / e-edition / archive plumbing
+        "/users/admin", "/users/login", "/users/profile",
+        "/eedition", "/e-edition",
+        "/service/purchase", "/account",
+        # Image / video gallery slugs — these are media assets, not event pages
+        "/image_", "/video/", "/audio/", "/photogallery/", "/photo-gallery/",
+        "/person/", "/persons/", "/staff/",
+    )
+    # Sidebar / widget heading text — when the nearest <h*> says one of
+    # these, every link under it is sidebar noise (recent-stories list,
+    # trending widget, pet-of-the-day, "Alerts", etc.) Drop the whole
+    # section rather than letting Claude see "Trending Stories" as a
+    # candidate event title.
+    SIDEBAR_HEADING_BLOCKLIST = (
+        "trending stories", "more stories", "more videos", "more news",
+        "latest stories", "latest e-edition", "latest news",
+        "popular stories", "most popular", "most read",
+        "related stories", "related articles", "related",
+        "recommended for you", "you may also like", "you might like",
+        "pet of the day", "obituaries", "comments", "comment",
+        "thank you for reading", "newsletter signup", "subscribe",
+        "alerts", "alert", "breaking news", "weather",
+        "advertisement", "advertise", "sponsored", "from our advertisers",
+        "trending now", "in case you missed it", "icymi",
     )
 
     for a in body.find_all("a", href=True):
@@ -472,6 +496,17 @@ def expand_listicle(aggregator_url: str, max_links: int = 20) -> list[dict]:
             continue
         # Skip pure navigation / generic anchors with no heading context
         if not heading and anchor.lower() in GENERIC_ANCHOR_TEXT:
+            continue
+        # Drop sidebar/widget links: heading or anchor matches a known
+        # non-event widget label ("Trending Stories", "More Videos",
+        # "Pet of the Day", etc.). These come from news-site sidebars
+        # that share the <article> container with the body content.
+        heading_lower = (heading or "").lower().strip(" :.-—–")
+        anchor_lower  = anchor.lower().strip(" :.-—–")
+        if any(b == heading_lower or b in heading_lower
+               for b in SIDEBAR_HEADING_BLOCKLIST):
+            continue
+        if any(b == anchor_lower for b in SIDEBAR_HEADING_BLOCKLIST):
             continue
 
         # Build a summary that prefers full section context over bare

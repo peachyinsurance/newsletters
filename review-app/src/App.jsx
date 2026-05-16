@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import "./styles.css";
-import { isOddWeek, checkPassword } from "./helpers";
+import { isOddWeek, checkPassword, decodeBase64Utf8 } from "./helpers";
 import PetTile from "./PetTile";
 import RestaurantTile from "./RestaurantTile";
 import FeaturedEventTile from "./FeaturedEventTile";
@@ -194,7 +194,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
       const res = await fetch(fileUrl, { headers: ghHeaders });
       if (!res.ok) throw new Error("Could not fetch data");
       const fileInfo = await res.json();
-      const rows = JSON.parse(atob(fileInfo.content.replace(/\n/g, "")));
+      const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));
 
       const allNames = [...new Set(rows.map(r => r.newsletter_name).filter(Boolean))];
 
@@ -249,7 +249,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
       const fileRes = await fetch(fileUrl, { headers: ghHeaders });
       if (!fileRes.ok) throw new Error("Could not fetch data file from gh-pages");
       const fileInfo = await fileRes.json();
-      const rows = JSON.parse(atob(fileInfo.content.replace(/\n/g, "")));
+      const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));
 
       // 2. Set statuses for this newsletter (uses section-specific status names)
       for (const row of rows) {
@@ -313,7 +313,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
       const fileRes = await fetch(fileUrl, { headers: ghHeaders });
       if (!fileRes.ok) throw new Error("Could not fetch data file from gh-pages");
       const fileInfo = await fileRes.json();
-      const rows = JSON.parse(atob(fileInfo.content.replace(/\n/g, "")));
+      const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));
 
       // 2. Reset statuses and default_winner for this newsletter to pending
       let changed = 0;
