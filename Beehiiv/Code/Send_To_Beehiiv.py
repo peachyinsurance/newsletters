@@ -615,7 +615,7 @@ def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
     # `restaurant-radar-1` etc. don't collide with `restaurant-radar` (substring).
     # `furry-friends` would collide → use `pet-photo` instead.
     SLOT_TO_FILENAME = {
-        "newsletter_header_image":     "Newsletter_Header_image",
+        "newsletter_header_image":     "output-onlinepngtools",
         "event_of_the_week_image":     "event-of-the-week",
         "restaurant_radar_image":      "restaurant-radar-1",
         "restaurant_radar_2_image":    "restaurant-radar-2",
@@ -666,7 +666,7 @@ def prune_unused_image_slots(html: str, alt_swaps: dict[str, str]) -> tuple[str,
     a swap target for that slot, the <img> is removed.
     """
     SLOT_TO_FILENAME = {
-        "newsletter_header_image":     "Newsletter_Header_image",
+        "newsletter_header_image":     "output-onlinepngtools",
         "event_of_the_week_image":     "event-of-the-week",
         "restaurant_radar_image":      "restaurant-radar-1",
         "restaurant_radar_2_image":    "restaurant-radar-2",

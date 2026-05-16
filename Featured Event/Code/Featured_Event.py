@@ -613,7 +613,8 @@ if __name__ == "__main__":
             # aggregator's article spells out 'Saturday, June 27th'.
             kept, past_urls = filter_candidates_by_date(
                 new_pool, floor,
-                text_keys=("title", "summary", "article_text", "primary_text", "listicle_date_hint"),
+                text_keys=("title", "summary", "article_text", "primary_text",
+                           "listicle_date_hint", "url", "source_url"),
             )
             excluded_urls.update(past_urls)
             # Merge (dedup by URL) into the surviving candidate set
