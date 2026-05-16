@@ -188,6 +188,10 @@ def evaluate_and_write_events(
         clean["candidate_index"] = i
         indexed_candidates.append(clean)
     candidates_json = json.dumps(indexed_candidates, indent=2)
+    # Log a sample of what Claude is being asked to choose from
+    print(f"  ⓘ Sending {len(indexed_candidates)} candidate(s) to Claude (sample):")
+    for c in indexed_candidates[:6]:
+        print(f"     [{c['candidate_index']:>2}] {c.get('title', '')[:70]}  →  {c.get('url', '')[:80]}")
     demo_summary = (
         f"Median household income: {demographics['median_income']}\n"
         f"Median age: {demographics['median_age']}\n"
@@ -317,6 +321,17 @@ Candidates:
             print(f"  ✗ JSON parse failed even after extraction: {e}")
             print(f"     First 500 chars of array:\n{clean[start:start+500]}")
             return []
+
+    # Diagnostic: log what Claude actually returned before validation.
+    if isinstance(results, list):
+        print(f"  ⓘ Claude returned {len(results)} pick(s) from {len(candidates)} candidate(s)")
+        for i, r in enumerate(results[:8]):
+            print(f"     [{i+1}] candidate_index={r.get('candidate_index')!r}  "
+                  f"event_name={(r.get('event_name') or '')[:60]!r}  "
+                  f"venue={(r.get('venue') or '')[:50]!r}")
+    else:
+        print(f"  ⚠ Claude returned non-list: {type(results).__name__}")
+        return []
 
     # Attach real URLs from candidates using the index Claude returned.
     # Discard any URLs Claude may have provided directly.
