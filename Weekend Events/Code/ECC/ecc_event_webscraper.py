@@ -235,12 +235,14 @@ def main() -> int:
             print(f"  [page {page}] no events — stopping")
             break
         print(f"  [page {page}] {len(events)} events")
+        new_urls_this_page = 0
         for raw in events:
             ev = normalize_event(raw)
             url = ev.get("source_url", "")
             if not url or url in seen_urls:
                 continue
             seen_urls.add(url)
+            new_urls_this_page += 1
             if url in existing:
                 skipped_existing += 1
                 continue
@@ -250,6 +252,14 @@ def main() -> int:
             if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER):
                 inserted += 1
                 print(f"      ✓ {ev['start_date']}  {ev['event_name'][:60]}")
+        # WordPress's Events Calendar sometimes redirects over-range page
+        # numbers (?tribe_paged=999) back to a valid page instead of
+        # returning 404. When that happens, every event on the "new" page
+        # is already in seen_urls and we'd loop forever. If a page brings
+        # zero new URLs, the calendar has wrapped — stop.
+        if new_urls_this_page == 0:
+            print(f"  [page {page}] all events already seen (calendar wrapped) — stopping")
+            break
         page += 1
     print()
     print(f"✓ Done. Inserted {inserted}, skipped {skipped_existing} existing, "
