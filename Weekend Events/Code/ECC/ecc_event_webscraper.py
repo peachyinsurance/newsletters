@@ -39,6 +39,7 @@ import os
 import re
 import sys
 import json
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -78,16 +79,38 @@ def fetch_page_events(source_url: str, page: int = 1) -> list[dict]:
     """Return a list of JSON-LD Event objects from one paginated page of
     `source_url`. Page 1 hits the bare URL; pages ≥2 use ?tribe_paged=N
     (sites running The Events Calendar plugin may 301 to a pretty URL
-    like /events/page/N/, but we follow redirects so either works)."""
+    like /events/page/N/, but we follow redirects so either works).
+
+    Retries on transient codes that some Cloudflare-fronted sites use as
+    soft bot-checks (202, 429, 503). A real 4xx/5xx other than those
+    fails fast and returns []."""
     url = source_url if page == 1 else f"{source_url}?tribe_paged={page}"
-    try:
-        r = requests.get(url, timeout=15, headers={"User-Agent": USER_AGENT},
-                         allow_redirects=True)
-        if r.status_code != 200 or not r.text:
-            print(f"    [page {page}] HTTP {r.status_code} from {url}")
-            return []
-    except Exception as e:
-        print(f"    [page {page}] fetch error: {e}")
+    # Browser-like headers — kennesaw-ga.gov returns HTTP 202 (CF soft
+    # challenge) when Accept/Accept-Language are missing.
+    headers = {
+        "User-Agent":      USER_AGENT,
+        "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+    }
+    r = None
+    for attempt in range(3):
+        try:
+            r = requests.get(url, timeout=15, headers=headers, allow_redirects=True)
+        except Exception as e:
+            print(f"    [page {page}] fetch error (attempt {attempt + 1}/3): {e}")
+            time.sleep(2 * (attempt + 1))
+            r = None
+            continue
+        if r.status_code == 200 and r.text:
+            break
+        if r.status_code in (202, 429, 503) and attempt < 2:
+            wait = 3 * (attempt + 1)
+            print(f"    [page {page}] HTTP {r.status_code} — retry {attempt + 1}/3 in {wait}s")
+            time.sleep(wait)
+            continue
+        print(f"    [page {page}] HTTP {r.status_code} from {url}")
+        return []
+    if r is None or r.status_code != 200 or not r.text:
         return []
     # Find all JSON-LD blocks; the events array is the one with @type=Event entries
     events: list[dict] = []
