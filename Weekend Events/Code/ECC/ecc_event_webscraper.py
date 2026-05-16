@@ -7,16 +7,16 @@ clean JSON-LD `Event` objects on every list page. No HTML scraping
 needed — we just parse the JSON.
 
 Pagination: `?tribe_paged=N` (1, 2, 3, ...). Each page returns up to 20
-events. Stop when:
-  - we hit a page with no events
-  - all events on a page are past today (calendar has wrapped)
-  - we exceed MAX_PAGES (safety)
+events. Walk every page until either:
+  - a page returns no events (end of calendar), or
+  - we exceed MAX_PAGES (safety cap).
 
 Dedup: by Source URL (each event has a unique permalink on travelcobb.org).
-Skip rows where the URL already exists in the DB.
+Skip rows where the URL already exists in the DB, and only upload new
+events.
 
-Date filter: only insert events whose startDate >= today. Past-event
-cleanup is handled by a separate script.
+Date filter: skip any event whose startDate is before today (multi-day
+events that started in the past are still considered past).
 
 Newsletter tag: every row saved here is tagged with the NEWSLETTER env
 var (defaults to East_Cobb_Connect — that's what ECC stands for in the
@@ -237,7 +237,6 @@ def main() -> int:
             print(f"  [page {page}] no events — stopping")
             break
         print(f"  [page {page}] {len(events)} events")
-        new_on_page = 0
         for raw in events:
             ev = normalize_event(raw)
             url = ev.get("source_url", "")
@@ -247,24 +246,14 @@ def main() -> int:
             if url in existing:
                 skipped_existing += 1
                 continue
-            if ev["start_date"] and ev["end_date"]:
-                # Skip only if BOTH start and end are past
-                if ev["end_date"] < today:
-                    skipped_past += 1
-                    continue
-            elif ev["start_date"] and ev["start_date"] < today:
+            if ev["start_date"] and ev["start_date"] < today:
                 skipped_past += 1
                 continue
-            ok = save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER)
-            if ok:
+            if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER):
                 inserted += 1
-                new_on_page += 1
                 print(f"      ✓ {ev['start_date']}  {ev['event_name'][:60]}")
-        if new_on_page == 0 and len(seen_urls) > 0:
-            # All events on this page are dupes or past — likely the
-            # calendar has wrapped or we've covered the whole future window.
-            print(f"  [page {page}] no new events — stopping early")
-            break
+    else:
+        print(f"  ⚠ hit MAX_PAGES={MAX_PAGES} cap — may have missed later pages")
     print()
     print(f"✓ Done. Inserted {inserted}, skipped {skipped_existing} existing, "
           f"{skipped_past} past")
