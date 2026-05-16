@@ -586,7 +586,7 @@ if __name__ == "__main__":
                 url = c.get("url", "")
                 if is_aggregator_url(url):
                     print(f"  ↳ aggregator detected, expanding: {url}")
-                    expanded = expand_listicle(url)
+                    expanded = expand_listicle(url, listicle_title=c.get("title", ""))
                     if expanded:
                         expanded_count += 1
                         expanded_total_links += len(expanded)
@@ -613,7 +613,7 @@ if __name__ == "__main__":
             # aggregator's article spells out 'Saturday, June 27th'.
             kept, past_urls = filter_candidates_by_date(
                 new_pool, floor,
-                text_keys=("title", "summary", "article_text", "primary_text"),
+                text_keys=("title", "summary", "article_text", "primary_text", "listicle_date_hint"),
             )
             excluded_urls.update(past_urls)
             # Merge (dedup by URL) into the surviving candidate set

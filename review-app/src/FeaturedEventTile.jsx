@@ -24,16 +24,27 @@ export default function FeaturedEventTile({event, onApprove, approving, approved
         }
     }
 
-    const [selectedImage, setSelectedImage] = useState(event.image_url || gallery[0] || "");
+    const savedImage = event.image_url || gallery[0] || "";
+    const [selectedImage, setSelectedImage] = useState(savedImage);
     const [saving, setSaving]   = useState(false);
     const [saveMsg, setSaveMsg] = useState("");
+    // Track the most-recently-saved value separately from `event.image_url`
+    // so the UI reflects an approval even before the next data refresh.
+    const [appliedImage, setAppliedImage] = useState(savedImage);
 
-    async function handlePickImage(imgUrl) {
-        if (saving || imgUrl === selectedImage) return;
-        const previous = selectedImage;
-        setSelectedImage(imgUrl);  // optimistic
-        setSaving(true);
+    const isDirty = selectedImage && selectedImage !== appliedImage;
+
+    function handlePickImage(imgUrl) {
+        // Local-only browse: just preview, no save.
+        if (saving) return;
+        setSelectedImage(imgUrl);
         setSaveMsg("");
+    }
+
+    async function handleApproveImage() {
+        if (saving || !isDirty) return;
+        setSaving(true);
+        setSaveMsg("Saving...");
         try {
             const res = await fetch(
                 `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/select_image.yml/dispatches`,
@@ -47,16 +58,16 @@ export default function FeaturedEventTile({event, onApprove, approving, approved
                         ref: "main",
                         inputs: {
                             source_url: event.source_url || "",
-                            image_url:  imgUrl,
+                            image_url:  selectedImage,
                         },
                     }),
                 }
             );
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            setAppliedImage(selectedImage);
             setSaveMsg("Saved ✓");
-            setTimeout(() => setSaveMsg(""), 2500);
+            setTimeout(() => setSaveMsg(""), 3000);
         } catch (e) {
-            setSelectedImage(previous);  // roll back
             setSaveMsg(`Save failed: ${e.message}`);
         } finally {
             setSaving(false);
@@ -78,17 +89,26 @@ export default function FeaturedEventTile({event, onApprove, approving, approved
             <div className="image-picker">
                 <div className="image-picker-label">
                     {gallery.length} image options
-                    {saveMsg && <span className="image-picker-status"> · {saveMsg}</span>}
+                    {isDirty && !saveMsg && <span className="image-picker-status image-picker-pending"> · unsaved preview</span>}
+                    {saveMsg && (
+                        <span className={`image-picker-status ${saveMsg.includes("failed") ? "image-picker-error" : ""}`}>
+                            {" · "}{saveMsg}
+                        </span>
+                    )}
                 </div>
                 <div className="image-picker-strip">
                     {gallery.map((u, i) => (
                         <button
                             key={u}
                             type="button"
-                            className={`image-thumb ${u === selectedImage ? "selected" : ""}`}
+                            className={`image-thumb ${u === selectedImage ? "selected" : ""} ${u === appliedImage ? "applied" : ""}`}
                             onClick={() => handlePickImage(u)}
                             disabled={saving}
-                            title={`Use this image (${i + 1} of ${gallery.length})`}
+                            title={
+                                u === appliedImage
+                                    ? "Current saved image"
+                                    : `Preview option ${i + 1} of ${gallery.length}`
+                            }
                         >
                             <img
                                 src={u}
@@ -98,6 +118,14 @@ export default function FeaturedEventTile({event, onApprove, approving, approved
                         </button>
                     ))}
                 </div>
+                <button
+                    type="button"
+                    className="btn btn-approve-image"
+                    onClick={handleApproveImage}
+                    disabled={!isDirty || saving}
+                >
+                    {saving ? "Saving..." : isDirty ? "Approve this image" : "Image approved ✓"}
+                </button>
             </div>
         )}
         <div className="tile-body">

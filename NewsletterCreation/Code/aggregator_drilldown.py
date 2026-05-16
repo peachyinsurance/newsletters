@@ -317,7 +317,8 @@ def find_primary_url(aggregator_url: str, title: str = "") -> str | None:
     return best[1]
 
 
-def expand_listicle(aggregator_url: str, max_links: int = 20) -> list[dict]:
+def expand_listicle(aggregator_url: str, max_links: int = 20,
+                    listicle_title: str = "") -> list[dict]:
     """Scrape a listicle/roundup page and return a list of candidate event
     dicts — one per outbound link that looks like an individual event page.
 
@@ -514,15 +515,22 @@ def expand_listicle(aggregator_url: str, max_links: int = 20) -> list[dict]:
         # filter and Claude.
         summary = section_text or (anchor if anchor != title else "")
 
+        # Inherit the listicle's own date hint (title + URL slug) so the
+        # date filter can fall back to it when the candidate's section
+        # text doesn't itself mention a specific date. e.g., the Cobb
+        # Courier "Friday May 8 to Sunday, May 10" listicle stamps each
+        # extracted event with that date range as a backup signal.
+        listicle_date_hint = f"{listicle_title} {aggregator_url}"
         out.append({
-            "title":           title[:200],
-            "url":             url_clean,
-            "summary":         summary[:800],
-            "anchor_text":     anchor[:200],
-            "section_heading": heading[:200],
-            "article_text":    section_text[:2000],  # picked up by date filter
-            "source":          host,
-            "source_listicle": aggregator_url,
+            "title":               title[:200],
+            "url":                 url_clean,
+            "summary":             summary[:800],
+            "anchor_text":         anchor[:200],
+            "section_heading":     heading[:200],
+            "article_text":        section_text[:2000],
+            "source":              host,
+            "source_listicle":     aggregator_url,
+            "listicle_date_hint":  listicle_date_hint[:500],
         })
         if len(out) >= max_links:
             break

@@ -342,3 +342,35 @@ body { background: var(--cream); font-family: 'DM Sans', sans-serif; color: var(
 .image-thumb:hover:not(:disabled) { border-color: var(--gold); transform: translateY(-1px); }
 .image-thumb.selected { border-color: var(--rust); }
 .image-thumb:disabled { opacity: 0.6; cursor: wait; }
+
+/* Currently-saved image gets a sage check border instead of just selected (rust) */
+.image-thumb.applied {
+  border-color: var(--sage);
+  box-shadow: 0 0 0 1px var(--sage);
+}
+.image-thumb.selected { border-color: var(--rust); }
+.image-thumb.selected.applied { border-color: var(--rust); box-shadow: 0 0 0 1px var(--sage); }
+
+/* Pending (browsing local) vs error states */
+.image-picker-pending { color: var(--gold); font-weight: 500; }
+.image-picker-error   { color: var(--rust); font-weight: 500; }
+
+.btn-approve-image {
+  margin-top: 10px;
+  width: 100%;
+  background: var(--gold);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+.btn-approve-image:hover:not(:disabled) { background: #A8801A; }
+.btn-approve-image:disabled {
+  background: var(--sand);
+  color: #6B5744;
+  cursor: default;
+}
