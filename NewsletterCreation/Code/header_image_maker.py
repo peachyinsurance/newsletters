@@ -26,8 +26,9 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 REPO_ROOT     = Path(__file__).resolve().parent.parent.parent
 TEMPLATE_PATH = REPO_ROOT / "Featured Event" / "Template" / "featured_event_template.png"
 
-# Eyeballed from the 1200x630 template — see header_image_probe output.
-BLOB_BBOX  = (650, 78, 1121, 505)   # rough rectangle that contains the photo blob
+# Auto-measured from the magenta chroma extents in the current template
+# (1200x630). Update if the template changes.
+BLOB_BBOX  = (650, 78, 1122, 552)   # rectangle that fully contains the chroma blob
 TITLE_BOX  = (40, 80, 600, 360)     # rectangle the title should fill (left side)
 TITLE_FILL = (255, 255, 255)        # white text reads cleanly on red bg
 
