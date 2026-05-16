@@ -55,6 +55,14 @@ jobs:
           NEWSLETTER:                  ECC_PP
         run: python "Weekend Events/Code/ECC_PP/sandy_springs_webscraper.py"
 
+      - name: Scrape Eventbrite (East Cobb / Marietta)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
+        run: python "Weekend Events/Code/ECC/eventbrite_webscraper.py"
+
       - name: Archive past events
         if: ${{ (github.event.inputs.mode || 'both') != 'scrape' }}
         env:
