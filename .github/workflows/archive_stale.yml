@@ -30,6 +30,10 @@ on:
         required: false
         default: '5'
 
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   archive:
     runs-on: ubuntu-latest
@@ -60,7 +64,7 @@ jobs:
 
       - name: Trigger assembler to repaint the page
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NL: ${{ github.event.inputs.newsletter }}
         run: |
           curl -s -X POST \
@@ -72,7 +76,7 @@ jobs:
 
       - name: Trigger review app deploy
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           curl -s -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \

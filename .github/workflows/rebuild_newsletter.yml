@@ -25,13 +25,17 @@ on:
           - 'Perimeter_Post'
           - 'Lewisville_Lake_Lookout'
 
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   kickoff:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Pets (chain starter)
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NL: ${{ github.event.inputs.newsletter }}
         run: |
           echo "Kicking off full chain rebuild for: $NL"

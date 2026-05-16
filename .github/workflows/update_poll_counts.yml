@@ -11,13 +11,14 @@ on:
     - cron: '*/30 12-23 * * 5,6,0'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   update:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.PAT_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
@@ -44,7 +45,7 @@ jobs:
       - name: Publish to gh-pages (keep_files preserves existing site)
         uses: peaceiris/actions-gh-pages@v3
         with:
-          personal_token: ${{ secrets.PAT_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: /tmp/poll_staging
           publish_branch: gh-pages
           keep_files: true

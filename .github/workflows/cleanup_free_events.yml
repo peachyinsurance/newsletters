@@ -5,6 +5,10 @@ on:
   schedule:
     - cron: '0 13 * * 6'  # Every Saturday at 8am EST (1pm UTC)
 
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   cleanup:
     runs-on: ubuntu-latest
@@ -24,7 +28,7 @@ jobs:
 
       - name: Trigger deploy to refresh review app
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           curl -s -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \

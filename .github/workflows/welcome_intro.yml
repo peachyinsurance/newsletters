@@ -16,13 +16,17 @@ on:
           - 'Perimeter_Post'
           - 'Lewisville_Lake_Lookout'
 
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   generate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.PAT_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
@@ -46,7 +50,7 @@ jobs:
 
       - name: Trigger newsletter page rebuild
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           curl -s -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \

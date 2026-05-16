@@ -22,6 +22,10 @@ on:
           - 'true'
           - 'false'
 
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   generate:
     runs-on: ubuntu-latest
@@ -43,7 +47,7 @@ jobs:
       - name: Trigger newsletter page rebuild
         if: ${{ (github.event.inputs.chain || 'true') == 'false' }}
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           curl -s -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
@@ -55,7 +59,7 @@ jobs:
       - name: Trigger next in chain (Business Brief)
         if: ${{ always() && (github.event.inputs.chain || 'true') == 'true' }}
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           curl -s -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
