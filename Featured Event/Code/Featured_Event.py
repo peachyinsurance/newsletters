@@ -1,15 +1,26 @@
 #!/usr/bin/env python3
 """
 Newsletter Automation - Featured Event Section
-Searches for local events via Brave Search API,
-uses Claude to evaluate and pick the best featured event,
-and saves results to Notion.
+
+Pipeline:
+  1. Pull upcoming events from the Weekend Events Notion DB (populated by
+     per-newsletter scrapers, e.g. ecc_event_webscraper.py).
+  2. Date-window filter: only events whose start_date is between this
+     week's upcoming Friday and 14 days later.
+  3. Claude pass 1 — title-only: pick the top 10 events by title alone.
+  4. Claude pass 2 — full eval: feed those 10 (title + description) into
+     the existing scoring/blurb prompt and pick the winners.
+  5. Image lookup: scraped image from the DB row is the primary; we
+     additionally pull og:image candidates and Brave Image Search results
+     to build a gallery the reviewer can swap between.
+
+Saves results to the Featured Event Notion DB (NOTION_EVENTS_DB_ID).
 """
 import os
 import sys
 import json
 import time
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 from pathlib import Path
 
@@ -17,18 +28,20 @@ import requests
 import anthropic
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
-from notion_helper import save_events_to_notion, get_existing_event_urls
-from url_validator import filter_valid_items
+from notion_helper import (
+    save_events_to_notion,
+    get_existing_event_urls,
+    query_database,
+    NOTION_WEEKEND_EVENTS_DB_ID,
+)
 from newsletters_config import NEWSLETTERS, filter_by_env
 # Shared event-date filtering (Friday floor + parsing) lives in
 # NewsletterCreation/Code/event_date_filter.py — used by Featured Event,
 # Free Events, and Weekend Planner.
 from event_date_filter import (
     upcoming_friday as _upcoming_friday,
-    filter_candidates_by_date,
     filter_past_events as _filter_past_events,
 )
-from aggregator_drilldown import is_aggregator_url, expand_listicle
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -39,11 +52,15 @@ BRAVE_NEWS_API_KEY = os.environ["BRAVE_NEWS_API_KEY"]
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-featured-event-skill_auto.md"
 
 MAX_RESULTS_PER_QUERY = 10
-# Claude is asked for a larger pool so the date-floor filter has headroom —
-# we then keep the top FINAL_EVENTS by score after dropping past-dated ones.
-CANDIDATE_EVENTS      = 8   # ask Claude for this many
+# Pass-1 (title only) narrows the pool to TOP_N_TITLES candidates before
+# we spend tokens feeding Claude full descriptions. Pass-2 then evaluates
+# and writes blurbs for the survivors, returning CANDIDATE_EVENTS picks.
+TOP_N_TITLES          = 10
+CANDIDATE_EVENTS      = 8   # ask Claude for this many in pass 2
 TARGET_EVENTS         = CANDIDATE_EVENTS  # legacy alias used in the prompt
 FINAL_EVENTS          = 3   # keep this many after the date-floor filter
+# Date window for Notion event lookup: upcoming Friday → +14 days.
+DATE_WINDOW_DAYS      = 14
 
 # ---------------------------------------------------------------------------
 # 2. LOAD SKILL PROMPT
@@ -58,7 +75,157 @@ def load_skill_prompt() -> str:
 
 
 # ---------------------------------------------------------------------------
-# 3. FETCH EVENTS VIA BRAVE SEARCH API
+# 3a. FETCH EVENTS FROM NOTION (Weekend Events DB)
+# ---------------------------------------------------------------------------
+def _rich_text(prop: dict) -> str:
+    """Concatenate all rich_text/title runs in a Notion property."""
+    if not isinstance(prop, dict):
+        return ""
+    chunks = prop.get("rich_text") or prop.get("title") or []
+    return "".join(c.get("plain_text", "") for c in chunks).strip()
+
+
+def fetch_events_from_notion(newsletter_name: str,
+                             window_start: date,
+                             window_end: date) -> list[dict]:
+    """Query the Weekend Events Notion DB for rows tagged with this
+    newsletter whose Date falls in [window_start, window_end] inclusive.
+
+    Returns candidate dicts shaped like the old Brave output so the
+    downstream Claude eval can consume them unchanged."""
+    if not NOTION_WEEKEND_EVENTS_DB_ID:
+        print("  ⚠ NOTION_WEEKEND_EVENTS_DB_ID not set — skipping Notion fetch")
+        return []
+    filters = {
+        "and": [
+            {"property": "Newsletter", "select": {"equals": newsletter_name}},
+            {"property": "Date", "date": {"on_or_after": window_start.isoformat()}},
+            {"property": "Date", "date": {"on_or_before": window_end.isoformat()}},
+        ]
+    }
+    pages = query_database(NOTION_WEEKEND_EVENTS_DB_ID, filters=filters) or []
+    candidates: list[dict] = []
+    for p in pages:
+        props = p.get("properties", {})
+        title = _rich_text(props.get("Event Name")) or _rich_text(props.get("Name"))
+        url   = (props.get("Source URL", {}).get("url") or "").strip()
+        if not title or not url:
+            continue
+        date_prop = (props.get("Date") or {}).get("date") or {}
+        start_str = date_prop.get("start") or ""
+        try:
+            event_start = date.fromisoformat(start_str[:10]) if start_str else None
+        except ValueError:
+            event_start = None
+        # query_database with a date filter is authoritative, but verify in
+        # Python so a schema-induced unfiltered fallback (see query_database)
+        # doesn't smuggle past or out-of-window events through.
+        if event_start and not (window_start <= event_start <= window_end):
+            continue
+        candidates.append({
+            "title":       title,
+            "url":         url,
+            "summary":     _rich_text(props.get("Description")),
+            "image_url":   (props.get("Image URL", {}).get("url") or "").strip(),
+            "venue":       _rich_text(props.get("Location")),
+            "address":     _rich_text(props.get("Address")),
+            "time":        _rich_text(props.get("Time")),
+            "start_date":  event_start.isoformat() if event_start else "",
+            "source":      "weekend_events_db",
+        })
+    candidates.sort(key=lambda c: c.get("start_date", ""))
+    return candidates
+
+
+# ---------------------------------------------------------------------------
+# 3b. CLAUDE PASS 1 — pick top N titles
+# ---------------------------------------------------------------------------
+def claude_pick_top_titles(candidates: list[dict],
+                           demographics: dict,
+                           display_area: str,
+                           newsletter_name: str,
+                           n: int = TOP_N_TITLES) -> list[dict]:
+    """Send Claude the titles only and ask it to pick the top N that best
+    fit the audience. Returns the selected candidate dicts in Claude's
+    preference order."""
+    if len(candidates) <= n:
+        return candidates
+    client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+    title_list = "\n".join(f"[{i}] {c['title']}" for i, c in enumerate(candidates, 1))
+    demo_summary = (
+        f"Median household income: {demographics['median_income']}\n"
+        f"Median age: {demographics['median_age']}\n"
+        f"Family skew: {demographics['family_skew']}\n"
+        f"Homeownership rate: {demographics['homeownership']}\n"
+        f"Education level: {demographics['education']}"
+    )
+    prompt = f"""You're picking events to feature in a local newsletter for {newsletter_name.replace('_', ' ')} ({display_area}).
+
+Audience demographics:
+{demo_summary}
+
+Below is a list of upcoming events (titles only). Pick the {n} most interesting,
+specific, can't-miss events for this audience. Prefer distinctive happenings
+(festivals, concerts, premieres, special exhibits) over generic recurring
+listings (weekly farmers markets, ongoing open mics) unless the title clearly
+flags a special edition.
+
+Return ONLY a JSON array of the {n} candidate indices, in order from best to
+worst pick. Example: [12, 3, 27, ...]. Do not include any other text.
+
+Events:
+{title_list}
+"""
+    response = None
+    for attempt in range(3):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=400,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            break
+        except Exception as e:
+            if attempt < 2:
+                print(f"  Claude pass-1 error (attempt {attempt + 1}): {e}")
+                time.sleep(5 * (attempt + 1))
+            else:
+                raise
+    raw = next(b.text for b in response.content if b.type == "text").strip()
+    raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    try:
+        idxs = json.loads(raw)
+    except json.JSONDecodeError:
+        # Salvage: extract first [...] block
+        start, end = raw.find("["), raw.rfind("]")
+        if start < 0 or end < 0:
+            print(f"  ✗ pass-1 returned non-JSON; falling back to first {n}\n     raw: {raw[:200]}")
+            return candidates[:n]
+        try:
+            idxs = json.loads(raw[start:end + 1])
+        except json.JSONDecodeError as e:
+            print(f"  ✗ pass-1 JSON salvage failed: {e}; falling back to first {n}")
+            return candidates[:n]
+    picked: list[dict] = []
+    seen: set[int] = set()
+    for raw_i in idxs:
+        try:
+            i = int(raw_i)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= i <= len(candidates) and i not in seen:
+            seen.add(i)
+            picked.append(candidates[i - 1])
+        if len(picked) >= n:
+            break
+    if not picked:
+        print(f"  ⚠ pass-1 produced no valid indices; falling back to first {n}")
+        return candidates[:n]
+    return picked
+
+
+# ---------------------------------------------------------------------------
+# 3c. FETCH EVENTS VIA BRAVE SEARCH API (legacy — kept for populate_cache.py)
 # ---------------------------------------------------------------------------
 def build_search_queries(display_area: str, search_areas: list[str]) -> list[str]:
     """Build event search queries targeting the NEXT weekend's specific
@@ -434,6 +601,19 @@ Candidates:
         seen_indices.add(idx)
         r["source_url"] = candidate_url
         r["ticket_url"] = source.get("ticket_url", "") or ""
+        # Carry the scraped image forward as the primary; the image-lookup
+        # stage will add og:image / Brave Image candidates to the gallery
+        # but keep this one as the default.
+        if source.get("image_url"):
+            r["image_url"] = source["image_url"]
+        # Fallbacks for downstream renderers (event body GIF, header image)
+        # when Claude didn't echo the venue/address/time fields verbatim.
+        if not r.get("venue") and source.get("venue"):
+            r["venue"] = source["venue"]
+        if not r.get("address") and source.get("address"):
+            r["address"] = source["address"]
+        if not r.get("time") and source.get("time"):
+            r["time"] = source["time"]
         r.pop("candidate_index", None)
 
         # Calculate total score
@@ -503,220 +683,27 @@ if __name__ == "__main__":
         print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
         print(f"{'='*60}")
 
-        # Fetch event candidates → date-floor filter → backfill if needed.
-        # We want at least MIN_VALID_CANDIDATES candidates surviving the
-        # date filter so Claude has real choices. If we fall short, re-pull
-        # with broader queries while excluding URLs we already rejected.
-        # Round 1 typically yields 30-80 valid candidates per newsletter, so
-        # rounds 2/3 are wasted spend in normal operation. We only fire them
-        # when round 1 was thin (<3 valid) — likely indicates a bad-search-
-        # term week or geo. MIN_VALID_FOR_RETRY is the round-1 floor that
-        # triggers a retry; MIN_VALID_CANDIDATES is the warning threshold.
-        MIN_VALID_CANDIDATES = 8
-        MIN_VALID_FOR_RETRY  = 3
-        floor = _upcoming_friday()
-        excluded_urls: set[str] = set()
-        broader_query_sets = [
-            None,                                            # round 1: defaults
-            [f"{newsletter['display_area']} events next two weeks",
-             f"{newsletter['display_area']} upcoming events"],
-            [f"{newsletter['display_area']} festivals this month",
-             f"{newsletter['display_area']} concerts this month",
-             f"things to do near {newsletter['display_area']}"],
-        ]
-        candidates: list[dict] = []
-        brave_dead = False  # set True if a round returns 0 candidates (quota or hard outage)
-        for round_idx, extra in enumerate(broader_query_sets, 1):
-            if brave_dead:
-                print(f"  ⏭ Skipping round {round_idx} — Brave returned no results last round")
-                break
-            print(f"\n  --- Candidate round {round_idx} (floor: {floor}) ---")
+        # Date window: upcoming Friday → +DATE_WINDOW_DAYS (default 14).
+        # Anything earlier than the floor is past by the time the issue
+        # mails; anything beyond the window is too far out to interest a
+        # weekly newsletter audience.
+        floor       = _upcoming_friday()
+        window_end  = floor + timedelta(days=DATE_WINDOW_DAYS)
+        print(f"  Date window: {floor} → {window_end}  ({DATE_WINDOW_DAYS} days)")
 
-            # Brave cache (OFF by default — debugging aid only).
-            # To use locally: set BRAVE_CACHE_ENABLE=1, optionally with
-            # BRAVE_CACHE_DIR=path and BRAVE_CACHE_REFRESH=1 to force a
-            # fresh fetch. In CI / production we always hit Brave directly
-            # so the candidate pool tracks the current week.
-            cache_enabled = bool(os.environ.get("BRAVE_CACHE_ENABLE"))
-            cache_path = None
-            new_pool = None
-            if cache_enabled:
-                cache_dir = os.environ.get(
-                    "BRAVE_CACHE_DIR",
-                    str(Path(__file__).parent / "brave_cache"),
-                )
-                Path(cache_dir).mkdir(parents=True, exist_ok=True)
-                safe_name = newsletter["name"].replace("/", "_")
-                cache_path = Path(cache_dir) / f"{safe_name}_round{round_idx}.json"
-                if cache_path.exists() and not os.environ.get("BRAVE_CACHE_REFRESH"):
-                    try:
-                        new_pool = json.loads(cache_path.read_text(encoding="utf-8"))
-                        print(f"  ↺ Loaded {len(new_pool)} candidates from cache: {cache_path}")
-                    except Exception as e:
-                        print(f"  ⚠ Cache read failed ({e}); falling back to Brave")
-                        new_pool = None
-
-            if new_pool is None:
-                new_pool = fetch_events_brave(
-                    search_areas=newsletter["search_areas"],
-                    display_area=newsletter["display_area"],
-                    exclude_urls=excluded_urls,
-                    extra_queries=extra,
-                )
-                if cache_path is not None and new_pool:
-                    cache_path.write_text(json.dumps(new_pool, indent=2), encoding="utf-8")
-                    print(f"  ✓ Saved {len(new_pool)} candidates to cache: {cache_path}")
-
-            if not new_pool:
-                brave_dead = True
-            # NOTE: deliberately NOT URL-validating here. HEAD/GET-validation
-            # gives false positives on bot-protected event pages — local news
-            # sites (eastcobbnews.com, 11alive.com, discoveratlanta.com,
-            # artsatl.org, etc.) return 403/404 to non-browser User-Agents.
-            # We rely on aggregator drill-down + date filter as the gates.
-
-            # Drill aggregator URLs into their primary embedded source. e.g.
-            # eastcobbnews.com/taste-of-east-cobb-announces-2026-… → tasteofeastcobb.com
-            # That swap is important because the aggregator's article text may
-            # be timeless ("returns for 36th annual event") while the official
-            # site shows the actual date — which our date filter can then
-            # check against `primary_text`.
-            #
-            # Aggregator candidates whose drill FAILS (e.g. AJC "10 events"
-            # listicle with generic "Get tickets" anchor text) are DROPPED
-            # from the pool entirely. Otherwise the aggregator URL would
-            # remain as the candidate's source_url and end up in Notion.
-            # Listicle detection: roundup pages like "5 things to do",
-            # "weekend checklist", "things to do this weekend" cover many
-            # events. Drilling them collapses everything to one URL, which
-            # then gets reused for unrelated events Claude picks from the
-            # article body. Drop these from the pool entirely.
-            LISTICLE_MARKERS = (
-                "things to do", "things-to-do", "5 things", "10 things",
-                "weekend checklist", "weekend events", "weekend roundup",
-                "weekend guide", "your weekend", "events this weekend",
-                "events this week", "events you absolutely need",
-                "out and about", "what to do this", "what's happening",
-                "upcoming events", "calendar of events", "events calendar",
-                "fun things to do", "guide to events", "things to do in",
-            )
-
-            def _is_listicle(c):
-                blob = f"{c.get('title','')} {c.get('url','')}".lower()
-                return any(m in blob for m in LISTICLE_MARKERS)
-
-            # URL-path patterns that indicate the page is a NEWS/CATEGORY/
-            # ARCHIVE/HOMEPAGE — never a listicle of events. We refuse to
-            # expand these (would flood the pool with sidebar widgets and
-            # unrelated news headlines).
-            NON_LISTICLE_URL_PATTERNS = (
-                "/tag/", "/tags/", "/category/", "/categories/",
-                "/author/", "/authors/", "/archives/", "/archive/",
-                "/business/listing/", "/businesses/",
-                "/news/local",      # patch / mdj generic news landing
-                "/news/police",
-                "/news/crime",
-            )
-
-            def _looks_like_landing_or_archive(url: str) -> bool:
-                """Detect URLs that are clearly NOT a listicle of events:
-                tag archives, category pages, business directories, news
-                landing pages, or bare-host homepages.
-                """
-                from urllib.parse import urlparse as _up
-                p = _up(url)
-                path = (p.path or "").lower().rstrip("/")
-                if not path or path == "":
-                    return True   # bare homepage like https://mdjonline.com/
-                if any(pat in path for pat in NON_LISTICLE_URL_PATTERNS):
-                    return True
-                return False
-
-            # Expand any candidate whose TITLE/URL marks it as a listicle
-            # (regardless of whether the host is in AGGREGATOR_DOMAINS).
-            # Government calendars (cobbcounty.gov), city tourism sites,
-            # and other non-aggregator domains also publish "upcoming
-            # events" listicles with real event content inside.
-            #
-            # Drop aggregator landing/archive URLs (Patch home, news
-            # category pages, tag archives) — they have no event content
-            # of their own, just sidebar/related-stories noise.
-            expanded_count = 0
-            expanded_total_links = 0
-            kept_original = 0
-            dropped_landing = 0
-            keep_pool = []
-            for c in new_pool:
-                url = c.get("url", "")
-                # Step 1: aggregator landing/archive → drop entirely.
-                if is_aggregator_url(url) and _looks_like_landing_or_archive(url):
-                    dropped_landing += 1
-                    print(f"  ↳ dropped aggregator landing/archive: {url}")
-                    continue
-                # Step 2: anything that looks like a listicle → expand.
-                if _is_listicle(c):
-                    print(f"  ↳ listicle detected, expanding: {url}")
-                    expanded = expand_listicle(url, listicle_title=c.get("title", ""))
-                    if expanded:
-                        expanded_count += 1
-                        expanded_total_links += len(expanded)
-                        for sub in expanded:
-                            print(f"      ↳ + extracted event: {sub['title'][:80]} → {sub['url']}")
-                        keep_pool.extend(expanded)
-                    else:
-                        kept_original += 1
-                        print(f"      ↳ no event links found, keeping original: {url}")
-                        keep_pool.append(c)
-                    continue
-                # Step 3: everything else (single-event aggregator article,
-                # venue/organizer URL) → keep as-is.
-                keep_pool.append(c)
-                if is_aggregator_url(url):
-                    kept_original += 1
-            new_pool = keep_pool
-            if expanded_count:
-                print(f"  ↳ expanded {expanded_count} listicle(s) into {expanded_total_links} new candidates")
-            if kept_original:
-                print(f"  ↳ kept {kept_original} aggregator candidates with original URL (no expansion)")
-            if dropped_landing:
-                print(f"  ↳ dropped {dropped_landing} landing/archive aggregator URL(s)")
-
-            # Date-floor filter — scan title + summary + article body
-            # (always present for aggregator candidates) + primary_text
-            # (when drill-down found a clean primary URL). The article body
-            # is critical for cases like the Marietta History Center event,
-            # where the venue's website doesn't list the event but the
-            # aggregator's article spells out 'Saturday, June 27th'.
-            kept, past_urls = filter_candidates_by_date(
-                new_pool, floor,
-                text_keys=("title", "summary", "article_text", "primary_text",
-                           "listicle_date_hint", "url", "source_url"),
-            )
-            excluded_urls.update(past_urls)
-            # Merge (dedup by URL) into the surviving candidate set
-            seen = {c["url"] for c in candidates}
-            for c in kept:
-                if c.get("url") and c["url"] not in seen:
-                    candidates.append(c)
-                    seen.add(c["url"])
-            print(f"  ↳ pool size after round {round_idx}: {len(candidates)} valid candidates")
-            # Stop after round 1 unless we got VERY thin — protects against
-            # burning Brave credits when the round-1 pool is healthy.
-            if round_idx == 1 and len(candidates) >= MIN_VALID_FOR_RETRY:
-                print(f"  ↳ round-1 pool sufficient ({len(candidates)} ≥ {MIN_VALID_FOR_RETRY}) — skipping retry rounds")
-                break
-            if len(candidates) >= MIN_VALID_CANDIDATES:
-                break
-
+        candidates = fetch_events_from_notion(
+            newsletter_name = newsletter["name"],
+            window_start    = floor,
+            window_end      = window_end,
+        )
+        print(f"  Pulled {len(candidates)} events from Weekend Events DB")
         if not candidates:
-            print(f"  No future-dated event candidates for {newsletter['name']}. Skipping.")
+            print(f"  No candidates for {newsletter['name']} in window. Skipping.")
             continue
-        if len(candidates) < MIN_VALID_CANDIDATES:
-            print(f"  ⚠ Only {len(candidates)} valid candidates after retries — proceeding anyway")
 
         # Cross-newsletter URL dedup — union of existing event URLs across both newsletters.
         # Re-fetched per iteration so Newsletter 2 sees Newsletter 1's freshly-saved winners.
-        existing_urls = set()
+        existing_urls: set[str] = set()
         for nl in NEWSLETTERS:
             existing_urls |= get_existing_event_urls(nl["name"])
         if existing_urls:
@@ -727,10 +714,24 @@ if __name__ == "__main__":
             print(f"  All candidates were previously used for {newsletter['name']}. Skipping.")
             continue
 
-        # Claude evaluates and writes blurbs
-        print(f"\n  Sending {len(candidates)} candidates to Claude...")
+        # Pass 1 — title-only Claude filter. Narrows the pool to the top
+        # TOP_N_TITLES titles before pass 2 spends tokens on descriptions.
+        print(f"\n  Pass 1 (titles only): sending {len(candidates)} titles to Claude → top {TOP_N_TITLES}")
+        top_titles = claude_pick_top_titles(
+            candidates       = candidates,
+            demographics     = newsletter["demographics"],
+            display_area     = newsletter["display_area"],
+            newsletter_name  = newsletter["name"],
+            n                = TOP_N_TITLES,
+        )
+        print(f"  Pass 1 selected {len(top_titles)} candidate(s):")
+        for i, c in enumerate(top_titles, 1):
+            print(f"     [{i:>2}] {c['title'][:80]}")
+
+        # Pass 2 — full eval: send title + description for scoring + blurbs.
+        print(f"\n  Pass 2 (full eval): sending {len(top_titles)} candidates to Claude...")
         results = evaluate_and_write_events(
-            candidates=candidates,
+            candidates=top_titles,
             demographics=newsletter["demographics"],
             display_area=newsletter["display_area"],
             newsletter_name=newsletter["name"],
@@ -842,6 +843,11 @@ if __name__ == "__main__":
                 url = r.get("source_url") or r.get("ticket_url") or ""
                 event_name = r.get("event_name", "")
 
+                # Primary: image scraped by the Weekend Events scraper (lives
+                # on r["image_url"] from the source candidate). The reviewer
+                # sees this first; the rest of the gallery is for swapping.
+                scraped = (r.get("image_url") or "").strip()
+
                 # Stage 1: scrape ALL plausible images from the source page
                 page_imgs = fetch_event_images(url, max_results=MAX_GALLERY) if url else []
                 # Drop any already used by another event in this batch
@@ -851,11 +857,14 @@ if __name__ == "__main__":
                 brave_imgs = _brave_image_candidates(event_name, max_results=MAX_GALLERY)
                 brave_imgs = [u for u in brave_imgs if _normalize_img(u) not in used_image_urls]
 
-                # Combined gallery: page results first (more reliable),
-                # then Brave. Dedup by normalized URL.
+                # Combined gallery: scraped image first (primary), then
+                # page-scrape results, then Brave. Dedup by normalized URL.
                 gallery: list[str] = []
                 seen_norm: set[str] = set()
-                for u in page_imgs + brave_imgs:
+                ordered_sources = ([scraped] if scraped else []) + page_imgs + brave_imgs
+                for u in ordered_sources:
+                    if not u:
+                        continue
                     n = _normalize_img(u)
                     if n in seen_norm:
                         continue

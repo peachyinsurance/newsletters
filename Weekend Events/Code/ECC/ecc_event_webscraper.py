@@ -7,9 +7,7 @@ clean JSON-LD `Event` objects on every list page. No HTML scraping
 needed — we just parse the JSON.
 
 Pagination: `?tribe_paged=N` (1, 2, 3, ...). Each page returns up to 20
-events. Walk every page until either:
-  - a page returns no events (end of calendar), or
-  - we exceed MAX_PAGES (safety cap).
+events. Walk every page until one returns no events (end of calendar).
 
 Dedup: by Source URL (each event has a unique permalink on travelcobb.org).
 Skip rows where the URL already exists in the DB, and only upload new
@@ -41,7 +39,6 @@ WEEKEND_EVENTS_DB_ID = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
 NEWSLETTER = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
 
 SOURCE_URL  = "https://travelcobb.org/cobb-county-events/"
-MAX_PAGES   = 12   # safety cap (~240 events of cushion)
 USER_AGENT  = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120"
 
 
@@ -231,7 +228,8 @@ def main() -> int:
     inserted = 0
     skipped_existing = 0
     skipped_past = 0
-    for page in range(1, MAX_PAGES + 1):
+    page = 1
+    while True:
         events = fetch_page_events(page)
         if not events:
             print(f"  [page {page}] no events — stopping")
@@ -252,8 +250,7 @@ def main() -> int:
             if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER):
                 inserted += 1
                 print(f"      ✓ {ev['start_date']}  {ev['event_name'][:60]}")
-    else:
-        print(f"  ⚠ hit MAX_PAGES={MAX_PAGES} cap — may have missed later pages")
+        page += 1
     print()
     print(f"✓ Done. Inserted {inserted}, skipped {skipped_existing} existing, "
           f"{skipped_past} past")
