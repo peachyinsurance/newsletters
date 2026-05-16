@@ -16,6 +16,7 @@
     "uniqueness_score": "6",
     "audience_match_score": "7",
     "scoring_notes": "Seafood festivals have broad appeal for this income bracket. Free entry keeps it low-friction. Powder Springs is a short drive from East Cobb. The family-friendly format works for the established-family segment of the audience. Lower uniqueness score because food festivals are common, but the specific seafood theme and all-day format give it enough distinction to include. Best as a secondary pick or 'also happening this weekend' note rather than the featured event.",
+    "image_url": "https://travelcobb.org/wp-content/uploads/2026/02/6867a8be-0343-4378-b448-3c9506115343.png",
     "default_winner": ""
   },
   {
@@ -35,6 +36,7 @@
     "uniqueness_score": "7",
     "audience_match_score": "7",
     "scoring_notes": "Car culture skews well toward East Cobb's demographic, particularly the 40-plus male homeowner segment. The luxury and specialty vehicle angle fits a $118K median income audience better than a standard car show would. Free entry makes it a low-commitment recommendation. Evening hours (5–10 PM) work for families and adults alike. Held at the Cobb Galleria, which is close and familiar to this audience. Solid secondary pick.",
+    "image_url": "http://static1.squarespace.com/static/5e8ea0ba8627374994316bf9/t/5f0e59dbaf69923c90f1e199/1594776032597/IE-1.png?format=1500w",
     "default_winner": ""
   },
   {
@@ -54,6 +56,7 @@
     "uniqueness_score": "6",
     "audience_match_score": "8",
     "scoring_notes": "The Strand is a Marietta landmark and community theater experiences resonate well with East Cobb's engaged, educated audience. Footloose has broad generational appeal, which works well for a mixed audience of established families with teens and empty nesters. Slightly lower uniqueness score because community theater runs multiple weekends. Good secondary pick if the Greek Festival or Braves are already featured. The 'teen drag-along' angle is genuinely useful for this audience.",
+    "image_url": "https://i0.wp.com/eastcobbnews.com/wp-content/uploads/2023/11/The-Wing-Cafe.png?resize=600,349&ssl=1",
     "default_winner": ""
   },
   {
@@ -73,6 +76,7 @@
     "uniqueness_score": "6",
     "audience_match_score": "8",
     "scoring_notes": "The Battery is a gathering spot East Cobb residents use regularly. Free entry lowers the barrier for families and makes it a compelling add-on to the Braves series weekend. Slightly lower uniqueness score because Battery events happen regularly, but the Red Sox rivalry context and the free price point make it stand out this particular weekend. Works best as a companion feature to the Braves series pick rather than the solo featured event.",
+    "image_url": "https://s.yimg.com/ny/api/res/1.2/ryw3RMtSo3PMCvjVSV1MFg--/YXBwaWQ9aGlnaGxhbmRlcjt3PTk2MDtoPTY0MDtjZj13ZWJw/https://media.zenfs.com/en/wsb_cox_articles_232/8f68397fcad276118ae93706c6f3b545",
     "default_winner": ""
   },
   {
@@ -92,6 +96,7 @@
     "uniqueness_score": "7",
     "audience_match_score": "8",
     "scoring_notes": "Strong fit for the educated, higher-income East Cobb audience that gravitates toward arts and cultural experiences. The museum is local and the adult evening format appeals to both empty nesters and couples whose kids are older. Price is unknown from the candidate data but the museum's typical pricing would be well within reach for this demographic. The benefit component (proceeds to the museum) resonates with community-minded readers.",
+    "image_url": "https://mariettacobbartmuseum.org/wp-content/uploads/2024/04/Northside-768x240.png",
     "default_winner": ""
   },
   {
@@ -111,6 +116,7 @@
     "uniqueness_score": "7",
     "audience_match_score": "8",
     "scoring_notes": "Truist Park is literally in East Cobb's backyard and Braves fandom runs deep in this community. The Red Sox series adds an element of rivalry that elevates it above a standard home game. The AJC reported the Braves lead the NL East by 9 games and are the first to 30 wins, which makes it a genuinely exciting moment in the season. $118K median income means ticket prices are not a barrier at all. Works for families with teens as well as couples and empty nesters.",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/2/25/Boston_Red_Sox_George_W._Bush.jpg",
     "default_winner": "yes"
   }
 ]
