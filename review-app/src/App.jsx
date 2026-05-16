@@ -441,7 +441,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
           {approvedTile && (
             <div className="winner-highlight">
               <div className="tiles">
-                <TileComponent {...{[config.itemPropName]: approvedTile}} onApprove={handleApprove} approving={approving} approved={winnerId} />
+                <TileComponent {...{[config.itemPropName]: approvedTile}} onApprove={handleApprove} approving={approving} approved={winnerId} token={token} />
               </div>
             </div>
           )}
@@ -451,7 +451,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
               <div className="other-candidates-label">Other Candidates</div>
               <div className="tiles">
                 {otherTiles.map((item, idx) => (
-                  <TileComponent key={item[config.idField] || idx} {...{[config.itemPropName]: item}} onApprove={handleApprove} approving={approving} approved={winnerId} />
+                  <TileComponent key={item[config.idField] || idx} {...{[config.itemPropName]: item}} onApprove={handleApprove} approving={approving} approved={winnerId} token={token} />
                 ))}
               </div>
             </>
@@ -465,7 +465,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
         ) : (
           <div className="tiles">
             {candidates.map((item, idx) => (
-              <TileComponent key={item[config.idField] || idx} {...{[config.itemPropName]: item}} onApprove={handleApprove} approving={approving} approved={null} />
+              <TileComponent key={item[config.idField] || idx} {...{[config.itemPropName]: item}} onApprove={handleApprove} approving={approving} approved={null} token={token} />
             ))}
           </div>
         )

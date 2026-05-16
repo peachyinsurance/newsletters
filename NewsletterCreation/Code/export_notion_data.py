@@ -16,6 +16,20 @@ from notion_helper import query_database, NOTION_PETS_DB_ID, NOTION_RESTAURANTS_
 _MOJIBAKE_MARKERS = ("â", "Ã", "ð", "Â", "â€", "ï¿½")
 
 
+def _parse_image_candidates(s):
+    """Parse the JSON-encoded image_candidates list stored in Notion's
+    rich_text field. Returns a list of URLs (empty list on any error)."""
+    if not s:
+        return []
+    try:
+        v = json.loads(s)
+        if isinstance(v, list):
+            return [u for u in v if isinstance(u, str) and u]
+    except Exception:
+        pass
+    return []
+
+
 def _fix_mojibake(s):
     """If the string looks like UTF-8 that was decoded as Latin-1, flip it back.
 
@@ -164,6 +178,7 @@ def export_events():
             "audience_match_score":  str(extract_text(props.get("Audience Match Score", {}))),
             "scoring_notes":         extract_text(props.get("Scoring Notes", {})),
             "image_url":             extract_text(props.get("Image URL", {})),
+            "image_candidates":      _parse_image_candidates(extract_text(props.get("Image Candidates", {}))),
             "default_winner":        "yes" if extract_text(props.get("Default Winner", {})) else "",
         })
 

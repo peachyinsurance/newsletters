@@ -288,6 +288,122 @@ def fetch_event_image(source_url: str, _allow_root_fallback: bool = True) -> str
     print(f"      · no reliable free-event image found ({len(candidates)} candidates rejected)")
     return _try_root_fallback(f"no usable image on {source_url}")
 
+
+def fetch_event_images(source_url: str, max_results: int = 8,
+                       _allow_root_fallback: bool = True) -> list[str]:
+    """Like `fetch_event_image()` but returns a deduped list of every plausible
+    image URL on the page, in priority order, capped at `max_results`.
+
+    Used by Featured Event to give reviewers a gallery of candidates to pick
+    from. Validates each candidate (HEAD + content-type + min size); skips
+    affiliate-CDN / logo / tracker URLs via the same SKIP_TOKENS list.
+    """
+    if not source_url:
+        return []
+
+    try:
+        r = requests.get(
+            source_url, timeout=10,
+            headers={"User-Agent": "Mozilla/5.0 (newsletter-automation)"},
+            allow_redirects=True,
+        )
+        if r.status_code != 200 or not r.text:
+            return []
+        html = r.text
+    except Exception:
+        return []
+
+    SKIP_TOKENS = ("logo", "favicon", "sprite", "icon-", "/icons/",
+                   "placeholder", "spacer", "tracker", "pixel.gif",
+                   "1x1", "blank.gif", "transparent.png",
+                   "grouponcdn.com", "groupon.com/image",
+                   "jdoqocy.com", "dpbolvw.net", "tkqlhce.com",
+                   "anrdoezrs.net", "kqzyfj.com",
+                   "amazon-adsystem", "doubleclick",
+                   "googlesyndication", "googleadservices",
+                   "rakuten.com/img", "shareasale.com/image",
+                   "impactradius", "linksynergy.com")
+
+    raw: list[str] = []
+
+    # Meta tags
+    head = html[:200_000]
+    meta_patterns = [
+        r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::secure_url)?["\']',
+        r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
+        r'<link[^>]+rel=["\']image_src["\'][^>]+href=["\']([^"\']+)["\']',
+    ]
+    for pat in meta_patterns:
+        for m in _re.finditer(pat, head, _re.IGNORECASE):
+            raw.append(m.group(1).strip())
+
+    # JSON-LD
+    for ld_match in _re.finditer(
+        r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.+?)</script>',
+        html, _re.IGNORECASE | _re.DOTALL,
+    ):
+        try:
+            blob = json.loads(ld_match.group(1).strip())
+        except Exception:
+            continue
+        items = blob if isinstance(blob, list) else [blob]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            img = item.get("image")
+            if isinstance(img, str):
+                raw.append(img)
+            elif isinstance(img, list):
+                for x in img:
+                    if isinstance(x, str):
+                        raw.append(x)
+                    elif isinstance(x, dict) and isinstance(x.get("url"), str):
+                        raw.append(x["url"])
+            elif isinstance(img, dict) and isinstance(img.get("url"), str):
+                raw.append(img["url"])
+
+    # Article-body <img> tags (width >= 400)
+    body_img_patterns = [
+        r'<img[^>]+width=["\']?(\d+)["\']?[^>]+src=["\']([^"\']+)["\']',
+        r'<img[^>]+src=["\']([^"\']+)["\'][^>]+width=["\']?(\d+)["\']?',
+    ]
+    for pat in body_img_patterns:
+        for m in _re.finditer(pat, html, _re.IGNORECASE):
+            groups = m.groups()
+            if pat.startswith(r'<img[^>]+width'):
+                w_str, url_str = groups[0], groups[1]
+            else:
+                url_str, w_str = groups[0], groups[1]
+            try:
+                w = int(w_str)
+            except ValueError:
+                continue
+            if w >= 400:
+                raw.append(url_str)
+
+    # Validate and dedup
+    valid: list[str] = []
+    seen: set = set()
+    for url in raw:
+        if len(valid) >= max_results:
+            break
+        url = (url or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        if url.startswith("data:"):
+            continue
+        url = _absolutize(url, source_url)
+        ul = url.lower()
+        if any(skip in ul for skip in SKIP_TOKENS):
+            continue
+        if _image_looks_real(url):
+            valid.append(url)
+
+    return valid
+
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
 # ---------------------------------------------------------------------------

@@ -676,7 +676,7 @@ if __name__ == "__main__":
         #            Brave subscription ($0.005/request).
         try:
             sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'Free Events', 'Code'))
-            from Free_Events import fetch_event_image, _image_looks_real
+            from Free_Events import fetch_event_image, fetch_event_images, _image_looks_real
             from brave_search import search_images
 
             BRAVE_IMAGE_SKIP_HOSTS = (
@@ -690,13 +690,20 @@ if __name__ == "__main__":
             )
 
             def _brave_image_fallback(event_name: str) -> str:
-                """Last-resort image find via Brave Image Search."""
+                """Last-resort image find via Brave Image Search. Returns first OK URL."""
+                imgs = _brave_image_candidates(event_name, max_results=5)
+                return imgs[0] if imgs else ""
+
+            def _brave_image_candidates(event_name: str, max_results: int = 8) -> list[str]:
+                """Brave Image Search → list of usable image URLs. Same filter as
+                the singular fallback but returns all that pass."""
                 if not BRAVE_NEWS_API_KEY:
-                    return ""
+                    return []
                 query = f"{event_name} {newsletter['display_area']}"
-                results = search_images(query, BRAVE_NEWS_API_KEY, max_results=5)
+                results = search_images(query, BRAVE_NEWS_API_KEY, max_results=max_results)
                 if not results:
-                    return ""
+                    return []
+                out: list[str] = []
                 for img in results:
                     candidate = img.get("image_url") or img.get("thumbnail") or ""
                     if not candidate:
@@ -705,8 +712,8 @@ if __name__ == "__main__":
                     if any(host in cl for host in BRAVE_IMAGE_SKIP_HOSTS):
                         continue
                     if _image_looks_real(candidate):
-                        return candidate
-                return ""
+                        out.append(candidate)
+                return out
 
             # Track image URLs we've already assigned to an event in THIS
             # batch. If the same image URL gets scraped for multiple events,
@@ -721,34 +728,43 @@ if __name__ == "__main__":
                 different cache-bust query strings still matches."""
                 return u.split("?")[0].split("#")[0].rstrip("/").lower()
 
+            MAX_GALLERY = 8  # max candidate images saved per event
+
             for r in results:
-                if r.get("image_url"):
+                if r.get("image_url") and r.get("image_candidates"):
                     continue
                 url = r.get("source_url") or r.get("ticket_url") or ""
-                # Stage 1: page-scrape
-                img = fetch_event_image(url) if url else ""
-                stage = "page-scrape"
-                # Batch-level dedup: if this image already got assigned to
-                # an earlier event, it's a recurring widget — skip and
-                # force fallback.
-                if img and _normalize_img(img) in used_image_urls:
-                    print(f"  ⚠ scraped image already used by an earlier event — forcing Brave fallback for {r.get('event_name','?')[:50]}")
-                    img = ""
-                # Stage 2: Brave Image Search fallback
-                if not img:
-                    img = _brave_image_fallback(r.get("event_name", ""))
-                    stage = "brave-image-search"
-                    # Apply batch-dedup to the fallback result too —
-                    # unlikely to recur but possible
-                    if img and _normalize_img(img) in used_image_urls:
-                        print(f"  ⚠ Brave-search image also already used — leaving event without image_url for {r.get('event_name','?')[:50]}")
-                        img = ""
-                if img:
-                    r["image_url"] = img
-                    used_image_urls.add(_normalize_img(img))
-                    print(f"  ↳ image found for {r.get('event_name','?')[:50]} ({stage}): {img[:80]}")
+                event_name = r.get("event_name", "")
+
+                # Stage 1: scrape ALL plausible images from the source page
+                page_imgs = fetch_event_images(url, max_results=MAX_GALLERY) if url else []
+                # Drop any already used by another event in this batch
+                page_imgs = [u for u in page_imgs if _normalize_img(u) not in used_image_urls]
+                # Stage 2: Brave Image Search — pull a few extras so the
+                # reviewer has alternatives even when page-scrape worked
+                brave_imgs = _brave_image_candidates(event_name, max_results=MAX_GALLERY)
+                brave_imgs = [u for u in brave_imgs if _normalize_img(u) not in used_image_urls]
+
+                # Combined gallery: page results first (more reliable),
+                # then Brave. Dedup by normalized URL.
+                gallery: list[str] = []
+                seen_norm: set[str] = set()
+                for u in page_imgs + brave_imgs:
+                    n = _normalize_img(u)
+                    if n in seen_norm:
+                        continue
+                    seen_norm.add(n)
+                    gallery.append(u)
+                    if len(gallery) >= MAX_GALLERY:
+                        break
+
+                if gallery:
+                    r["image_url"] = gallery[0]
+                    r["image_candidates"] = gallery
+                    used_image_urls.add(_normalize_img(gallery[0]))
+                    print(f"  ↳ image gallery for {event_name[:50]} ({len(gallery)} candidates, default: {gallery[0][:60]})")
                 else:
-                    print(f"  · no image found for {r.get('event_name','?')[:50]} (both stages failed)")
+                    print(f"  · no images found for {event_name[:50]} (both stages failed)")
         except Exception as e:
             print(f"  ⚠ image lookup skipped ({e}) — events will save without image_url")
 

@@ -386,6 +386,7 @@ def setup_notion_databases():
             "Audience Match Score":   {"number": {"format": "number"}},
             "Scoring Notes":          {"rich_text": {}},
             "Image URL":              {"url": {}},
+            "Image Candidates":       {"rich_text": {}},
             "Default Winner":         {"checkbox": {}},
             "Manually Edited":        {"checkbox": {}},
         }
@@ -1291,6 +1292,7 @@ def save_events_to_notion(results: list, newsletter_name: str) -> None:
             "Source URL":            {"url": data.get("source_url") or None},
             "Ticket URL":           {"url": data.get("ticket_url") or None},
             "Image URL":             {"url": data.get("image_url") or None},
+            "Image Candidates":      {"rich_text": [{"text": {"content": json.dumps(data.get("image_candidates") or [])[:2000]}}]},
             "Newsletter":            {"select": {"name": newsletter_name}},
             "Date Generated":        {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
             "Status":                {"select": {"name": "pending"}},
