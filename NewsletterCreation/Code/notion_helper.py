@@ -374,11 +374,14 @@ def setup_notion_databases():
                 {"name": "Lewisville_Lake_Lookout"},
             ]}},
             "Date Generated":         {"date": {}},
+            # No `color` keys — Notion rejects PATCH attempts to change
+            # the color of existing select options (the schema PATCH
+            # always re-sends every option, so colors must be omitted).
             "Status":                 {"select": {"options": [
-                {"name": "pending",  "color": "yellow"},
-                {"name": "approved", "color": "green"},
-                {"name": "rejected", "color": "red"},
-                {"name": "approved - old", "color": "gray"}
+                {"name": "pending"},
+                {"name": "approved"},
+                {"name": "rejected"},
+                {"name": "approved - old"},
             ]}},
             "Total Score":            {"number": {"format": "number"}},
             "Demographic Fit Score":  {"number": {"format": "number"}},
