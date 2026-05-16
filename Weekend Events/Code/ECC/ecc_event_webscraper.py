@@ -5,6 +5,7 @@ Events Notion DB.
 Currently scrapes:
   - travelcobb.org/cobb-county-events/
   - visitmariettaga.com/events/
+  - kennesaw-ga.gov/events/category/events/
 
 Both sites use The Events Calendar WordPress plugin, which embeds clean
 JSON-LD `Event` objects on every list page. No HTML scraping needed —
@@ -55,6 +56,7 @@ NEWSLETTER = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
 SOURCES = [
     "https://travelcobb.org/cobb-county-events/",
     "https://visitmariettaga.com/events/",
+    "https://www.kennesaw-ga.gov/events/category/events/",
 ]
 # Back-compat alias for any older script that imports SOURCE_URL.
 SOURCE_URL = SOURCES[0]
