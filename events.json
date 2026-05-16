@@ -1,5 +1,36 @@
 [
   {
+    "source_url": "https://www.atlantaparent.com/event/piedmont-park-arts-festival",
+    "event_name": "Piedmont Park Arts Festival",
+    "date": "Saturday, August 15 and Sunday, August 16",
+    "time": "All day",
+    "venue": "Piedmont Park, Atlanta",
+    "price": "Free",
+    "blurb": "⭐ **Featured Event: Piedmont Park Arts Festival**\n📅 Saturday, August 15 and Sunday, August 16 | All day | Piedmont Park, Atlanta\n🎟️ Free | [Learn More](https://www.atlantaparent.com/event/piedmont-park-arts-festival)\n\nMid-August, Piedmont Park fills up with artist demonstrations, live music, festival food, and a kids play area for two full days. The Piedmont Park Arts Festival is free to attend and easy to make a full day out of — especially if you combine it with brunch on the way in or dinner on the way back. It's a drive from East Cobb but the park is worth it when there's a reason to go. This one gives you a reason. Artists from across the region show up, the energy is good, and it never feels like the same thing twice.",
+    "ticket_url": "",
+    "date_generated": "2026-05-16",
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "total_score": "20",
+    "demographic_fit_score": "7",
+    "uniqueness_score": "6",
+    "audience_match_score": "7",
+    "scoring_notes": "Solid annual arts festival with broad demographic appeal. Free entry removes friction. The drive to Piedmont Park is the main trade-off for an East Cobb audience, but the combination of arts, music, and food is a strong draw for this educated, higher-income demographic. Better fit for the empty-nester or adult segment than families with young kids. August dating makes this a useful forward-calendar item.",
+    "image_url": "https://www.atlantaparent.com/wp-content/uploads/2017/07/017-Piedmont-Park-Arts-Festivalpp_w697_h464.jpg",
+    "image_candidates": [
+      "https://www.atlantaparent.com/wp-content/uploads/2017/07/017-Piedmont-Park-Arts-Festivalpp_w697_h464.jpg",
+      "https://i0.wp.com/eastcobbnews.com/wp-content/uploads/2026/04/Loose-Shoes-Duo.jpg?resize=600,399&ssl=1",
+      "https://i0.wp.com/eastcobbnews.com/wp-content/uploads/2025/08/East-Cobb-Park-rain-8.13.25-1.jpeg?resize=300,225&ssl=1",
+      "https://s3-media0.fl.yelpcdn.com/bphoto/26cOj_ZdqkGVmUTnNJ3urw/l.jpg",
+      "https://s3-media0.fl.yelpcdn.com/bphoto/t3MOnLo8YwU-qI30Q0C6Eg/l.jpg",
+      "https://s3-media0.fl.yelpcdn.com/bphoto/OplvoV5dfJfe3Bz83-wiAw/l.jpg",
+      "https://i0.wp.com/eastcobbnews.com/wp-content/uploads/2025/08/Dillard-TOTY-7.jpg?resize=300,181&ssl=1",
+      "https://s3-media0.fl.yelpcdn.com/bphoto/7cyBfhCvGROxRaooHsrXDA/l.jpg"
+    ],
+    "header_image_url": "",
+    "default_winner": ""
+  },
+  {
     "source_url": "https://www.atlantaparent.com/event/18th-annual-flying-colors-butterfly-festival",
     "event_name": "Flying Colors Butterfly Festival at Chattahoochee Nature Center",
     "date": "Saturday, June 6 and Sunday, June 7",
@@ -9,7 +40,7 @@
     "blurb": "⭐ **Featured Event: Flying Colors Butterfly Festival**\n📅 Saturday, June 6 and Sunday, June 7 | All day | Chattahoochee Nature Center, Roswell\n🎟️ Paid admission | [Get Tickets](https://www.atlantaparent.com/event/18th-annual-flying-colors-butterfly-festival)\n\nThe Chattahoochee Nature Center is basically in East Cobb's backyard, and every June they throw one of the most quietly spectacular festivals around. Live butterflies, pollinator experts, a Migration Game for kids, and live entertainment — all of it on the banks of the Chattahoochee. It's the kind of event that sounds educational but ends up being just a really good Saturday outside. Younger kids love it. Older kids tolerate it and then secretly enjoy it. Adults just want to sit by the river. Everybody wins.",
     "ticket_url": "",
     "date_generated": "2026-05-16",
-    "status": "pending",
+    "status": "approved",
     "newsletter_name": "East_Cobb_Connect",
     "total_score": "23",
     "demographic_fit_score": "8",
@@ -27,6 +58,7 @@
       "https://www.daddymojo.net/wp-content/uploads/2015/06/Butterfly-Encounter-II-1024x582.jpg",
       "https://images.ajc.com/resizer/v2/XXSYRZ72XDNVS2RPR3CMIOLLJI.jpg?auth=611f9ce59c35f5a8c5cf410e674906e939ffdac5d65cad230e84d64e2111b741&width=3840&height=3018&smart=true"
     ],
+    "header_image_url": "",
     "default_winner": ""
   }
 ]
