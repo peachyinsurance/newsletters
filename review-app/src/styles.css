@@ -261,3 +261,20 @@ body { background: var(--cream); font-family: 'DM Sans', sans-serif; color: var(
   font-size: 13px;
   color: #6B5744;
 }
+
+.btn-signout {
+  background: transparent;
+  color: var(--bark);
+  border: 1px solid var(--sand);
+  border-radius: 8px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s, border-color 0.15s;
+}
+.btn-signout:hover:not(:disabled) {
+  background: #f7f0e8;
+  border-color: var(--bark);
+}
+.btn-signout:disabled { opacity: 0.5; cursor: not-allowed; }

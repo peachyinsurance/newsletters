@@ -495,6 +495,16 @@ export default function App() {
 
   const isAuthed = Boolean(token);
 
+  function handleSignOut() {
+    if (refreshing) return;
+    if (!confirm("Sign out? Your saved token will be cleared.")) return;
+    localStorage.removeItem("gh_token");
+    setToken("");
+    setStep("password");
+    setTokenInput("");
+    setError("");
+  }
+
   async function handleRefresh() {
     if (refreshing) return;
     setRefreshing(true);
@@ -670,6 +680,14 @@ export default function App() {
               title="Sync Notion → review app (runs Deploy Review App workflow)"
             >
               {refreshing ? "Refreshing..." : "↻ Refresh data"}
+            </button>
+            <button
+              className="btn btn-signout"
+              onClick={handleSignOut}
+              disabled={refreshing}
+              title="Clear your saved GitHub token and sign back in"
+            >
+              Sign out
             </button>
             {refreshError && <span className="refresh-error">⚠ {refreshError}</span>}
           </div>
