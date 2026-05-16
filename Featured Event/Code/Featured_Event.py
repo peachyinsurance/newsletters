@@ -761,7 +761,12 @@ if __name__ == "__main__":
                 if gallery:
                     r["image_url"] = gallery[0]
                     r["image_candidates"] = gallery
-                    used_image_urls.add(_normalize_img(gallery[0]))
+                    # Reserve EVERY image in the gallery so no other event in
+                    # this batch ends up offering the same options (e.g.,
+                    # atlantaparent.com sidebar widgets appear on every event
+                    # page and would otherwise show up in 3-4 galleries).
+                    for u in gallery:
+                        used_image_urls.add(_normalize_img(u))
                     print(f"  ↳ image gallery for {event_name[:50]} ({len(gallery)} candidates, default: {gallery[0][:60]})")
                 else:
                     print(f"  · no images found for {event_name[:50]} (both stages failed)")
