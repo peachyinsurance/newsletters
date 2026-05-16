@@ -10,23 +10,45 @@ import json
 sys.path.append(os.path.dirname(__file__))
 from notion_helper import query_database, NOTION_PETS_DB_ID, NOTION_RESTAURANTS_DB_ID, NOTION_EVENTS_DB_ID
 
+# Mojibake markers — characters that almost always indicate a UTF-8 string
+# was decoded as Latin-1 somewhere upstream (`–` → `â`, `🎟` → `ðŸŽŸ`, etc.).
+# If we see one of these in a field we attempt the inverse re-encode.
+_MOJIBAKE_MARKERS = ("â", "Ã", "ð", "Â", "â€", "ï¿½")
+
+
+def _fix_mojibake(s):
+    """If the string looks like UTF-8 that was decoded as Latin-1, flip it back.
+
+    The classic round-trip: `s.encode('latin-1').decode('utf-8')` undoes the
+    accidental Latin-1 decode. We only attempt it when (a) at least one
+    mojibake marker is present and (b) the round-trip actually succeeds —
+    otherwise we return the original string untouched.
+    """
+    if not isinstance(s, str) or not any(m in s for m in _MOJIBAKE_MARKERS):
+        return s
+    try:
+        return s.encode("latin-1", errors="strict").decode("utf-8", errors="strict")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return s
+
+
 def extract_text(prop) -> str:
     if not prop:
         return ""
     if prop.get("type") == "rich_text":
         items = prop.get("rich_text", [])
-        return "".join(i.get("text", {}).get("content", "") for i in items)
+        return _fix_mojibake("".join(i.get("text", {}).get("content", "") for i in items))
     if prop.get("type") == "title":
         items = prop.get("title", [])
-        return "".join(i.get("text", {}).get("content", "") for i in items)
+        return _fix_mojibake("".join(i.get("text", {}).get("content", "") for i in items))
     if prop.get("type") == "url":
         return prop.get("url") or ""
     if prop.get("type") == "select":
         s = prop.get("select")
-        return s.get("name", "") if s else ""
+        return _fix_mojibake(s.get("name", "")) if s else ""
     if prop.get("type") == "status":
         s = prop.get("status")
-        return s.get("name", "") if s else ""
+        return _fix_mojibake(s.get("name", "")) if s else ""
     if prop.get("type") == "number":
         return prop.get("number") or 0
     if prop.get("type") == "checkbox":

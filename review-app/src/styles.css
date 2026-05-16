@@ -295,11 +295,11 @@ body { background: var(--cream); font-family: 'DM Sans', sans-serif; color: var(
 }
 .btn-signout:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Featured Event tile image (matches tile-photo block pattern for pets/restaurants) */
+/* Featured Event tile image — fixed 16:9 frame, no cropping (Option E) */
 .tile-image {
   width: 100%;
-  height: 240px;
-  object-fit: cover;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
   display: block;
   background: var(--sand);
   flex-shrink: 0;
