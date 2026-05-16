@@ -146,6 +146,13 @@ _DETAIL_SPANS = {
     "arn":         r'<span id="lbARN">([^<]*)</span>',
 }
 _DETAIL_PHOTO_RE = re.compile(r'id="imgAnimalPhoto"[^>]*src="([^"]+)"')
+# Additional photos: <a id="lnkPhoto2" ... href="URL">2</a>
+# (The onclick handler also has the URL but its apostrophes are HTML-
+# encoded as &#39; in the raw response — href is the clean source.)
+_EXTRA_PHOTO_RE  = re.compile(
+    r'<a id="lnkPhoto\d+"[^>]*\bhref="([^"]+)"',
+    re.IGNORECASE,
+)
 _DESCRIPTION_RE  = re.compile(r'<span id="lbDescription">(.+?)</span>', re.DOTALL)
 
 
@@ -156,15 +163,30 @@ def _br_to_newlines(s: str) -> str:
 
 
 def parse_detail(html: str) -> dict:
-    """Extract description + supplementary fields from a detail page."""
-    out: dict[str, str] = {}
+    """Extract description, primary photo, additional photos, and
+    supplementary fields from a Petango detail page.
+
+    Photos: `imgAnimalPhoto` is the primary; <a id="lnkPhoto2/3/4…">
+    elements with onclick="loadPhoto('URL')" expose the rest of the
+    gallery. We dedup by URL and preserve order (primary first)."""
+    out: dict = {}
     for k, rx in _DETAIL_SPANS.items():
         m = re.search(rx, html)
         if m:
             out[k] = _strip(m.group(1))
+    photos: list[str] = []
+    seen: set[str] = set()
     m = _DETAIL_PHOTO_RE.search(html)
     if m:
-        out["photo_url_large"] = m.group(1)
+        primary = m.group(1)
+        out["photo_url_large"] = primary
+        photos.append(primary)
+        seen.add(primary)
+    for extra in _EXTRA_PHOTO_RE.findall(html):
+        if extra and extra not in seen:
+            seen.add(extra)
+            photos.append(extra)
+    out["photos"] = photos
     m = _DESCRIPTION_RE.search(html)
     if m:
         out["description"] = _br_to_newlines(m.group(1))[:2000]
@@ -200,7 +222,14 @@ def _to_pipeline_pet(listing: dict, detail: dict) -> dict:
     description = detail.get("description", "")
     # Public-facing Petplace link instead of the bare Petango widget URL.
     url         = _public_pet_url(listing.get("id", ""), species_norm)
-    photo       = detail.get("photo_url_large") or listing.get("photo_url") or ""
+    # Full gallery from the detail page (primary first, additional after).
+    # Falls back to the small listing thumbnail if the detail fetch
+    # somehow turned up nothing.
+    photos      = list(detail.get("photos") or [])
+    if not photos:
+        thumb = listing.get("photo_url") or ""
+        if thumb:
+            photos = [thumb]
     org_info    = {
         "name":    SHELTER_INFO["shelter_name"],
         "address": SHELTER_INFO["shelter_address"],
@@ -228,7 +257,7 @@ def _to_pipeline_pet(listing: dict, detail: dict) -> dict:
         "url":         url,
         "listing_url": url,
         "profile":     profile,
-        "photos":      [photo] if photo else [],
+        "photos":      photos,
         "animal_type": species_norm.lower(),
         "org_info":    org_info,
         # Source-specific extras the rest of the pipeline ignores but
@@ -296,7 +325,10 @@ def main() -> int:
             print(f"    age:     {pet.get('age', '')}")
             print(f"    gender:  {pet.get('gender', '')}  ({pet.get('altered', '?')})")
             print(f"    color:   {pet.get('color', '')}")
-            print(f"    photo:   {(pet.get('photos') or [''])[0][:80]}")
+            photos = pet.get('photos') or []
+            print(f"    photos:  {len(photos)} total")
+            for i, p in enumerate(photos, 1):
+                print(f"             [{i}] {p[:80]}")
             print(f"    url:     {pet.get('url', '')[:90]}")
             if pet.get("description"):
                 desc = pet["description"].replace("\n", " · ")
