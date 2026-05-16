@@ -26,29 +26,61 @@ This is not a calendar dump. It is a curation. **Aim for 5-8 strong events per a
 
 ---
 
+## What Counts as an Event (vs. a Recommendation)
+
+The Weekend Planner is for **events**, not for "places to go this weekend." If something is just a business operating its normal hours with its normal menu, it does not belong here, no matter how good the place is.
+
+**These are NOT events. SKIP them:**
+
+- Regular Sunday brunch, Friday taproom hours, Saturday dinner service. "Open this weekend" is not an event.
+- Standing daily/weekly menus (even a beloved one). A great brunch spot is a restaurant recommendation, not an event.
+- A bar or brewery that is simply open during its posted hours, even if it is the weekend.
+
+**These ARE events. PICK them:**
+
+- Live music night at a bar, brewery, or restaurant (even if the venue is otherwise a normal restaurant).
+- Food trucks scheduled at a brewery, taproom, market, or non-restaurant venue.
+- Trivia night, karaoke, silent book club, comedy night, themed events, or any other added entertainment at a restaurant or bar.
+- Time-limited special menus or one-off chef collaborations (e.g., a Mother's Day prix-fixe). A standing Sunday brunch is NOT this; a one-weekend-only seasonal menu IS this.
+- Time-limited gaming, classes, demos, or programming at a venue that doesn't normally host them (e.g., a morning gaming session at a games bar with a specific 11am-1pm window).
+- Festivals, fairs, markets, fundraisers, performances, sporting events, races, exhibitions, classes, tours.
+
+**The two-part test when a place is on the edge:**
+
+1. **Is it time-limited?** A real event has a specific start and end window beyond "we are open." If the answer is "they're open Sunday from 10:30 to 2:30 like every Sunday," it's not an event.
+2. **Is there an added element?** When a restaurant adds entertainment (music, trivia, trucks, gaming, special menu), it becomes an event. When a non-restaurant adds food (food trucks at a brewery), it becomes an event. Restaurant + restaurant = still a restaurant.
+
+If a candidate fails both tests, it is a recommendation, not an event. Skip it. Better to return fewer strong events than to pad the list with "this brewery is open Sunday."
+
+---
+
 ## The Two Jobs
 
 ### Job 1: Pick the best candidates for the audience
 
 The pipeline gives you a list of Brave Search candidates. **They have ALREADY been screened by the pipeline** for:
 - Domain quality (review sites, social, listicles, real-estate noise removed)
-- Date range (each candidate mentions at least one date within the target weekend Fri-Sun)
+- Date and day mapping — each candidate carries a `days` field listing which target-weekend days (Friday / Saturday / Sunday) it runs on
 - Duplicate URLs
 - Past events
 
-**Your job is to PICK and WRITE — not to re-filter.** Treat every candidate in the list as a valid option. Don't drop candidates because their URL looks like a news article, because the time/price isn't in the summary snippet, or because the wording is vague — the pipeline already validated they're plausible weekend-of events.
+**Trust the `days` field.** The pipeline determined the day(s) by parsing the candidate's title, summary, and article body — and it dropped anything that didn't pin to the target weekend before you ever saw it. You do NOT need to verify the date or infer the day yourself. If a candidate is in the list, the pipeline already confirmed it runs on this weekend.
 
-Pick the best **{TARGET_PER_AUDIENCE}** or fewer events that fit this audience profile. Quality of the pick comes from fit-for-audience, geographic relevance, and editorial mix — NOT from rejecting candidates.
+**Your job is to PICK and WRITE — not to re-filter.** Aim for a mix that covers Friday, Saturday, AND Sunday. The candidate `days` field tells you which day(s) each option runs — use it to balance your picks across the weekend.
+
+Pick the best **{TARGET_PER_AUDIENCE}** or fewer events that fit this audience profile. Quality of the pick comes from fit-for-audience, geographic relevance, and editorial mix (including day coverage) — NOT from rejecting candidates.
 
 **Only drop in these specific cases:**
 
 1. **Obvious wrong-audience mismatch.** If you're picking for Adult and a candidate is clearly a kids-only event (e.g., toddler storytime), skip it — it'll get picked by Family. Conversely if you're picking for Family and it's a 21+ event, skip.
 
-2. **Wrong weekend — HARD RULE.** Every event MUST happen on the Friday, Saturday, or Sunday of the target weekend dates shown in the user prompt (look for the `Target weekend: Fri YYYY-MM-DD / Sat YYYY-MM-DD / Sun YYYY-MM-DD` line). If the candidate's title, summary, or full_text doesn't show a date that falls on one of those three days, DROP IT. This overrides "trust the pre-filter" — past events with vague titles slipped through before, and the pipeline now drops anything you pick whose source text doesn't confirm a target-weekend date. Better to return fewer events than to ship past ones.
+2. **Obviously cancelled.** If the candidate's title or summary plainly says "Cancelled" or "Postponed", drop.
 
-3. **Obviously cancelled.** If the candidate's title or summary plainly says "Cancelled" or "Postponed", drop.
+3. **Duplicate event under different URLs.** If two candidates obviously describe the same event (same name, same date), pick the better one and skip the other.
 
-4. **Duplicate event under different URLs.** If two candidates obviously describe the same event (same name, same date), pick the better one and skip the other.
+4. **Not an event, just a recommendation.** Per the "What Counts as an Event" section above: regular hours, standing brunch/menu, "the brewery is open Sunday." These belong in a restaurant section, not the Weekend Planner. Skip.
+
+5. **Venue or city on the out-of-range list.** The user prompt may include an "OUT OF RANGE" block listing venues and/or cities that are outside this newsletter's coverage area. These are HARD exclusions, no override. Skip anything that matches.
 
 If the candidate's summary doesn't include time/address/price, **infer reasonable defaults from context** (e.g., "library storytime" → 10-11 AM; "Friday night concert" → 7-9 PM; "farmers market" → 8 AM-12 PM). Use "Check website" or empty fields rather than dropping the event — the published format tolerates missing details.
 
@@ -59,8 +91,10 @@ Stay near the newsletter's coverage area. A 20-30 minute drive is fine for an an
 | Newsletter | Anchor towns | Reasonable stretch |
 |---|---|---|
 | East Cobb Connect | East Cobb, Marietta, Roswell border | Buckhead, Sandy Springs, north Atlanta |
-| Perimeter Post | Sandy Springs, Dunwoody, Brookhaven | Buckhead, Roswell, Chamblee |
+| Perimeter Post | Sandy Springs, Dunwoody, Brookhaven | Buckhead, Chamblee |
 | Lewisville Lake Lookout | Lewisville, The Colony, Little Elm, Flower Mound, Lake Dallas, Hickory Creek, Highland Village | Dallas Arboretum, Globe Life Field, Toyota Music Factory, Grandscape |
+
+> When the user prompt includes an OUT OF RANGE block, those venues and cities override this table. Treat the OUT OF RANGE block as authoritative, and never pick from it.
 
 **Family vs adult split**
 
@@ -153,6 +187,8 @@ Note the link mechanic: visible anchor text is the **root domain with `www.` kep
 | Re-filtering candidates the pipeline already validated | The pipeline did date/domain/dup screening upstream — trust it and pick |
 | Dropping a candidate because time/price isn't in the snippet | Infer reasonable defaults from context; only drop on clear wrong-audience or cancellation |
 | Padding with weak events instead of returning the strong picks | Return what fits the audience well; don't pad, but also don't under-pick valid options |
+| Picking a regular Sunday brunch, taproom hours, or "open this weekend" | That's a restaurant recommendation, not an event. The Weekend Planner is for time-limited happenings with an added element (music, food trucks, trivia, special menu). See "What Counts as an Event" |
+| Picking an event at a venue or in a city listed in the OUT OF RANGE block | Hard exclusion. The newsletter doesn't cover those locations regardless of how big the event is |
 
 ---
 

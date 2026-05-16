@@ -304,6 +304,7 @@ def fetch_and_filter_candidates(
     excluded_urls: set,
     label: str,
     target_range: tuple[date, date] | None = None,
+    target_weekend: dict | None = None,
 ) -> list[dict]:
     """One pass: Brave -> aggregator filter -> dedup. NO URL validation.
 
@@ -364,6 +365,24 @@ def fetch_and_filter_candidates(
         if past_urls:
             excluded_urls.update(past_urls)
             print(f"    [{label}] dropped {before - len(candidates)} past-only candidates")
+
+    # Pipeline-side day tagging: figure out which target-weekend day(s)
+    # each candidate maps to BEFORE sending to Claude. Drops candidates
+    # whose text doesn't pin to Fri/Sat/Sun (the recurring-event fallback
+    # inside determine_event_days still rescues "every Friday" / "weekly"
+    # wording). After this, each survivor has a `days` list and Claude
+    # doesn't need to figure out the date — the pipeline already did.
+    if target_weekend is not None:
+        before = len(candidates)
+        tagged = []
+        for c in candidates:
+            days = determine_event_days(c, target_weekend)
+            if days:
+                c["days"] = days
+                tagged.append(c)
+        candidates = tagged
+        if before - len(candidates):
+            print(f"    [{label}] dropped {before - len(candidates)} candidates with no target-weekend day match")
 
     print(f"    [{label}] {len(candidates)} candidates ready for Claude")
     return candidates[:CANDIDATE_CAP]
@@ -547,6 +566,30 @@ def call_claude_for_audience(
         f"Education level: {d['education']}"
     )
 
+    # HARD exclusion list per newsletter. Editorial guidance from Jason: each
+    # newsletter has venues / cities that are out of range even if they show
+    # up in candidate results. Substring match, case-insensitive, against
+    # venue + address. No "big event worth the drive" override — if it's on
+    # the list, it's out.
+    excluded_venues = newsletter.get("excluded_venues") or []
+    excluded_cities = newsletter.get("excluded_cities") or []
+    exclusion_block = ""
+    if excluded_venues or excluded_cities:
+        lines = ["", "OUT OF RANGE — DO NOT PICK any event whose venue or address",
+                 "matches one of these (case-insensitive substring match):"]
+        if excluded_venues:
+            lines.append("Venues:")
+            for v in excluded_venues:
+                lines.append(f"  - {v}")
+        if excluded_cities:
+            lines.append("Cities:")
+            for c in excluded_cities:
+                lines.append(f"  - {c}")
+        lines.append("This is a HARD rule. Even a major event at one of these")
+        lines.append("venues / in one of these cities should be SKIPPED — they")
+        lines.append("are outside this newsletter's coverage area.")
+        exclusion_block = "\n".join(lines)
+
     user_prompt = f"""
 Newsletter: {newsletter['name'].replace('_', ' ')} ({newsletter['display_area']})
 Audience: {audience}
@@ -556,21 +599,26 @@ Audience demographics:
 {demo_summary}
 
 Anchor towns: {', '.join(newsletter['search_areas'])}
+{exclusion_block}
 
-The candidates below have ALREADY been screened for: domain quality, date
-range (each candidate mentions at least one Fri/Sat/Sun date in the target
-weekend), duplicates. Your job is to PICK the best {TARGET_PER_AUDIENCE} or
-fewer for the {audience.lower()} audience and WRITE the event description.
-Do NOT re-filter for date, geography, or relevance — that's already done.
+The candidates below have ALREADY been screened by the pipeline for:
+domain quality, date range, duplicates, AND target-weekend day mapping.
+Each candidate has a `days` field listing which of Fri/Sat/Sun it runs
+on — that's the source of truth. Do NOT try to figure out the date or
+day yourself. The pipeline already did it.
 
-CRITICAL: each event belongs to ONLY ONE audience (Family OR Adult). Do not
-include events that would feel equally appropriate for the OTHER audience —
-pick the audience it fits best, leave it for that audience's pool.
+Your job is to PICK the best {TARGET_PER_AUDIENCE} or fewer for the
+{audience.lower()} audience and WRITE the event description. Aim for at
+least one pick covering each of Friday, Saturday, and Sunday if the
+candidate pool supports it.
 
-We will determine which days each event runs based on extracted dates in
-the candidate text — you do NOT need to assign days. Just return the event
-picks per the skill's schema. Use `candidate_index` to reference URLs — do
-NOT include raw URLs in the output.
+CRITICAL: each event belongs to ONLY ONE audience (Family OR Adult). Do
+not include events that would feel equally appropriate for the OTHER
+audience — pick the audience it fits best, leave it for that audience's
+pool.
+
+Use `candidate_index` to reference URLs — do NOT include raw URLs in
+the output.
 
 Candidates:
 {candidates_json}
@@ -589,6 +637,8 @@ Candidates:
         return []
 
     candidates_by_index = {i: c for i, c in enumerate(candidates, 1)}
+    excluded_venues = [v.lower() for v in (newsletter.get("excluded_venues") or [])]
+    excluded_cities = [c.lower() for c in (newsletter.get("excluded_cities") or [])]
     validated = []
     for r in results:
         idx = r.get("candidate_index")
@@ -600,6 +650,17 @@ Candidates:
         if not source:
             print(f"    ✗ Rejecting event with invalid candidate_index {idx}: {r.get('event_name', '?')}")
             continue
+        # HARD exclusion enforcement. Substring match on venue + address +
+        # event_name (some events name the venue in the title). Belt-and-
+        # suspenders alongside the prompt-side OUT OF RANGE block.
+        if excluded_venues or excluded_cities:
+            haystack = " | ".join(str(r.get(k, "") or "") for k in
+                                  ("venue", "address", "event_name")).lower()
+            hit = next((v for v in excluded_venues if v in haystack), None) \
+                  or next((c for c in excluded_cities if c in haystack), None)
+            if hit:
+                print(f"    ✗ Rejecting out-of-range event '{r.get('event_name','?')[:50]}' (matched: {hit})")
+                continue
         r["source_url"] = source.get("url", "")
         r["audience"] = audience
         # Attach the source candidate so we can later derive days from its text
@@ -637,6 +698,7 @@ def process_audience(
     candidates = fetch_and_filter_candidates(
         all_queries, MAX_RESULTS_PER_QUERY, existing_urls,
         label=f"{audience.lower()} primary", target_range=target_range,
+        target_weekend=target_weekend,
     )
 
     results = call_claude_for_audience(
@@ -655,6 +717,7 @@ def process_audience(
         candidates_p2 = fetch_and_filter_candidates(
             retry_queries, RETRY_RESULTS_PER_QUERY, retry_excluded,
             label=f"{audience.lower()} retry", target_range=target_range,
+            target_weekend=target_weekend,
         )
         more = call_claude_for_audience(
             candidates_p2, newsletter, audience, target_weekend, skill_prompt
@@ -677,7 +740,8 @@ def process_audience(
         covered = set()
         for ev in events:
             cand = ev.get("_source_candidate", {})
-            for d in determine_event_days(cand, target_weekend):
+            days = cand.get("days") or determine_event_days(cand, target_weekend)
+            for d in days:
                 covered.add(d)
         return covered
 
@@ -698,6 +762,7 @@ def process_audience(
                 gap_queries, RETRY_RESULTS_PER_QUERY, gap_excluded,
                 label=f"{audience.lower()} gap-fill {day}",
                 target_range=gap_target_range,
+                target_weekend=target_weekend,
             )
             gap_picks = call_claude_for_audience(
                 gap_candidates, newsletter, audience, target_weekend, skill_prompt
@@ -706,7 +771,9 @@ def process_audience(
             for r in gap_picks:
                 if not r.get("source_url") or r["source_url"] in seen:
                     continue
-                day_match = day in determine_event_days(r.get("_source_candidate", {}), target_weekend)
+                cand = r.get("_source_candidate", {})
+                pre_tagged = cand.get("days") or determine_event_days(cand, target_weekend)
+                day_match = day in pre_tagged
                 if not day_match:
                     continue
                 results.append(r)
@@ -751,6 +818,7 @@ def process_bucket(
     candidates_p1 = fetch_and_filter_candidates(
         primary_queries, MAX_RESULTS_PER_QUERY, existing_urls,
         label="primary", target_range=target_range,
+        target_weekend=weekend,
     )
     results = call_claude_for_bucket(
         candidates_p1, newsletter, audience, day, target_date_iso, skill_prompt
@@ -768,6 +836,7 @@ def process_bucket(
         candidates_p2 = fetch_and_filter_candidates(
             fallback_queries, RETRY_RESULTS_PER_QUERY, retry_excluded,
             label="retry", target_range=target_range,
+            target_weekend=weekend,
         )
         more_results = call_claude_for_bucket(
             candidates_p2, newsletter, audience, day, target_date_iso, skill_prompt
@@ -870,13 +939,14 @@ if __name__ == "__main__":
                     filtered_picks.append(pick)
                 picks = filtered_picks
 
-            # Expand each pick into one row per day the event runs. Hard
-            # rule: skip any pick whose source candidate doesn't show a
-            # date inside the target weekend (Fri/Sat/Sun). The old behavior
-            # of defaulting to Saturday let past events ship.
+            # Expand each pick into one row per day the event runs. The
+            # pipeline already tagged each candidate with `days` pre-Claude
+            # (see fetch_and_filter_candidates), so we just read it back
+            # off the source candidate. If it's missing for any reason,
+            # fall back to determine_event_days for safety.
             for pick in picks:
                 source_cand = pick.pop("_source_candidate", {})
-                days = determine_event_days(source_cand, weekend)
+                days = source_cand.get("days") or determine_event_days(source_cand, weekend)
                 if not days:
                     print(f"      ✗ dropped (no date matches target weekend "
                           f"{weekend['Friday']}..{weekend['Sunday']}): "
