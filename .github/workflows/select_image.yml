@@ -84,3 +84,19 @@ jobs:
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/deploy_review_app.yml/dispatches \
             -d '{"ref":"main"}'
           echo "→ Triggered Deploy Review App"
+
+      - name: Trigger full landing-page rebuild (refresh hero image)
+        if: ${{ always() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Full rebuild (no section input) is required because the hero
+          # image lives at the page top — Notion's API only supports
+          # appending, not prepending, so partial section updates can't
+          # reposition it. Full rebuild clears + re-renders in order.
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
+            -d '{"ref":"main","inputs":{"section":"all"}}'
+          echo "→ Triggered full Assemble Newsletter Pages rebuild"
