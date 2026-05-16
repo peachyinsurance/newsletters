@@ -885,18 +885,37 @@ def main():
     returned_thumb = new_post.get("thumbnail_url") or new_post.get("web_thumbnail_url") or ""
     if thumbnail_url and not returned_thumb:
         print(f"  ⚠ Beehiiv did not return a thumbnail_url on create — retrying via update_post")
-        try:
-            patched = client.update_post(
-                cfg["publication_id"], new_post_id,
-                thumbnail_url=thumbnail_url,
-            )
-            returned_thumb = patched.get("thumbnail_url") or patched.get("web_thumbnail_url") or ""
-            if returned_thumb:
-                print(f"  ✓ Thumbnail set via update_post: {returned_thumb[:80]}")
-            else:
-                print(f"  ⚠ update_post also returned no thumbnail_url — Beehiiv plan may not support API-set thumbnails. Set manually in the Beehiiv editor.")
-        except Exception as e:
-            print(f"  ⚠ update_post failed: {e}")
+        # Beehiiv PATCH validation requires title to be present alongside
+        # the thumbnail field. We also try multiple field name variants
+        # since Beehiiv's API has historically used both `thumbnail_url`
+        # and `web_thumbnail_url`.
+        variants = [
+            {"title": title, "thumbnail_url": thumbnail_url},
+            {"title": title, "web_thumbnail_url": thumbnail_url},
+            {"title": title, "image_url": thumbnail_url},
+        ]
+        for variant in variants:
+            field_name = next(k for k in variant if k != "title")
+            try:
+                patched = client.update_post(
+                    cfg["publication_id"], new_post_id, **variant,
+                )
+                returned_thumb = (
+                    patched.get("thumbnail_url")
+                    or patched.get("web_thumbnail_url")
+                    or patched.get("image_url")
+                    or ""
+                )
+                if returned_thumb:
+                    print(f"  ✓ Thumbnail set via update_post ({field_name}): {returned_thumb[:80]}")
+                    break
+                else:
+                    print(f"  · update_post with '{field_name}' returned no thumbnail in response")
+            except Exception as e:
+                print(f"  · update_post with '{field_name}' failed: {str(e)[:200]}")
+        if not returned_thumb:
+            print(f"  ⚠ All API thumbnail attempts failed. Set thumbnail manually in the Beehiiv editor for: {new_post_id}")
+            print(f"     URL to upload: {thumbnail_url}")
     elif returned_thumb:
         print(f"  ✓ Thumbnail stored: {returned_thumb[:80]}")
 
