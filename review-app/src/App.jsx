@@ -525,7 +525,14 @@ export default function App() {
         }
       );
       if (!dispatchRes.ok) {
-        throw new Error(`Dispatch failed: HTTP ${dispatchRes.status}`);
+        const detail = await dispatchRes.text().catch(() => "");
+        if (dispatchRes.status === 401) {
+          throw new Error("Your GitHub token expired or doesn't have permission. Sign out and sign in with a fresh token (scopes: repo + workflow).");
+        }
+        if (dispatchRes.status === 404) {
+          throw new Error("Workflow not found on main. Make sure deploy_review_app.yml is committed and pushed.");
+        }
+        throw new Error(`Dispatch failed: HTTP ${dispatchRes.status}. ${detail.slice(0, 200)}`);
       }
 
       // 2. Poll the workflow's recent runs until the dispatched run completes.
