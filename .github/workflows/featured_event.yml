@@ -41,13 +41,14 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq fonts-open-sans || true
       - name: Generate Featured Event
         env:
-          CLAUDE_API_KEY:           ${{ secrets.CLAUDE_API_KEY }}
-          BRAVE_NEWS_API_KEY:       ${{ secrets.BRAVE_NEWS_API_KEY }}
-          NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
-          NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
-          NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
-          NOTION_EVENTS_DB_ID:      ${{ secrets.NOTION_EVENTS_DB_ID }}
-          NEWSLETTER:               ${{ github.event.inputs.newsletter || 'all' }}
+          CLAUDE_API_KEY:              ${{ secrets.CLAUDE_API_KEY }}
+          BRAVE_NEWS_API_KEY:          ${{ secrets.BRAVE_NEWS_API_KEY }}
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_PETS_DB_ID:           ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID:    ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+          NOTION_EVENTS_DB_ID:         ${{ secrets.NOTION_EVENTS_DB_ID }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'all' }}
         run: python "Featured Event/Code/Featured_Event.py"
 
       - name: Publish header previews + event GIFs to gh-pages
