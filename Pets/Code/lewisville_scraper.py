@@ -172,25 +172,59 @@ def parse_detail(html: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Card-to-pet normalization (matches Furry_Friends_Marietta.py's shape)
+# Card-to-pet normalization (matches Furry_Friends_Marietta.py's
+# _rg_pet_to_pipeline_dict output so downstream code is shape-agnostic).
 # ---------------------------------------------------------------------------
 def _to_pipeline_pet(listing: dict, detail: dict) -> dict:
     species_norm = (listing.get("species") or "").capitalize()
+    name        = listing.get("name") or "Unknown"
+    breed       = listing.get("breed", "")
+    age         = listing.get("age", "")
+    gender      = listing.get("gender", "")
+    description = detail.get("description", "")
+    url         = listing.get("detail_url", "")
+    photo       = detail.get("photo_url_large") or listing.get("photo_url") or ""
+    org_info    = {
+        "name":    SHELTER_INFO["shelter_name"],
+        "address": SHELTER_INFO["shelter_address"],
+        "phone":   SHELTER_INFO["shelter_phone"],
+        "email":   SHELTER_INFO["shelter_email"],
+        "hours":   "",
+    }
+    # Same multi-line "profile" string the RG path emits, so
+    # build_combined_profiles + the Claude blurb prompt see identical
+    # input regardless of source.
+    profile = (
+        f"Name: {name}\n"
+        f"Species: {species_norm}\n"
+        f"Breed: {breed}\n"
+        f"Age: {age}\n"
+        f"Gender: {gender}\n"
+        f"Size: \n"
+        f"Description: {description}\n"
+        f"Shelter: {org_info['name']}\n"
+        f"Address: {org_info['address']}\n"
+        f"Phone: {org_info['phone']}\n"
+        f"Email: {org_info['email']}"
+    )
     return {
-        "name":         listing.get("name") or "Unknown",
-        "species":      species_norm,
-        "breed":        listing.get("breed", ""),
-        "age":          listing.get("age", ""),
-        "gender":       listing.get("gender", ""),
-        "size":         "",
-        "color":        detail.get("color", ""),
-        "altered":      listing.get("altered", ""),
-        "description":  detail.get("description", ""),
-        "url":          listing.get("detail_url", ""),
-        # Prefer the larger detail-page photo when available.
-        "photos":       [detail.get("photo_url_large") or listing.get("photo_url") or ""],
-        "intake_date":  detail.get("intake_date", ""),
-        **SHELTER_INFO,
+        "url":         url,
+        "listing_url": url,
+        "profile":     profile,
+        "photos":      [photo] if photo else [],
+        "animal_type": species_norm.lower(),
+        "org_info":    org_info,
+        # Source-specific extras the rest of the pipeline ignores but
+        # remain useful for debugging / future enhancements.
+        "name":        name,
+        "species":     species_norm,
+        "breed":       breed,
+        "age":         age,
+        "gender":      gender,
+        "color":       detail.get("color", ""),
+        "altered":     listing.get("altered", ""),
+        "intake_date": detail.get("intake_date", ""),
+        "description": description,
     }
 
 
