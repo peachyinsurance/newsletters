@@ -377,6 +377,10 @@ def fetch_and_filter_candidates(
             return True
         return any(pat in path for pat in _NON_LISTICLE_URL_PATTERNS)
 
+    # Expand any candidate that looks like a listicle (title/URL marker),
+    # regardless of host. Government calendars (cobbcounty.gov) and city
+    # tourism sites also publish event roundups. Drop only aggregator
+    # landing/archive URLs (they have no event content).
     expanded_count = 0
     expanded_total = 0
     kept_single    = 0
@@ -384,29 +388,26 @@ def fetch_and_filter_candidates(
     keep_pool = []
     for c in candidates:
         url = c.get("url", "")
-        if not is_aggregator(url):
-            keep_pool.append(c)
-            continue
-        if _expand_listicle is None:
+        # Step 1: aggregator landing/archive → drop entirely.
+        if is_aggregator(url) and _is_landing_or_archive(url):
             dropped_count += 1
             continue
-        if _is_landing_or_archive(url):
-            # Tag archives / business listings / news landings — drop
-            # entirely, they have no event-specific content.
-            dropped_count += 1
+        # Step 2: anything that looks like a listicle → expand.
+        if _expand_listicle is not None and _is_listicle(c):
+            events = _expand_listicle(url, listicle_title=c.get("title", ""))
+            if events:
+                expanded_count += 1
+                expanded_total += len(events)
+                keep_pool.extend(events)
+            else:
+                # No event links found; keep the original URL so date filter
+                # can still consider it.
+                keep_pool.append(c)
             continue
-        if not _is_listicle(c):
-            # Aggregator article (single event) — keep as single candidate.
-            keep_pool.append(c)
+        # Step 3: everything else → keep as single candidate.
+        keep_pool.append(c)
+        if is_aggregator(url):
             kept_single += 1
-            continue
-        events = _expand_listicle(url, listicle_title=c.get("title", ""))
-        if events:
-            expanded_count += 1
-            expanded_total += len(events)
-            keep_pool.extend(events)
-        else:
-            dropped_count += 1
     if expanded_count:
         print(f"    [{label}] expanded {expanded_count} listicle(s) into {expanded_total} candidates")
     if kept_single:

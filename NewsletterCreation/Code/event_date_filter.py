@@ -192,8 +192,35 @@ def extract_dates_from_text(text: str, today: date | None = None) -> list[date]:
 # ---------------------------------------------------------------------------
 # Filter functions
 # ---------------------------------------------------------------------------
+def _recover_date_via_page_fetch(url: str, max_chars: int = 60_000) -> list[date]:
+    """For a candidate with no parseable date in its title/summary/etc.,
+    fetch the source page and scan the body for date mentions.
+
+    Free (one HTTP request per missing-date candidate). Catches common
+    "event detail" pages whose body has `Saturday, May 24, 2026` but the
+    title/summary doesn't.
+    """
+    if not url:
+        return []
+    try:
+        import requests as _r
+        resp = _r.get(url, timeout=10,
+                      headers={"User-Agent": "Mozilla/5.0 (newsletter-bot)"},
+                      allow_redirects=True)
+        if resp.status_code != 200 or not resp.text:
+            return []
+        # Strip tags cheaply — we just need body text
+        import re as _re
+        body = _re.sub(r"<[^>]+>", " ", resp.text[:max_chars])
+        return extract_dates_from_text(body)
+    except Exception:
+        return []
+
+
 def filter_candidates_by_date(candidates: list[dict], floor: date,
-                              text_keys: tuple[str, ...] = ("title", "summary", "url", "source_url", "listicle_date_hint")
+                              text_keys: tuple[str, ...] = ("title", "summary", "url", "source_url", "listicle_date_hint"),
+                              recover_missing: bool = True,
+                              max_page_fetches: int = 20,
                               ) -> tuple[list[dict], list[str]]:
     """Drop candidates whose ONLY parseable dates are < floor.
 
@@ -203,11 +230,27 @@ def filter_candidates_by_date(candidates: list[dict], floor: date,
 
     `text_keys` — fields on the candidate dict to scan. Defaults to title +
     summary; pass ('title','summary','full_text') if the section enriches
-    candidates with article body before filtering."""
+    candidates with article body before filtering.
+
+    `recover_missing` — if True, for candidates with no parseable date in
+    text_keys, fetch the source URL and scan its body for dates. Bounded
+    by `max_page_fetches` to keep the run cheap.
+    """
     kept, dropped_urls = [], []
+    fetches_used = 0
     for c in candidates:
         text = " ".join(str(c.get(k, "") or "") for k in text_keys)
         dates = extract_dates_from_text(text)
+        # Try page-fetch recovery for candidates with NO parseable dates.
+        if not dates and recover_missing and fetches_used < max_page_fetches:
+            url = c.get("url") or c.get("source_url") or ""
+            dates = _recover_date_via_page_fetch(url)
+            fetches_used += 1
+            if dates:
+                # Stash on the candidate so later stages see it too
+                c["dates_found_via_page_fetch"] = [d.isoformat() for d in dates]
+                print(f"    ↳ recovered dates via page fetch: "
+                      f"{(c.get('title') or '')[:60]!r} → {[d.isoformat() for d in dates]}")
         if dates and all(d < floor for d in dates):
             print(f"    ✗ past-only candidate dropped: "
                   f"{(c.get('title') or c.get('event_name') or '')[:70]!r} "
@@ -215,6 +258,8 @@ def filter_candidates_by_date(candidates: list[dict], floor: date,
             dropped_urls.append(c.get("url") or c.get("source_url") or "")
             continue
         kept.append(c)
+    if fetches_used:
+        print(f"    [date-recovery] fetched {fetches_used} page(s) to look for missing dates")
     return kept, [u for u in dropped_urls if u]
 
 

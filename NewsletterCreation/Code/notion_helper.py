@@ -58,6 +58,7 @@ NOTION_TIPS_DB_ID        = os.environ.get("NOTION_TIPS_DB_ID", "")
 NOTION_FREE_EVENTS_DB_ID = os.environ.get("NOTION_FREE_EVENTS_DB_ID", "")
 NOTION_POLLS_DB_ID       = os.environ.get("NOTION_POLLS_DB_ID", "")
 NOTION_WEEKEND_PLANNER_DB_ID = os.environ.get("NOTION_WEEKEND_PLANNER_DB_ID", "")
+NOTION_WEEKEND_EVENTS_DB_ID  = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
 NOTION_BUSINESS_BRIEF_DB_ID = os.environ.get("NOTION_BUSINESS_BRIEF_DB_ID", "")
 
 HEADERS = {
@@ -545,6 +546,42 @@ def setup_notion_databases():
             print("✓ Weekend Planner database schema created")
         else:
             print(f"✗ Weekend Planner schema error: {r.text[:300]}")
+
+    # Weekend Events database properties (scraped from per-newsletter sources)
+    if NOTION_WEEKEND_EVENTS_DB_ID:
+        weekend_events_properties = {
+            "Name":             {"title": {}},
+            "Newsletter":       {"select": {"options": [
+                {"name": "East_Cobb_Connect"},
+                {"name": "Perimeter_Post"},
+                {"name": "Lewisville_Lake_Lookout"},
+            ]}},
+            "Event Name":       {"rich_text": {}},
+            "Description":      {"rich_text": {}},
+            "Date":             {"date": {}},
+            "Time":             {"rich_text": {}},
+            "Location":         {"rich_text": {}},
+            "Address":          {"rich_text": {}},
+            "Source URL":       {"url": {}},
+            "Image URL":        {"url": {}},
+            "Status":           {"select": {"options": [
+                {"name": "pending"},
+                {"name": "approved"},
+                {"name": "rejected"},
+                {"name": "archived"},
+            ]}},
+            "Date Generated":   {"date": {}},
+        }
+        r = requests.patch(
+            f"https://api.notion.com/v1/databases/{NOTION_WEEKEND_EVENTS_DB_ID}",
+            headers=HEADERS,
+            json={"properties": weekend_events_properties},
+            timeout=30,
+        )
+        if r.ok:
+            print("✓ Weekend Events database schema created")
+        else:
+            print(f"✗ Weekend Events schema error: {r.text[:300]}")
 
     # Business Brief database properties
     if NOTION_BUSINESS_BRIEF_DB_ID:

@@ -632,9 +632,15 @@ if __name__ == "__main__":
                     return True
                 return False
 
-            # Only expand candidates whose TITLE or URL says "this is a
-            # listicle" (via _is_listicle), AND skip URLs that look like
-            # landing/archive pages. Otherwise keep the candidate as-is.
+            # Expand any candidate whose TITLE/URL marks it as a listicle
+            # (regardless of whether the host is in AGGREGATOR_DOMAINS).
+            # Government calendars (cobbcounty.gov), city tourism sites,
+            # and other non-aggregator domains also publish "upcoming
+            # events" listicles with real event content inside.
+            #
+            # Drop aggregator landing/archive URLs (Patch home, news
+            # category pages, tag archives) — they have no event content
+            # of their own, just sidebar/related-stories noise.
             expanded_count = 0
             expanded_total_links = 0
             kept_original = 0
@@ -642,24 +648,13 @@ if __name__ == "__main__":
             keep_pool = []
             for c in new_pool:
                 url = c.get("url", "")
-                if is_aggregator_url(url):
-                    if _looks_like_landing_or_archive(url):
-                        # Tag archives, business listings, news landing
-                        # pages have no specific event content. Drop them
-                        # entirely — keeping them as candidates confuses
-                        # Claude (it reads sidebar/related-event content
-                        # in the URL's title and picks them as if they
-                        # were the event itself).
-                        dropped_landing += 1
-                        print(f"  ↳ dropped aggregator landing/archive: {url}")
-                        continue
-                    if not _is_listicle(c):
-                        # Aggregator but not obviously a listicle — keep as
-                        # a single candidate. Date filter handles the rest.
-                        kept_original += 1
-                        print(f"  ↳ aggregator (not a listicle), keeping as single: {url}")
-                        keep_pool.append(c)
-                        continue
+                # Step 1: aggregator landing/archive → drop entirely.
+                if is_aggregator_url(url) and _looks_like_landing_or_archive(url):
+                    dropped_landing += 1
+                    print(f"  ↳ dropped aggregator landing/archive: {url}")
+                    continue
+                # Step 2: anything that looks like a listicle → expand.
+                if _is_listicle(c):
                     print(f"  ↳ listicle detected, expanding: {url}")
                     expanded = expand_listicle(url, listicle_title=c.get("title", ""))
                     if expanded:
@@ -672,8 +667,12 @@ if __name__ == "__main__":
                         kept_original += 1
                         print(f"      ↳ no event links found, keeping original: {url}")
                         keep_pool.append(c)
-                else:
-                    keep_pool.append(c)
+                    continue
+                # Step 3: everything else (single-event aggregator article,
+                # venue/organizer URL) → keep as-is.
+                keep_pool.append(c)
+                if is_aggregator_url(url):
+                    kept_original += 1
             new_pool = keep_pool
             if expanded_count:
                 print(f"  ↳ expanded {expanded_count} listicle(s) into {expanded_total_links} new candidates")

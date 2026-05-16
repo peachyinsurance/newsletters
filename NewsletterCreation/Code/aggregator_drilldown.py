@@ -424,6 +424,20 @@ def expand_listicle(aggregator_url: str, max_links: int = 20,
         "/image_", "/video/", "/audio/", "/photogallery/", "/photo-gallery/",
         "/person/", "/persons/", "/staff/",
     )
+    # CROSS-LISTICLE GUARD: skip child URLs that are themselves listicles.
+    # Without this, expanding "Cool Things To Do in May" pulls in cross-
+    # links to "Cool Things To Do in June/July/August" and the date filter
+    # can't tell those are noise (they have no specific dates).
+    CROSS_LISTICLE_PATH_HINTS = (
+        "/things-to-do", "/things_to_do",
+        "/cool-things-to-do",
+        "/weekend-guide", "/weekend-roundup", "/weekend-events",
+        "/what-to-do-this",
+        "/best-of-", "/best-things-",
+        "/upcoming-events", "/calendar-of-events",
+        "/events-this-weekend", "/things-to-do-this-weekend",
+        "/out-and-about",
+    )
     # Sidebar / widget heading text — when the nearest <h*> says one of
     # these, every link under it is sidebar noise (recent-stories list,
     # trending widget, pet-of-the-day, "Alerts", etc.) Drop the whole
@@ -467,6 +481,13 @@ def expand_listicle(aggregator_url: str, max_links: int = 20,
         # Only drop nav/category/tag URLs and links to the listicle itself.
         same_host = (host == src_host)
         path_lower = urlparse(url_clean).path.lower()
+        # CROSS-LISTICLE GUARD (applies to all hosts): skip child URLs
+        # whose path looks like another listicle. Without this, expanding
+        # "Cool Things To Do in May" pulls in links to "Cool Things To Do
+        # in June/July/August" — noise that won't have specific dates and
+        # would slip past the date filter.
+        if any(hint in path_lower for hint in CROSS_LISTICLE_PATH_HINTS):
+            continue
         if same_host:
             if any(hint in path_lower for hint in NAV_PATH_HINTS):
                 continue

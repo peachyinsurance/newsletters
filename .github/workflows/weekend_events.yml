@@ -1,0 +1,56 @@
+name: Scrape Weekend Events
+
+on:
+  schedule:
+    # Mondays at 7am ET (11am UTC) — well ahead of Friday's newsletter
+    - cron: '0 11 * * 1'
+    # Fridays at 1pm UTC (~9am ET) — archive past events before send
+    - cron: '0 13 * * 5'
+  workflow_dispatch:
+    inputs:
+      newsletter:
+        description: 'Which newsletter to scrape (only ECC supported today)'
+        required: false
+        default: 'East_Cobb_Connect'
+        type: choice
+        options:
+          - 'East_Cobb_Connect'
+      mode:
+        description: 'scrape | cleanup | both'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - 'both'
+          - 'scrape'
+          - 'cleanup'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  weekend_events:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+
+      - name: Scrape Cobb County events
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
+        run: python "Weekend Events/Code/ECC/ecc_event_webscraper.py"
+
+      - name: Archive past events
+        if: ${{ (github.event.inputs.mode || 'both') != 'scrape' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
+        run: python "Weekend Events/Code/ECC/cleanup_past_events.py"
