@@ -61,24 +61,41 @@ def load_skill_prompt() -> str:
 # 3. FETCH EVENTS VIA BRAVE SEARCH API
 # ---------------------------------------------------------------------------
 def build_search_queries(display_area: str, search_areas: list[str]) -> list[str]:
-    """Build event search queries per the skill's guidance."""
+    """Build event search queries targeting the NEXT weekend's specific
+    date range. Featured Event runs ahead of publish day, so generic
+    "this weekend" queries return current-week listicles whose events
+    are already past by the time we filter. Targeting the upcoming
+    Friday-Sunday by name pulls listicles for the right weekend.
+    """
     today = datetime.today()
     month_year = today.strftime("%B %Y")
 
-    # Trimmed from 12 → 5 queries per newsletter to cut Brave spend ~2.5x.
-    # These five capture the same hits the full set did in past runs:
-    # Brave's index dedup means the per-area triplets and the
-    # "Eventbrite/concerts/things-to-do" variants all return overlapping URLs.
+    # Compute the upcoming Fri-Sat-Sun. If today is past Fri (Sat/Sun/Mon),
+    # we jump to the NEXT Friday. Most weekly newsletters target the
+    # upcoming weekend not the current one.
+    from datetime import timedelta
+    weekday = today.weekday()   # Mon=0..Sun=6
+    days_to_fri = (4 - weekday) % 7
+    if days_to_fri == 0:
+        days_to_fri = 7         # already on Friday → use NEXT Friday
+    next_fri = today + timedelta(days=days_to_fri)
+    next_sat = next_fri + timedelta(days=1)
+    next_sun = next_fri + timedelta(days=2)
+    fri_label = next_fri.strftime("%B %-d")    # e.g. "May 22"
+    sun_label = next_sun.strftime("%-d, %Y")   # e.g. "24, 2026"
+    date_range = f"{fri_label}-{sun_label}"    # "May 22-24, 2026"
+    fri_full   = next_fri.strftime("%B %-d %Y")  # "May 22 2026"
+
     queries = [
-        f"{display_area} events this weekend",
-        f"{display_area} events next week",
+        f"{display_area} things to do {date_range}",
+        f"{display_area} events {fri_full}",
+        f"{display_area} weekend events {date_range}",
         f"{display_area} {month_year} festivals concerts",
     ]
     # One broader area-based query keeps coverage when the display_area
     # is ambiguous (e.g. "Perimeter" in Georgia).
     if search_areas:
-        queries.append(f"{search_areas[0]} things to do {month_year}")
-    queries.append(f"events near {display_area} Georgia {month_year}")
+        queries.append(f"{search_areas[0]} things to do {date_range}")
     return queries
 
 
