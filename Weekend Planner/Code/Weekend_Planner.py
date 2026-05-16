@@ -339,10 +339,39 @@ def fetch_and_filter_candidates(
         print(f"    [{label}] No Brave results")
         return []
 
-    before = len(candidates)
-    candidates = filter_aggregators(candidates)
-    if before - len(candidates):
-        print(f"    [{label}] dropped {before - len(candidates)} aggregators")
+    # Aggregator handling: instead of dropping listicle hubs and "things-
+    # to-do" pages outright, expand each into its constituent event URLs.
+    # Each expanded candidate inherits the listicle's title + URL as a
+    # date-hint signal so the date filter has something to anchor on
+    # even when the child page itself has vague wording.
+    try:
+        from aggregator_drilldown import expand_listicle as _expand_listicle
+    except Exception:
+        _expand_listicle = None
+
+    expanded_count = 0
+    expanded_total = 0
+    dropped_count  = 0
+    keep_pool = []
+    for c in candidates:
+        if not is_aggregator(c.get("url", "")):
+            keep_pool.append(c)
+            continue
+        if _expand_listicle is None:
+            dropped_count += 1
+            continue
+        events = _expand_listicle(c.get("url", ""), listicle_title=c.get("title", ""))
+        if events:
+            expanded_count += 1
+            expanded_total += len(events)
+            keep_pool.extend(events)
+        else:
+            dropped_count += 1
+    if expanded_count:
+        print(f"    [{label}] expanded {expanded_count} listicle(s) into {expanded_total} candidates")
+    if dropped_count:
+        print(f"    [{label}] dropped {dropped_count} aggregator(s) that yielded no events")
+    candidates = keep_pool
 
     if excluded_urls:
         before = len(candidates)
@@ -1004,6 +1033,59 @@ if __name__ == "__main__":
             count = per_audience.get(aud, 0)
             mark = "✓" if count >= MIN_PER_AUDIENCE else "⚠"
             print(f"  {mark} {aud}: {count} rows (min {MIN_PER_AUDIENCE})")
+
+        # Per-event image scrape: cheap og:image / JSON-LD fetch from the
+        # source URL. Used by the assemble script to render a small
+        # thumbnail next to each event in the Notion landing page.
+        try:
+            sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'Free Events', 'Code'))
+            from Free_Events import fetch_event_image  # noqa: E402
+            seen_imgs: set[str] = set()
+            print(f"\n  Fetching event images...")
+            for ev in all_events:
+                if ev.get("image_url"):
+                    continue
+                url = ev.get("source_url") or ""
+                if not url:
+                    continue
+                try:
+                    img = fetch_event_image(url)
+                except Exception:
+                    img = ""
+                if not img:
+                    continue
+                # Skip if another event in this batch already claimed this
+                # image (avoids sitewide-widget bleed across events).
+                norm = img.split("?")[0].rstrip("/").lower()
+                if norm in seen_imgs:
+                    continue
+                seen_imgs.add(norm)
+                ev["image_url"] = img
+            with_img = sum(1 for e in all_events if e.get("image_url"))
+            print(f"  ✓ {with_img}/{len(all_events)} events have an image")
+        except Exception as e:
+            print(f"  ⚠ event image fetch skipped ({e})")
+
+        # Section banner: one Canva-style composite per newsletter for the
+        # Weekend Planner header. Uses the first event with an image as the
+        # photo source + a generic "Weekend Planner" title overlay.
+        try:
+            from header_image_maker import build_header_image
+            banner_photo = next((e.get("image_url") for e in all_events if e.get("image_url")), "")
+            if banner_photo:
+                png = build_header_image(title="Weekend Planner", photo_url=banner_photo)
+                if png:
+                    banner_out = Path(__file__).parent.parent.parent / "Beehiiv" / "Code" / "output"
+                    banner_out.mkdir(parents=True, exist_ok=True)
+                    banner_file = banner_out / f"Weekend_Planner_Banner_{newsletter['name']}.png"
+                    banner_file.write_bytes(png)
+                    print(f"  ✓ Built Weekend Planner banner ({len(png):,} bytes)")
+                else:
+                    print(f"  · Weekend Planner banner returned empty bytes")
+            else:
+                print(f"  · No event image available for Weekend Planner banner")
+        except Exception as e:
+            print(f"  ⚠ Weekend Planner banner skipped ({e})")
 
         print(f"\n  Saving {len(all_events)} total events for {newsletter['name']}...")
         save_weekend_events_to_notion(all_events, newsletter["name"])

@@ -34,7 +34,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install requests anthropic beautifulsoup4 curl_cffi
+      - run: pip install requests anthropic beautifulsoup4 curl_cffi Pillow
       - name: Generate Weekend Planner
         env:
           CLAUDE_API_KEY:               ${{ secrets.CLAUDE_API_KEY }}
@@ -43,6 +43,39 @@ jobs:
           NOTION_WEEKEND_PLANNER_DB_ID: ${{ secrets.NOTION_WEEKEND_PLANNER_DB_ID }}
           NEWSLETTER:                   ${{ github.event.inputs.newsletter || 'all' }}
         run: python "Weekend Planner/Code/Weekend_Planner.py"
+
+      - name: Publish Weekend Planner banner to gh-pages
+        if: ${{ always() }}
+        run: |
+          set -e
+          shopt -s nullglob
+          banners=("Beehiiv/Code/output/Weekend_Planner_Banner_"*.png)
+          if [ ${#banners[@]} -eq 0 ]; then
+            echo "No Weekend Planner banners to publish"
+            exit 0
+          fi
+          mkdir -p /tmp/wp_banners
+          cp "${banners[@]}" /tmp/wp_banners/
+          count=$(ls /tmp/wp_banners | wc -l)
+          echo "Staged $count banner(s) to /tmp"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git stash --include-untracked || true
+          git fetch origin gh-pages
+          git checkout gh-pages
+          mkdir -p gifs
+          cp /tmp/wp_banners/*.png gifs/
+          git add gifs/
+          if git diff --staged --quiet; then
+            echo "No banner changes to publish"
+          else
+            git commit -m "publish weekend planner banner [skip ci]"
+            git push origin gh-pages
+            echo "✓ Published $count Weekend Planner banner(s)"
+          fi
+          git checkout main
+          git stash pop || true
 
       - name: Trigger newsletter page rebuild
         if: ${{ (github.event.inputs.chain || 'true') == 'false' }}

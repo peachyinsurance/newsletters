@@ -523,6 +523,7 @@ def setup_notion_databases():
             "Time":             {"rich_text": {}},
             "Price":            {"rich_text": {}},
             "Source URL":       {"url": {}},
+            "Image URL":        {"url": {}},
             "Description":      {"rich_text": {}},
             "Status":           {"select": {"options": [
                 {"name": "pending",        "color": "yellow"},
@@ -2041,6 +2042,7 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str) -> None:
             "Time":             {"rich_text": [{"text": {"content": safe_str(data.get("time"))}}]},
             "Price":            {"rich_text": [{"text": {"content": safe_str(data.get("price"))}}]},
             "Source URL":       {"url":       data.get("source_url") or None},
+            "Image URL":        {"url":       data.get("image_url") or None},
             "Description":      {"rich_text": [{"text": {"content": safe_str(data.get("description"))[:2000]}}]},
             "Status":           {"select":    {"name": "pending"}},
             "Date Generated":   {"date":      {"start": datetime.today().strftime("%Y-%m-%d")}},

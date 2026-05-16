@@ -193,7 +193,7 @@ def extract_dates_from_text(text: str, today: date | None = None) -> list[date]:
 # Filter functions
 # ---------------------------------------------------------------------------
 def filter_candidates_by_date(candidates: list[dict], floor: date,
-                              text_keys: tuple[str, ...] = ("title", "summary", "url", "source_url")
+                              text_keys: tuple[str, ...] = ("title", "summary", "url", "source_url", "listicle_date_hint")
                               ) -> tuple[list[dict], list[str]]:
     """Drop candidates whose ONLY parseable dates are < floor.
 
@@ -236,7 +236,7 @@ def filter_past_events(events: list[dict], floor: date,
 
 def filter_candidates_in_date_range(candidates: list[dict],
                                     start: date, end: date,
-                                    text_keys: tuple[str, ...] = ("title", "summary", "url", "source_url")
+                                    text_keys: tuple[str, ...] = ("title", "summary", "url", "source_url", "listicle_date_hint")
                                     ) -> tuple[list[dict], list[str]]:
     """Stricter sibling of `filter_candidates_by_date`. Keeps a candidate
     ONLY if at least one parsed date in its text falls inside [start, end]

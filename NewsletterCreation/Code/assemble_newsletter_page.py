@@ -1165,6 +1165,7 @@ def _weekend_event_row_to_dict(props: dict) -> dict:
         "time":         _rt("Time"),
         "price":        _rt("Price"),
         "source_url":   props.get("Source URL", {}).get("url", "") or "",
+        "image_url":    props.get("Image URL", {}).get("url", "") or "",
         "description":  _rt("Description"),
         "status":       (props.get("Status", {}).get("select") or {}).get("name", ""),
     }
@@ -1614,6 +1615,18 @@ def _build_weekend_planner(newsletter_name: str) -> list[dict]:
             return day
 
     blocks: list[dict] = []
+
+    # Section-level banner: pulled from the predicted gh-pages URL written
+    # by the Weekend Planner pipeline (Weekend_Planner.py builds + publishes
+    # Weekend_Planner_Banner_<NEWSLETTER>.png each run). Cache-bust appended
+    # so Notion picks up the latest composite.
+    import time as _t
+    banner_url = (
+        f"https://peachyinsurance.github.io/newsletters/gifs/"
+        f"Weekend_Planner_Banner_{newsletter_name}.png?v={int(_t.time())}"
+    )
+    blocks.append(image_block(banner_url))
+
     for audience_key in audiences:
         # Skip the entire pane if it has no events at all
         pane_total = sum(len(grouped[audience_key][d]) for d in days)
@@ -1626,6 +1639,9 @@ def _build_weekend_planner(newsletter_name: str) -> list[dict]:
                 continue
             blocks.append(paragraph_block(_day_header(day, day_events), bold=True))
             for ev in day_events:
+                # Per-event thumbnail (small image_url) above the event title
+                if ev.get("image_url"):
+                    blocks.append(image_block(ev["image_url"]))
                 blocks.append(weekend_event_paragraph(ev))
                 desc = ev.get("description", "")
                 if desc:
