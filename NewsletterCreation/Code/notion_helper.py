@@ -564,6 +564,11 @@ def setup_notion_databases():
             "Event Name":       {"rich_text": {}},
             "Description":      {"rich_text": {}},
             "Date":             {"date": {}},
+            # `Dates` is the human-readable multi-occurrence display
+            # ("May 22nd, 29th, June 5th") for recurring events that the
+            # scraper aggregated under one title. `Date` stays as the
+            # earliest in-window occurrence so date filtering still works.
+            "Dates":            {"rich_text": {}},
             "Time":             {"rich_text": {}},
             "Location":         {"rich_text": {}},
             "Address":          {"rich_text": {}},

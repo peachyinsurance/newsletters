@@ -42,6 +42,7 @@ from ecc_event_webscraper import (  # noqa: E402
     _normalize_title,
     existing_source_urls,
     save_event,
+    format_dates_human,
 )
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
 
@@ -166,9 +167,9 @@ def _normalize_location(location) -> tuple[str, str]:
     return "", ""
 
 
-def fetch_event(url: str, today: date) -> dict | None:
+def fetch_event(url: str, today: date, window_end: date) -> dict | None:
     """Fetch one event detail page and return a normalized event dict
-    (or None if no JSON-LD Event is found)."""
+    (or None if no JSON-LD Event is found or no in-window date exists)."""
     html = _fetch(url)
     if not html:
         return None
@@ -184,23 +185,34 @@ def fetch_event(url: str, today: date) -> dict | None:
             continue
         for item in data.get("@graph", []):
             if isinstance(item, dict) and item.get("@type") == "Event":
-                return _build_event(item, html, url, today)
+                return _build_event(item, html, url, today, window_end)
     return None
 
 
-def _build_event(item: dict, html: str, url: str, today: date) -> dict:
-    start = _parse_iso_date(item.get("startDate", ""))
-    end   = _parse_iso_date(item.get("endDate", ""))
+def _build_event(item: dict, html: str, url: str,
+                 today: date, window_end: date) -> dict | None:
+    """Build an event dict with `all_dates` = the set of every in-window
+    occurrence. Sandy Springs series pages list each upcoming date in the
+    body text ('May 20, May 27, June 3, …'), so for recurring events we
+    collect every one of those that falls in our window, not just the
+    earliest."""
+    json_start = _parse_iso_date(item.get("startDate", ""))
+    json_end   = _parse_iso_date(item.get("endDate", ""))
 
-    # Series pages list the SERIES start in JSON-LD. When that's already
-    # past, scan the body text for the next upcoming occurrence and use
-    # it as the saved date.
-    if start and start < today:
-        body_future = sorted(d for d in _extract_body_dates(html, today) if d >= today)
-        if body_future:
-            start = body_future[0]
-            if end and end < start:
-                end = None
+    # Candidate dates: JSON-LD start (if in window) + body-text dates.
+    candidate_dates: set[date] = set()
+    if json_start and today <= json_start <= window_end:
+        candidate_dates.add(json_start)
+    for d in _extract_body_dates(html, today):
+        if today <= d <= window_end:
+            candidate_dates.add(d)
+
+    if not candidate_dates:
+        return None
+
+    start = min(candidate_dates)
+    end = json_end if (json_end and json_end >= start
+                       and (json_end - start).days <= 1) else None
 
     loc_name, address = _normalize_location(item.get("location"))
     return {
@@ -213,6 +225,7 @@ def _build_event(item: dict, html: str, url: str, today: date) -> dict:
         "time":        "",
         "location":    loc_name,
         "address":     address,
+        "all_dates":   candidate_dates,
     }
 
 
@@ -241,67 +254,52 @@ def main() -> int:
     existing = existing_source_urls(WEEKEND_EVENTS_DB_ID)
     print(f"Dedup: {len(existing)} URLs already in DB\n")
 
-    by_url: dict[str, dict] = {}
-    skipped_past   = 0
-    skipped_future = 0
+    # Group by normalized title so recurring series (one URL, many body
+    # dates) and any duplicate URLs collapse into one Notion row with the
+    # union of all in-window dates.
+    by_name: dict[str, dict] = {}
     skipped_no_data = 0
     for url in urls:
-        ev = fetch_event(url, today)
+        ev = fetch_event(url, today, window_end)
         if not ev:
             skipped_no_data += 1
-            print(f"  · no event data: {url}")
+            print(f"  · no in-window event data: {url}")
             continue
-        sd = ev.get("start_date")
-        if not sd:
+        name_key = _normalize_title(ev["event_name"])
+        if not name_key:
             skipped_no_data += 1
-            print(f"  · no usable date: {ev['event_name'][:60]}")
             continue
-        if sd > window_end:
-            skipped_future += 1
-            continue
-        if sd < today:
-            skipped_past += 1
-            continue
-        prior = by_url.get(url)
-        if prior is None or sd < prior["start_date"]:
-            by_url[url] = ev
+        entry = by_name.get(name_key)
+        if entry is None:
+            by_name[name_key] = ev
+        else:
+            entry["all_dates"] = (entry.get("all_dates") or set()) | (ev.get("all_dates") or set())
+            new_earliest = min(entry["all_dates"])
+            if new_earliest < entry["start_date"]:
+                entry["start_date"] = new_earliest
         time.sleep(0.3)  # be kind to the host between detail-page fetches
 
-    # Name-level dedup so an event also added by a different scraper run
-    # (or listed twice under different slugs) collapses to one row.
-    candidates = sorted(by_url.values(), key=lambda e: e["start_date"] or date.max)
-    seen_names: set[str] = set()
-    deduped: list[dict] = []
-    name_dupes = 0
-    for ev in candidates:
-        key = _normalize_title(ev["event_name"])
-        if not key:
-            continue
-        if key in seen_names:
-            name_dupes += 1
-            continue
-        seen_names.add(key)
-        deduped.append(ev)
-    if name_dupes:
-        print(f"  ↓ Removed {name_dupes} same-name duplicate(s)")
-    candidates = deduped
+    candidates = sorted(by_name.values(), key=lambda e: e["start_date"] or date.max)
 
     inserted = 0
     skipped_existing = 0
-    print(f"\n━━ Saving {len(candidates)} in-window candidate(s) ━━")
+    multi_date = 0
+    print(f"\n━━ Saving {len(candidates)} unique event(s) ━━")
     for ev in candidates:
+        if len(ev.get("all_dates") or {}) > 1:
+            multi_date += 1
         if ev["source_url"] in existing:
             skipped_existing += 1
             continue
         if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER):
             inserted += 1
-            print(f"  ✓ {ev['start_date']}  {ev['event_name'][:60]}")
+            dates_disp = format_dates_human(ev.get("all_dates") or [])
+            print(f"  ✓ {dates_disp or ev['start_date']}  {ev['event_name'][:60]}")
     print()
     print(f"✓ Done. Inserted {inserted}, "
           f"skipped {skipped_existing} existing, "
-          f"{skipped_past} past, "
-          f"{skipped_future} beyond {window_end}, "
-          f"{skipped_no_data} unparseable")
+          f"{skipped_no_data} unparseable  "
+          f"({multi_date} multi-date event(s))")
     return 0
 
 

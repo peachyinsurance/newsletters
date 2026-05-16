@@ -1,15 +1,26 @@
 #!/usr/bin/env python3
-"""Scrape Eventbrite's East-Cobb / Marietta listing for upcoming events
-and save them to the Weekend Events Notion DB tagged East_Cobb_Connect.
+"""Scrape Eventbrite's East-Cobb / Marietta listings for upcoming
+events and save them to the Weekend Events Notion DB tagged
+East_Cobb_Connect.
 
-Eventbrite filters by date right in the URL:
+We walk six category-scoped result pages — each filters Eventbrite's
+catalog to one interest area so generic noise (yoga drop-ins, pricing
+seminars, etc.) doesn't drown out real local events:
 
-    https://www.eventbrite.com/d/ga--marietta/east-cobb/
+    https://www.eventbrite.com/d/ga--marietta/{CATEGORY}/east-cobb/
         ?page=N&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 
-We compute the window dynamically (upcoming Friday → +14 days) and
-paginate via ?page=N using `__SERVER_DATA__.page_count` as the stop
-condition.
+CATEGORY slugs: hobbies--events, charity-and-causes--events,
+sports-and-fitness--events, community--events, performances, networking.
+
+City filter: Eventbrite's geo filter is loose — a "East Cobb" search
+still returns Atlanta, Kennesaw, Powder Springs, Stone Mountain, etc.
+We exclude anything whose venue city isn't Marietta or Sandy Springs
+(case-insensitive). Online-only events (no venue city) are also
+excluded for this reason.
+
+Window: upcoming_friday(today) → +14 days. Sent to Eventbrite directly
+via the URL so we don't paginate through anything outside the window.
 
 Events come from a JSON blob embedded in the HTML:
 
@@ -17,11 +28,10 @@ Events come from a JSON blob embedded in the HTML:
 
 Each result has name, summary, full_description, url, start_date,
 start_time, end_date, end_time, primary_venue (with address), image,
-is_cancelled, is_online_event. We skip cancelled events; online events
-are kept (Featured Event's Claude eval can decide relevance).
+is_cancelled, is_online_event. Cancelled events are skipped.
 
-Shared helpers (_clean_html, _parse_iso_date, _normalize_title,
-existing_source_urls, save_event) are imported from the sibling
+Shared helpers (_clean_html, _normalize_title, existing_source_urls,
+save_event, format_dates_human) are imported from the sibling
 ecc_event_webscraper module so they stay in sync.
 """
 import os
@@ -44,26 +54,38 @@ from ecc_event_webscraper import (  # noqa: E402
     _normalize_title,
     existing_source_urls,
     save_event,
+    format_dates_human,
 )
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
 
 WEEKEND_EVENTS_DB_ID = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
 NEWSLETTER = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
 
-# Base URL fragment up to (but not including) the query string. The
-# locality slug controls geographic filtering; if a different newsletter
-# ever uses this scraper, set EVENTBRITE_LOCALITY env var to its slug
-# (e.g. "ga--atlanta/perimeter").
-EVENTBRITE_LOCALITY = os.environ.get(
-    "EVENTBRITE_LOCALITY", "ga--marietta/east-cobb"
-).strip("/")
-BASE_URL = f"https://www.eventbrite.com/d/{EVENTBRITE_LOCALITY}/"
+# Category-scoped result pages. Each is one URL of the form
+# /d/{LOCALITY_PREFIX}/{CATEGORY}/{LOCALITY_SUFFIX}/?page=N&start=…&end=…
+LOCALITY_PREFIX = "ga--marietta"
+LOCALITY_SUFFIX = "east-cobb"
+EVENTBRITE_CATEGORIES = [
+    "hobbies--events",
+    "charity-and-causes--events",
+    "sports-and-fitness--events",
+    "community--events",
+    "performances",
+    "networking",
+]
+
+# Venue city allow-list. Eventbrite's geo filter is loose — the East
+# Cobb URL still surfaces Atlanta / Kennesaw / Powder Springs events —
+# so we hard-filter on venue.address.city. Case-insensitive match.
+# "East Cobb" is technically part of Marietta but some venues set their
+# city to "East Cobb" directly, so include it explicitly.
+ALLOWED_CITIES = {"marietta", "sandy springs", "east cobb"}
 
 USER_AGENT      = "Mozilla/5.0"
 END_WINDOW_DAYS = 14
 PAGE_SLEEP_SEC  = 0.4   # Be kind to Eventbrite between paginated requests
-# Hard cap on pages walked, in case Eventbrite ever returns a bad
-# page_count or we miss the stop signal. Real queries top out at ~50.
+# Hard cap on pages walked PER CATEGORY, in case Eventbrite ever returns
+# a bad page_count or we miss the stop signal.
 MAX_PAGES_HARD_CAP = 100
 
 
@@ -114,11 +136,18 @@ def _parse_server_data(html: str) -> dict:
         return {}
 
 
-def fetch_page(start: date, end: date, page: int) -> tuple[list[dict], int]:
-    """Return (events_on_page, page_count) for a single Eventbrite results page.
-    page_count is the total number of pages Eventbrite reports for this query."""
-    url = (f"{BASE_URL}?page={page}"
-           f"&start_date={start.isoformat()}&end_date={end.isoformat()}")
+def _build_url(category: str, start: date, end: date, page: int) -> str:
+    return (f"https://www.eventbrite.com/d/"
+            f"{LOCALITY_PREFIX}/{category}/{LOCALITY_SUFFIX}/"
+            f"?page={page}&start_date={start.isoformat()}&end_date={end.isoformat()}")
+
+
+def fetch_page(category: str, start: date, end: date,
+               page: int) -> tuple[list[dict], int]:
+    """Return (events_on_page, page_count) for one category's Eventbrite
+    results page. page_count is what Eventbrite reports for that
+    category in this date window."""
+    url = _build_url(category, start, end, page)
     html = _fetch(url)
     if not html:
         return [], 0
@@ -133,22 +162,25 @@ def fetch_page(start: date, end: date, page: int) -> tuple[list[dict], int]:
 # ---------------------------------------------------------------------------
 # Normalize an Eventbrite event dict → our standard event shape
 # ---------------------------------------------------------------------------
-def _venue_fields(venue) -> tuple[str, str]:
+def _venue_fields(venue) -> tuple[str, str, str]:
+    """Return (venue_name, address_display, city) from an Eventbrite
+    primary_venue dict. Empty strings if any field is missing."""
     if not isinstance(venue, dict):
-        return "", ""
+        return "", "", ""
     name = _clean_html(venue.get("name", "") or "")
     addr = venue.get("address") or {}
-    if isinstance(addr, dict):
-        display = addr.get("localized_address_display", "") or ""
-        if not display:
-            display = ", ".join(p for p in (
-                addr.get("address_1", ""),
-                addr.get("city", ""),
-                addr.get("region", ""),
-                addr.get("postal_code", ""),
-            ) if p)
-        return name, _clean_html(display)
-    return name, ""
+    if not isinstance(addr, dict):
+        return name, "", ""
+    city = (addr.get("city") or "").strip()
+    display = addr.get("localized_address_display", "") or ""
+    if not display:
+        display = ", ".join(p for p in (
+            addr.get("address_1", ""),
+            city,
+            addr.get("region", ""),
+            addr.get("postal_code", ""),
+        ) if p)
+    return name, _clean_html(display), city
 
 
 def _format_time(start_time: str, end_time: str) -> str:
@@ -198,7 +230,7 @@ def normalize_event(raw: dict) -> dict | None:
     if not url or not name or not start:
         return None
     end = _parse_date(raw.get("end_date", "")) or start
-    venue_name, address = _venue_fields(raw.get("primary_venue"))
+    venue_name, address, city = _venue_fields(raw.get("primary_venue"))
     description = _clean_html(
         raw.get("full_description") or raw.get("summary") or ""
     )[:2000]
@@ -212,6 +244,7 @@ def normalize_event(raw: dict) -> dict | None:
         "time":        _format_time(raw.get("start_time", ""), raw.get("end_time", "")),
         "location":    venue_name,
         "address":     address,
+        "city":        city,
     }
 
 
@@ -228,87 +261,96 @@ def main() -> int:
     end   = start + timedelta(days=END_WINDOW_DAYS)
 
     print("Eventbrite scraper")
-    print(f"  Locality:       {EVENTBRITE_LOCALITY}")
+    print(f"  → Categories:   {len(EVENTBRITE_CATEGORIES)}  ({', '.join(EVENTBRITE_CATEGORIES)})")
+    print(f"  → City filter:  {sorted(ALLOWED_CITIES)}")
     print(f"  → Notion DB:    {WEEKEND_EVENTS_DB_ID[:8]}…")
     print(f"  → Newsletter:   {NEWSLETTER}")
     print(f"  → Date filter:  {start} → {end}  (sent to Eventbrite directly)")
-    print(f"  → URL pattern:  {BASE_URL}?page=N&start_date={start}&end_date={end}")
     print()
 
     existing = existing_source_urls(WEEKEND_EVENTS_DB_ID)
     print(f"Dedup: {len(existing)} URLs already in DB\n")
 
-    # Collect: best occurrence per URL (Eventbrite returns recurring events
-    # as separate results, each with its own date — keep the earliest).
-    by_url: dict[str, dict] = {}
+    # Group by normalized title across ALL categories. Eventbrite lists
+    # each occurrence of a recurring event as a separate result with its
+    # own URL and date — same name across them. Grouping on name
+    # collapses them into one Notion row with `all_dates` = every
+    # in-window occurrence.
+    by_name: dict[str, dict] = {}
     skipped_cancelled = 0
     skipped_no_data   = 0
+    skipped_city      = 0
 
-    # First page also tells us page_count.
-    events, page_count = fetch_page(start, end, 1)
-    if not events and page_count == 0:
-        print("  ✗ No events on page 1 (or __SERVER_DATA__ missing) — aborting")
-        return 0
-    print(f"  Eventbrite reports {page_count} page(s)")
-    total_pages = min(page_count or 1, MAX_PAGES_HARD_CAP)
-    if page_count > MAX_PAGES_HARD_CAP:
-        print(f"  ⚠ Capping at MAX_PAGES_HARD_CAP={MAX_PAGES_HARD_CAP}")
-
-    for page in range(1, total_pages + 1):
-        if page > 1:
-            time.sleep(PAGE_SLEEP_SEC)
-            events, _ = fetch_page(start, end, page)
-            if not events:
-                print(f"  [page {page}] no events returned — stopping early")
-                break
-        print(f"  [page {page}/{total_pages}] {len(events)} events")
-        for raw in events:
-            if raw.get("is_cancelled"):
-                skipped_cancelled += 1
-                continue
-            ev = normalize_event(raw)
-            if not ev:
-                skipped_no_data += 1
-                continue
-            url = ev["source_url"]
-            prior = by_url.get(url)
-            if prior is None or ev["start_date"] < prior["start_date"]:
-                by_url[url] = ev
-
-    # Name-level dedup (Eventbrite occasionally lists the same event
-    # under multiple URLs when an organizer reposts).
-    candidates = sorted(by_url.values(), key=lambda e: e["start_date"])
-    seen_names: set[str] = set()
-    deduped: list[dict] = []
-    name_dupes = 0
-    for ev in candidates:
-        key = _normalize_title(ev["event_name"])
-        if not key:
+    for category in EVENTBRITE_CATEGORIES:
+        print(f"━━ category: {category} ━━")
+        events, page_count = fetch_page(category, start, end, 1)
+        if not events and page_count == 0:
+            print(f"  · no events / __SERVER_DATA__ missing — skipping category")
+            print()
             continue
-        if key in seen_names:
-            name_dupes += 1
-            continue
-        seen_names.add(key)
-        deduped.append(ev)
-    if name_dupes:
-        print(f"  ↓ Removed {name_dupes} same-name duplicate(s)")
-    candidates = deduped
+        total_pages = min(page_count or 1, MAX_PAGES_HARD_CAP)
+        if page_count > MAX_PAGES_HARD_CAP:
+            print(f"  ⚠ {page_count} pages reported, capping at {MAX_PAGES_HARD_CAP}")
+        print(f"  Eventbrite reports {page_count} page(s)")
+
+        for page in range(1, total_pages + 1):
+            if page > 1:
+                time.sleep(PAGE_SLEEP_SEC)
+                events, _ = fetch_page(category, start, end, page)
+                if not events:
+                    print(f"  [page {page}] no events returned — stopping early")
+                    break
+            kept_this_page = 0
+            for raw in events:
+                if raw.get("is_cancelled"):
+                    skipped_cancelled += 1
+                    continue
+                ev = normalize_event(raw)
+                if not ev:
+                    skipped_no_data += 1
+                    continue
+                if (ev.get("city") or "").strip().lower() not in ALLOWED_CITIES:
+                    skipped_city += 1
+                    continue
+                name_key = _normalize_title(ev["event_name"])
+                if not name_key:
+                    continue
+                kept_this_page += 1
+                entry = by_name.get(name_key)
+                if entry is None:
+                    ev["all_dates"] = {ev["start_date"]}
+                    by_name[name_key] = ev
+                else:
+                    entry["all_dates"].add(ev["start_date"])
+                    if ev["start_date"] < entry["start_date"]:
+                        entry["start_date"] = ev["start_date"]
+            print(f"  [page {page}/{total_pages}] {len(events)} events  "
+                  f"({kept_this_page} after city filter)")
+        print()
+
+    candidates = sorted(by_name.values(), key=lambda e: e["start_date"])
 
     inserted = 0
     skipped_existing = 0
-    print(f"\n━━ Saving {len(candidates)} in-window candidate(s) ━━")
+    multi_date = 0
+    print(f"━━ Saving {len(candidates)} unique event(s) ━━")
     for ev in candidates:
+        if len(ev.get("all_dates") or {}) > 1:
+            multi_date += 1
         if ev["source_url"] in existing:
             skipped_existing += 1
             continue
         if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER):
             inserted += 1
-            print(f"  ✓ {ev['start_date']}  {ev['event_name'][:60]}")
+            dates_disp = format_dates_human(ev.get("all_dates") or [])
+            print(f"  ✓ {dates_disp or ev['start_date']}  {ev['event_name'][:60]}  ({ev.get('city','?')})")
     print()
     print(f"✓ Done. Inserted {inserted}, "
           f"skipped {skipped_existing} existing, "
+          f"{skipped_city} wrong city, "
           f"{skipped_cancelled} cancelled, "
-          f"{skipped_no_data} unparseable")
+          f"{skipped_no_data} unparseable  "
+          f"({multi_date} multi-date event(s))")
     return 0
 
 

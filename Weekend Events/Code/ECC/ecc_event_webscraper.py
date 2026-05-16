@@ -149,6 +149,37 @@ def _clean_html(s: str) -> str:
     return s
 
 
+def format_dates_human(dates) -> str:
+    """Format an iterable of date objects as 'May 22nd, 29th, June 5th'.
+    Groups consecutive same-month entries under one month name and adds
+    English ordinal suffixes to the day numbers."""
+    seen = sorted(set(d for d in dates if d))
+    if not seen:
+        return ""
+
+    def _ord(n: int) -> str:
+        suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+        return f"{n}{suffix}"
+
+    chunks: list[str] = []
+    cur_key: tuple[int, int] | None = None
+    cur_month_name = ""
+    cur_days: list[str] = []
+    for d in seen:
+        key = (d.year, d.month)
+        if key != cur_key:
+            if cur_days:
+                chunks.append(f"{cur_month_name} {', '.join(cur_days)}")
+            cur_key = key
+            cur_month_name = d.strftime("%B")
+            cur_days = [_ord(d.day)]
+        else:
+            cur_days.append(_ord(d.day))
+    if cur_days:
+        chunks.append(f"{cur_month_name} {', '.join(cur_days)}")
+    return ", ".join(chunks)
+
+
 def _normalize_title(t: str) -> str:
     """Lowercased, punctuation-stripped title key used for cross-source
     dedup. 'Marietta Greek Festival 2026' and 'The Marietta Greek
@@ -240,6 +271,12 @@ def existing_source_urls(db_id: str) -> set[str]:
 def save_event(db_id: str, ev: dict, newsletter: str) -> bool:
     if not ev.get("source_url"):
         return False
+    # `dates_display` is the human-readable multi-occurrence string for
+    # recurring events ("May 22nd, 29th, June 5th"). If the caller didn't
+    # populate it but did populate `all_dates`, format on the fly.
+    dates_display = ev.get("dates_display") or ""
+    if not dates_display and ev.get("all_dates"):
+        dates_display = format_dates_human(ev["all_dates"])
     body = {
         "parent": {"database_id": db_id},
         "properties": {
@@ -251,6 +288,7 @@ def save_event(db_id: str, ev: dict, newsletter: str) -> bool:
             "Location":     {"rich_text": [{"text": {"content": ev["location"][:200]}}]},
             "Address":      {"rich_text": [{"text": {"content": ev["address"][:200]}}]},
             "Time":         {"rich_text": [{"text": {"content": ev["time"][:80]}}]},
+            "Dates":        {"rich_text": [{"text": {"content": dates_display[:500]}}]},
             "Newsletter":   {"select": {"name": newsletter}},
             "Status":       {"select": {"name": "pending"}},
             "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
@@ -304,12 +342,17 @@ def main() -> int:
     # Track every (url, date) occurrence we've evaluated this run, across
     # sources and pages. Used both for wrap detection (server redirecting
     # over-range page numbers to a valid page) and to avoid double-
-    # processing the same occurrence listed on both sites.
+    # processing the same occurrence.
     seen_occurrences: set[tuple[str, str]] = set()
 
-    # One row per URL — the earliest in-window occurrence wins. Built up
-    # across all sources, then saved at the end.
-    by_url: dict[str, dict] = {}
+    # GROUP BY NORMALIZED TITLE. Each entry: the first-seen event dict
+    # (source-order priority for URL/image/venue) plus `all_dates` — the
+    # set of every in-window occurrence seen across pages AND sources.
+    # That collapses both
+    #   (a) recurring events (Acworth Farmers Market every Friday), and
+    #   (b) cross-source duplicates (same event on travelcobb + visitmariettaga)
+    # into one row tagged with every date it happens.
+    by_name: dict[str, dict] = {}
 
     skipped_past   = 0
     skipped_future = 0
@@ -328,7 +371,8 @@ def main() -> int:
                 ev = normalize_event(raw)
                 url = ev.get("source_url", "")
                 sd  = ev.get("start_date")
-                if not url or not sd:
+                name = ev.get("event_name", "")
+                if not url or not sd or not name:
                     continue
                 key = (url, sd.isoformat())
                 if key in seen_occurrences:
@@ -342,10 +386,23 @@ def main() -> int:
                 if sd < today:
                     skipped_past += 1
                     continue
-                # In window — keep the earliest occurrence for this URL.
-                existing_ev = by_url.get(url)
-                if existing_ev is None or sd < existing_ev["start_date"]:
-                    by_url[url] = ev
+                # In window — group under normalized title.
+                name_key = _normalize_title(name)
+                if not name_key:
+                    continue
+                entry = by_name.get(name_key)
+                if entry is None:
+                    # First sighting of this event title: seed with this
+                    # listing's metadata + a fresh date set.
+                    ev["all_dates"] = {sd}
+                    by_name[name_key] = ev
+                else:
+                    entry["all_dates"].add(sd)
+                    # If this occurrence is earlier than the previous
+                    # primary, promote it to start_date (used as the
+                    # Notion `Date` field for filter/sort).
+                    if sd < entry["start_date"]:
+                        entry["start_date"] = sd
             print(f"  [page {page}] {len(events)} listings  "
                   f"({new_occurrences} new occurrences)")
             # Stop conditions:
@@ -365,53 +422,31 @@ def main() -> int:
             page += 1
         print()
 
-    # Sort candidates by start_date for a readable insert log. Sorting
-    # before cross-source dedup means the earliest-dated copy of any
-    # duplicate event wins (relevant when the same event has slightly
-    # different start_dates on the two sites — e.g. multi-day events).
-    candidates = sorted(by_url.values(),
+    # Sort by earliest occurrence for a readable insert log.
+    candidates = sorted(by_name.values(),
                         key=lambda e: e["start_date"] or date.max)
-
-    # Cross-source name dedup: the same event is often listed on multiple
-    # sources with different URLs AND sometimes different start_dates
-    # (one site lists the opening night, the other lists the run's last
-    # day, etc.). Group by normalized event name only and keep the first
-    # copy. Because `candidates` is sorted by start_date ascending, the
-    # earliest in-window occurrence of each event wins.
-    seen_names: set[str] = set()
-    deduped: list[dict] = []
-    cross_source_dupes = 0
-    for ev in candidates:
-        name_key = _normalize_title(ev.get("event_name", ""))
-        if not name_key:
-            continue
-        if name_key in seen_names:
-            cross_source_dupes += 1
-            continue
-        seen_names.add(name_key)
-        deduped.append(ev)
-    if cross_source_dupes:
-        print(f"  ↓ Removed {cross_source_dupes} cross-source duplicate(s) "
-              f"(same event name, different URL)")
-    candidates = deduped
 
     inserted = 0
     skipped_existing = 0
-    print(f"━━ Saving {len(candidates)} in-window candidates ━━")
+    multi_date = 0
+    print(f"━━ Saving {len(candidates)} unique event(s) ━━")
     for ev in candidates:
+        if len(ev.get("all_dates") or {}) > 1:
+            multi_date += 1
         url = ev["source_url"]
         if url in existing:
             skipped_existing += 1
             continue
         if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER):
             inserted += 1
-            print(f"  ✓ {ev['start_date']}  {ev['event_name'][:60]}")
+            dates_disp = format_dates_human(ev.get("all_dates") or [])
+            print(f"  ✓ {dates_disp or ev['start_date']}  {ev['event_name'][:60]}")
     print()
     print(f"✓ Done. Inserted {inserted}, "
           f"skipped {skipped_existing} existing, "
           f"{skipped_past} past, "
-          f"{skipped_future} beyond {window_end}, "
-          f"{cross_source_dupes} cross-source dupes")
+          f"{skipped_future} beyond {window_end}  "
+          f"({multi_date} multi-date event(s))")
     return 0
 
 
