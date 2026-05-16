@@ -29,6 +29,7 @@ import json
 import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urljoin
 
 import requests
 
@@ -215,11 +216,17 @@ def _build_event(item: dict, html: str, url: str,
                        and (json_end - start).days <= 1) else None
 
     loc_name, address = _normalize_location(item.get("location"))
+    # Sandy Springs' JSON-LD frequently uses host-relative image paths
+    # like "/imager/cmsimages/…". Absolutize against the source URL so
+    # downstream consumers (header builder, GIF maker) can fetch them.
+    image_url = _normalize_image(item.get("image"))
+    if image_url:
+        image_url = urljoin(url, image_url)
     return {
         "event_name":  _clean_html(item.get("name", "")),
         "description": _clean_html(item.get("description", ""))[:2000],
         "source_url":  url,
-        "image_url":   _normalize_image(item.get("image")),
+        "image_url":   image_url,
         "start_date":  start,
         "end_date":    end,
         "time":        "",

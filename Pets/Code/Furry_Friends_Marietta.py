@@ -33,6 +33,14 @@ RESCUEGROUPS_API_KEY = os.environ.get("RESCUE_GROUP_API_KEY", "")
 SKILL_PROMPT_PATH    = Path(__file__).parent.parent.parent / "Skills" / "newsletter-pet-adoption-skill_auto.md"
 
 RESCUEGROUPS_API_BASE = "https://api.rescuegroups.org/v5/public"
+
+# Per-newsletter pet-source override. Newsletters in this map skip the
+# default RescueGroups ORG_PLAN path and pull from a custom scraper —
+# used when the local shelter doesn't syndicate to RescueGroups (e.g.
+# Lewisville Animal Services uses Petango directly).
+CUSTOM_PET_SOURCES = {
+    "Lewisville_Lake_Lookout": "lewisville",
+}
 RESCUEGROUPS_SEARCH_RADIUS_MILES = 25
 RESCUEGROUPS_PAGE_LIMIT = 8   # how many pages to fetch (8 × 25 = 200 candidates)
 RESCUEGROUPS_TIMEOUT = 30
@@ -618,10 +626,23 @@ if __name__ == "__main__":
         print(f"Processing: {newsletter['name']}")
         print(f"{'='*60}")
 
-        all_cats = fetch_pets_via_rescuegroups("Cat", approved_urls,
-                                               target=TARGET_PER_SPECIES)
-        all_dogs = fetch_pets_via_rescuegroups("Dog", approved_urls,
-                                               target=TARGET_PER_SPECIES)
+        # Per-newsletter source dispatch. Default is RescueGroups; a
+        # newsletter in CUSTOM_PET_SOURCES uses its named scraper instead.
+        source = CUSTOM_PET_SOURCES.get(newsletter["name"])
+        if source == "lewisville":
+            from lewisville_scraper import fetch_lewisville_pets
+            print(f"  Source: Lewisville Animal Services (Petango)")
+            ll = fetch_lewisville_pets(
+                target_per_species=TARGET_PER_SPECIES,
+                exclude_urls=approved_urls,
+            )
+            all_cats = ll.get("cat", [])
+            all_dogs = ll.get("dog", [])
+        else:
+            all_cats = fetch_pets_via_rescuegroups("Cat", approved_urls,
+                                                   target=TARGET_PER_SPECIES)
+            all_dogs = fetch_pets_via_rescuegroups("Dog", approved_urls,
+                                                   target=TARGET_PER_SPECIES)
 
         print(f"\nTotal cats: {len(all_cats)}")
         print(f"Total dogs: {len(all_dogs)}")
