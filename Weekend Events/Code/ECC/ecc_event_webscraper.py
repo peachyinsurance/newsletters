@@ -302,18 +302,29 @@ def save_event(db_id: str, ev: dict, newsletter: str) -> bool:
 
     r = requests.post("https://api.notion.com/v1/pages",
                       headers=NOTION_HEADERS, json=body, timeout=30)
+    # Schema-mismatch self-heal: when a column we're trying to write doesn't
+    # exist in this DB yet, Notion returns 400 with a message naming the
+    # property. Drop it and retry. Loop because Notion only reports one
+    # missing property per response, so multiple missing props need multiple
+    # rounds. Hard cap on attempts so a real failure doesn't spin forever.
+    attempts = 0
+    while not r.ok and r.status_code == 400 and "is not a property that exists" in r.text and attempts < 5:
+        attempts += 1
+        # Try backticked form first (older Notion responses), then plain.
+        m = (re.search(r"`([^`]+)` is not a property", r.text)
+             or re.search(r'"message":"([^"]+?) is not a property', r.text))
+        if not m:
+            break
+        bad_prop = m.group(1)
+        if bad_prop not in body["properties"]:
+            break   # already removed; can't recover
+        print(f"    ⚠ dropping unknown Notion property '{bad_prop}' and retrying")
+        body["properties"].pop(bad_prop, None)
+        r = requests.post("https://api.notion.com/v1/pages",
+                          headers=NOTION_HEADERS, json=body, timeout=30)
     if not r.ok:
-        # On schema mismatch, try dropping the offending property
-        msg = r.text[:300]
-        if r.status_code == 400 and "is not a property that exists" in msg:
-            bad = re.search(r"`([^`]+)` is not a property", msg)
-            if bad:
-                body["properties"].pop(bad.group(1), None)
-                r = requests.post("https://api.notion.com/v1/pages",
-                                  headers=NOTION_HEADERS, json=body, timeout=30)
-        if not r.ok:
-            print(f"    ✗ save failed: {r.status_code} {r.text[:200]}")
-            return False
+        print(f"    ✗ save failed: {r.status_code} {r.text[:200]}")
+        return False
     return True
 
 
