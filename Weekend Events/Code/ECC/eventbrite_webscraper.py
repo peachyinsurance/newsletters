@@ -83,7 +83,8 @@ ALLOWED_CITIES = {"marietta", "sandy springs", "east cobb"}
 
 USER_AGENT      = "Mozilla/5.0"
 END_WINDOW_DAYS = 14
-PAGE_SLEEP_SEC  = 0.4   # Be kind to Eventbrite between paginated requests
+PAGE_SLEEP_SEC      = 0.6   # between paginated requests within a category
+CATEGORY_SLEEP_SEC  = 2.0   # between category transitions (heavier pause)
 # Hard cap on pages walked PER CATEGORY, in case Eventbrite ever returns
 # a bad page_count or we miss the stop signal.
 MAX_PAGES_HARD_CAP = 100
@@ -107,8 +108,11 @@ def _fetch(url: str) -> str:
             continue
         if r.status_code == 200 and r.text:
             return r.text
-        if r.status_code in (202, 429, 503) and attempt < 2:
-            wait = 3 * (attempt + 1)
+        # 405 is what Eventbrite returns when its rate-limiter trips on
+        # a burst of category-pagination requests (same as 429 elsewhere).
+        # Treat as retryable with a longer-than-usual backoff.
+        if r.status_code in (202, 405, 429, 503) and attempt < 2:
+            wait = 5 * (attempt + 1)
             print(f"    HTTP {r.status_code} — retry {attempt + 1}/3 in {wait}s")
             time.sleep(wait)
             continue
@@ -281,7 +285,11 @@ def main() -> int:
     skipped_no_data   = 0
     skipped_city      = 0
 
-    for category in EVENTBRITE_CATEGORIES:
+    for cat_idx, category in enumerate(EVENTBRITE_CATEGORIES):
+        if cat_idx > 0:
+            # Cool-down between categories — Eventbrite's rate-limiter
+            # responds with HTTP 405 to burst traffic across categories.
+            time.sleep(CATEGORY_SLEEP_SEC)
         print(f"━━ category: {category} ━━")
         events, page_count = fetch_page(category, start, end, 1)
         if not events and page_count == 0:
