@@ -588,19 +588,57 @@ if __name__ == "__main__":
                 blob = f"{c.get('title','')} {c.get('url','')}".lower()
                 return any(m in blob for m in LISTICLE_MARKERS)
 
-            # Unified handling: every aggregator URL gets expanded. This
-            # covers both multi-event listicles and "single-event" articles
-            # whose pages also link to several related/sibling events.
-            # If expansion yields nothing we keep the original aggregator
-            # URL so the date filter and Claude still see the candidate.
+            # URL-path patterns that indicate the page is a NEWS/CATEGORY/
+            # ARCHIVE/HOMEPAGE — never a listicle of events. We refuse to
+            # expand these (would flood the pool with sidebar widgets and
+            # unrelated news headlines).
+            NON_LISTICLE_URL_PATTERNS = (
+                "/tag/", "/tags/", "/category/", "/categories/",
+                "/author/", "/authors/", "/archives/", "/archive/",
+                "/business/listing/", "/businesses/",
+                "/news/local",      # patch / mdj generic news landing
+                "/news/police",
+                "/news/crime",
+            )
+
+            def _looks_like_landing_or_archive(url: str) -> bool:
+                """Detect URLs that are clearly NOT a listicle of events:
+                tag archives, category pages, business directories, news
+                landing pages, or bare-host homepages.
+                """
+                from urllib.parse import urlparse as _up
+                p = _up(url)
+                path = (p.path or "").lower().rstrip("/")
+                if not path or path == "":
+                    return True   # bare homepage like https://mdjonline.com/
+                if any(pat in path for pat in NON_LISTICLE_URL_PATTERNS):
+                    return True
+                return False
+
+            # Only expand candidates whose TITLE or URL says "this is a
+            # listicle" (via _is_listicle), AND skip URLs that look like
+            # landing/archive pages. Otherwise keep the candidate as-is.
             expanded_count = 0
             expanded_total_links = 0
             kept_original = 0
+            skipped_landing = 0
             keep_pool = []
             for c in new_pool:
                 url = c.get("url", "")
                 if is_aggregator_url(url):
-                    print(f"  ↳ aggregator detected, expanding: {url}")
+                    if _looks_like_landing_or_archive(url):
+                        skipped_landing += 1
+                        print(f"  ↳ aggregator landing/archive (not a listicle), keeping as single: {url}")
+                        keep_pool.append(c)
+                        continue
+                    if not _is_listicle(c):
+                        # Aggregator but not obviously a listicle — keep as
+                        # a single candidate. Date filter handles the rest.
+                        kept_original += 1
+                        print(f"  ↳ aggregator (not a listicle), keeping as single: {url}")
+                        keep_pool.append(c)
+                        continue
+                    print(f"  ↳ listicle detected, expanding: {url}")
                     expanded = expand_listicle(url, listicle_title=c.get("title", ""))
                     if expanded:
                         expanded_count += 1
@@ -616,9 +654,11 @@ if __name__ == "__main__":
                     keep_pool.append(c)
             new_pool = keep_pool
             if expanded_count:
-                print(f"  ↳ expanded {expanded_count} aggregator pages into {expanded_total_links} new candidates")
+                print(f"  ↳ expanded {expanded_count} listicle(s) into {expanded_total_links} new candidates")
             if kept_original:
                 print(f"  ↳ kept {kept_original} aggregator candidates with original URL (no expansion)")
+            if skipped_landing:
+                print(f"  ↳ skipped {skipped_landing} landing/archive aggregator URL(s)")
 
             # Date-floor filter — scan title + summary + article body
             # (always present for aggregator candidates) + primary_text
