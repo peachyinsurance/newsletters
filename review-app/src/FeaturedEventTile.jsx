@@ -8,6 +8,14 @@ export default function FeaturedEventTile({event, onApprove, approving, approved
     return (
         <div className={`tile ${localStatus === "approved" ? "approved" : localStatus === "rejected" ? "rejected" : ""}`}>
         {localStatus === "approved" && <div className="tile-badge">✓ Approved</div>}
+        {event.image_url && (
+            <img
+                className="tile-image"
+                src={event.image_url}
+                alt={event.event_name || "Event image"}
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
+            />
+        )}
         <div className="tile-body">
             <div className = "tile-meta">
                 {event.date && <span>📅 {event.date}</span>}
@@ -31,7 +39,6 @@ export default function FeaturedEventTile({event, onApprove, approving, approved
                     <ul>{bullets.map((b,i) => <li key={i}>{b}</li>)}</ul>
                 </div>
             )}
-            <div className = "tile-blurb">{event.blurb}</div>
             <div className = "tile-info">
                 {event.venue     && <div>📍 {event.venue}</div>}
                 {event.source_url && <a className="tile-link" href = {event.source_url} target = "_blank" rel="noreferrer">View event details →</a>}

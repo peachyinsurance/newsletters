@@ -141,6 +141,7 @@ def export_events():
             "uniqueness_score":      str(extract_text(props.get("Uniqueness Score", {}))),
             "audience_match_score":  str(extract_text(props.get("Audience Match Score", {}))),
             "scoring_notes":         extract_text(props.get("Scoring Notes", {})),
+            "image_url":             extract_text(props.get("Image URL", {})),
             "default_winner":        "yes" if extract_text(props.get("Default Winner", {})) else "",
         })
 
