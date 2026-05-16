@@ -34,48 +34,44 @@ TITLE_FILL = (255, 255, 255)        # white text reads cleanly on red bg
 # Acceptable detection colors for the placeholder we want to mask out.
 # Sky:  pale blue (~ R<235, G>200, B>220, B>=R)
 # Grass: muted green (~ G dominant)
-def _build_blob_mask(template_rgb: Image.Image) -> Image.Image:
-    """Return an L-mode mask: 255 where the template's placeholder photo
-    (sky+grass blob) lives, 0 elsewhere. Pure-Pillow (no numpy) so the
-    GitHub Actions runner doesn't need extra wheels.
+# Chroma-key color used inside the blob in the template.
+# Default: pure magenta (#FF00FF) — pick whichever solid you used in Canva.
+# If you switch to green-screen green (#00FF00) etc., just change these.
+CHROMA_KEY_RGB    = (255, 0, 255)
+CHROMA_TOLERANCE  = 30   # per-channel slack to absorb anti-aliased edge pixels
 
-    Detection:
-      sky   ≈ pale blue (B > R, G > 200, R < 235)
-      grass ≈ muted green (G > R and G > B and R < 220)
+
+def _build_blob_mask(template_rgb: Image.Image) -> Image.Image:
+    """Return an L-mode mask: 255 where the chroma-key color lives inside
+    the blob bounding box, 0 elsewhere.
+
+    Pure-Pillow. Works against a solid-fill placeholder color
+    (e.g., #FF00FF magenta) — far more reliable than the old multi-color
+    sky/cloud/grass detection.
     """
     R, G, B = template_rgb.split()
+    kr, kg, kb = CHROMA_KEY_RGB
+    tol = CHROMA_TOLERANCE
 
-    # Helper: build a binary L-mask where `op(p)` is True
-    def _binmask(channel: Image.Image, lo: int, hi: int) -> Image.Image:
-        # point() returns 0/255 per pixel based on threshold
+    def _within(channel: Image.Image, target: int) -> Image.Image:
+        lo, hi = max(0, target - tol), min(255, target + tol)
         return channel.point(lambda p, lo=lo, hi=hi: 255 if lo <= p <= hi else 0)
 
-    # Sky candidates
-    sky_R = _binmask(R, 150, 234)
-    sky_G = _binmask(G, 201, 255)
-    sky_B = _binmask(B, 221, 255)
-    sky   = ImageChops.multiply(ImageChops.multiply(sky_R, sky_G), sky_B)
+    mask = ImageChops.multiply(
+        ImageChops.multiply(_within(R, kr), _within(G, kg)),
+        _within(B, kb),
+    )
 
-    # Grass: G > R and G > B (use ImageChops.subtract; result>0 ⇒ True)
-    g_minus_r = ImageChops.subtract(G, R)            # >0 where G>R
-    g_minus_b = ImageChops.subtract(G, B)            # >0 where G>B
-    g_gt_r    = g_minus_r.point(lambda p: 255 if p > 0 else 0)
-    g_gt_b    = g_minus_b.point(lambda p: 255 if p > 0 else 0)
-    g_min     = _binmask(G, 171, 255)
-    r_low     = _binmask(R, 0, 219)
-    grass     = ImageChops.multiply(ImageChops.multiply(g_gt_r, g_gt_b),
-                                    ImageChops.multiply(g_min, r_low))
-
-    mask = ImageChops.lighter(sky, grass)            # union (sky OR grass)
-
-    # Restrict to the blob bounding box — kills false positives elsewhere
-    # (e.g. the bottom-right "EAST COBB" badge contains light pixels too).
+    # Restrict to blob bbox — kills any stray pixels of the key color
+    # elsewhere on the template (logo, decorations, etc.).
     bbox_mask = Image.new("L", template_rgb.size, 0)
     ImageDraw.Draw(bbox_mask).rectangle(BLOB_BBOX, fill=255)
     mask = ImageChops.multiply(mask, bbox_mask)
 
-    # Smooth a hair so the edge blends with the dark blob outline.
-    return mask.filter(ImageFilter.GaussianBlur(radius=1.2))
+    # Small dilation + blur to swallow any 1-2px anti-aliased edge ring
+    # between the chroma fill and the blob outline.
+    mask = mask.filter(ImageFilter.MaxFilter(size=3))
+    return mask.filter(ImageFilter.GaussianBlur(radius=1.0))
 
 
 def _load_font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:

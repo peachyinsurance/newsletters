@@ -46,22 +46,22 @@ jobs:
           NEWSLETTER:               ${{ github.event.inputs.newsletter || 'all' }}
         run: python "Featured Event/Code/Featured_Event.py"
 
-      - name: Publish header previews to gh-pages
+      - name: Publish header previews + event GIFs to gh-pages
         if: ${{ always() }}
         run: |
           set -e
           shopt -s nullglob
-          imgs=("Beehiiv/Code/output/Newsletter_Header_image_"*.png)
-          if [ ${#imgs[@]} -eq 0 ]; then
-            echo "No header previews to publish"
+          pngs=("Beehiiv/Code/output/Newsletter_Header_image_"*.png)
+          gifs=("Beehiiv/Code/output/event_gif_"*.gif)
+          if [ ${#pngs[@]} -eq 0 ] && [ ${#gifs[@]} -eq 0 ]; then
+            echo "No header previews or event GIFs to publish"
             exit 0
           fi
-          # Copy PNGs to /tmp (outside the working tree) so the gh-pages
-          # branch switch doesn't wipe them.
-          mkdir -p /tmp/header_previews
-          cp "${imgs[@]}" /tmp/header_previews/
-          count=$(ls /tmp/header_previews | wc -l)
-          echo "Staged $count PNG(s) to /tmp"
+          mkdir -p /tmp/event_assets
+          [ ${#pngs[@]} -gt 0 ] && cp "${pngs[@]}" /tmp/event_assets/
+          [ ${#gifs[@]} -gt 0 ] && cp "${gifs[@]}" /tmp/event_assets/
+          count=$(ls /tmp/event_assets | wc -l)
+          echo "Staged $count asset(s) to /tmp"
 
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -69,14 +69,14 @@ jobs:
           git fetch origin gh-pages
           git checkout gh-pages
           mkdir -p gifs
-          cp /tmp/header_previews/*.png gifs/
+          cp /tmp/event_assets/* gifs/
           git add gifs/
           if git diff --staged --quiet; then
-            echo "No new header previews to publish"
+            echo "No new assets to publish"
           else
-            git commit -m "publish featured-event header previews [skip ci]"
+            git commit -m "publish featured-event assets [skip ci]"
             git push origin gh-pages
-            echo "✓ Published $count header preview(s) to gh-pages/gifs/"
+            echo "✓ Published $count asset(s) to gh-pages/gifs/"
           fi
           git checkout main
           git stash pop || true

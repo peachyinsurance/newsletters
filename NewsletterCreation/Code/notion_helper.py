@@ -391,6 +391,7 @@ def setup_notion_databases():
             "Image URL":              {"url": {}},
             "Image Candidates":       {"rich_text": {}},
             "Header Image URL":       {"url": {}},
+            "GIF URL":                {"url": {}},
             "Default Winner":         {"checkbox": {}},
             "Manually Edited":        {"checkbox": {}},
         }
@@ -1298,6 +1299,7 @@ def save_events_to_notion(results: list, newsletter_name: str) -> None:
             "Image URL":             {"url": data.get("image_url") or None},
             "Image Candidates":      {"rich_text": [{"text": {"content": json.dumps(data.get("image_candidates") or [])[:2000]}}]},
             "Header Image URL":      {"url": data.get("header_image_url") or None},
+            "GIF URL":               {"url": data.get("gif_url") or None},
             "Newsletter":            {"select": {"name": newsletter_name}},
             "Date Generated":        {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
             "Status":                {"select": {"name": "pending"}},

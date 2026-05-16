@@ -827,12 +827,48 @@ if __name__ == "__main__":
                 safe = "".join(c if c.isalnum() else "_" for c in title)[:40] or f"event_{idx}"
                 fname = f"Newsletter_Header_image_{newsletter['name']}_{safe}.png"
                 (header_out_dir / fname).write_bytes(png)
+                # Cache-bust so browsers/Notion don't serve a stale composite
+                # when the same filename gets rewritten on subsequent runs.
+                cache_bust = int(datetime.today().timestamp())
                 r["header_image_url"] = (
-                    f"https://peachyinsurance.github.io/newsletters/gifs/{fname}"
+                    f"https://peachyinsurance.github.io/newsletters/gifs/{fname}?v={cache_bust}"
                 )
                 print(f"    ✓ built header preview: {fname}")
         except Exception as e:
             print(f"  ⚠ header pre-build skipped ({e})")
+
+        # Pre-build a 1-3 frame GIF from the event's image_candidates so
+        # the Featured Event body in the Notion landing page can show a
+        # rotating preview (mirrors the Restaurant Radar GIF pattern).
+        try:
+            from gif_maker import create_gif_from_urls
+            from pathlib import Path as _Path
+            gif_out_dir = _Path(__file__).parent.parent.parent / "Beehiiv" / "Code" / "output"
+            gif_out_dir.mkdir(parents=True, exist_ok=True)
+            for idx, r in enumerate(results):
+                cands = r.get("image_candidates") or []
+                # Limit to 1-3 candidates (skip the chosen image since the
+                # header banner already shows it; show the alternates).
+                main = r.get("image_url") or ""
+                frame_urls = [u for u in cands if u != main][:3]
+                if not frame_urls:
+                    continue
+                title = r.get("event_name") or f"event_{idx}"
+                try:
+                    gif_bytes = create_gif_from_urls(frame_urls)
+                except Exception as e:
+                    print(f"    · GIF build failed for {title[:50]}: {e}")
+                    continue
+                if not gif_bytes:
+                    continue
+                safe = "".join(c if c.isalnum() else "_" for c in title)[:40] or f"event_{idx}"
+                fname = f"event_gif_{newsletter['name']}_{safe}.gif"
+                (gif_out_dir / fname).write_bytes(gif_bytes)
+                cache_bust = int(datetime.today().timestamp())
+                r["gif_url"] = f"https://peachyinsurance.github.io/newsletters/gifs/{fname}?v={cache_bust}"
+                print(f"    ✓ built event GIF: {fname} ({len(frame_urls)} frames)")
+        except Exception as e:
+            print(f"  ⚠ event GIF build skipped ({e})")
 
         # Save to Notion
         save_events_to_notion(results, newsletter["name"])

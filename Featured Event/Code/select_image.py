@@ -21,6 +21,7 @@ What it does:
 """
 import os
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -112,7 +113,10 @@ def main() -> int:
 
         # 3. Compute the URL it'll live at on gh-pages (the workflow
         # publishes Beehiiv/Code/output/* to gh-pages/gifs/* right after).
-        header_url = f"{GH_PAGES_BASE}/Newsletter_Header_image_{nl_name}.png"
+        # Append a cache-bust query string so browsers + Notion don't
+        # show the previous regeneration's image.
+        cache_bust = int(time.time())
+        header_url = f"{GH_PAGES_BASE}/Newsletter_Header_image_{nl_name}.png?v={cache_bust}"
 
         # 4. Save header URL to Notion
         if not patch_notion_field(page_id, "Header Image URL", header_url):

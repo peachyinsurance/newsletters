@@ -1080,6 +1080,7 @@ def _event_row_to_dict(props: dict) -> dict:
         "ticket_url":  props.get("Ticket URL", {}).get("url", ""),
         "image_url":        props.get("Image URL", {}).get("url", ""),
         "header_image_url": props.get("Header Image URL", {}).get("url", ""),
+        "gif_url":          props.get("GIF URL", {}).get("url", ""),
         "score":       props.get("Total Score", {}).get("number", 0),
     }
 
@@ -1410,7 +1411,14 @@ def _build_featured_event(newsletter_name: str) -> list[dict]:
     event = get_featured_event(newsletter_name)
     if not (event and event.get("blurb")):
         return [callout_block("No featured event selected yet. Run the Featured Event pipeline and approve an event.", emoji="⏳")]
-    out = [paragraph_block(f"⭐ Featured Event: {event['event_name']}", bold=True)]
+    out = []
+    # Rotating GIF of 1-3 alternate candidate images (mirrors Restaurant Radar pattern).
+    # Falls back to the static featured image if no GIF was built.
+    if event.get("gif_url"):
+        out.append(image_block(event["gif_url"]))
+    elif event.get("image_url"):
+        out.append(image_block(event["image_url"]))
+    out.append(paragraph_block(f"⭐ Featured Event: {event['event_name']}", bold=True))
     detail_parts = [p for p in (event.get("date"), event.get("time"), event.get("venue")) if p]
     if detail_parts:
         out.append(paragraph_block("📅 " + " | ".join(detail_parts)))
@@ -1738,13 +1746,20 @@ SECTION_ORDER = [
 def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
     """Build all Notion blocks for a newsletter landing page."""
     today = datetime.today().strftime("%B %d, %Y")
-    blocks = [
+    blocks = []
+
+    # Hero: featured event Canva-style header composite at the very top
+    _ev = get_featured_event(newsletter_name)
+    if _ev and _ev.get("header_image_url"):
+        blocks.append(image_block(_ev["header_image_url"]))
+
+    blocks.extend([
         callout_block(
             f"Last updated: {today}\nCopy each section below into the newsletter template.",
             emoji="📋",
         ),
         divider_block(),
-    ]
+    ])
     for key in SECTION_ORDER:
         cfg = SECTIONS[key]
         blocks.append(heading_block(cfg["heading"]))

@@ -180,6 +180,7 @@ def export_events():
             "image_url":             extract_text(props.get("Image URL", {})),
             "image_candidates":      _parse_image_candidates(extract_text(props.get("Image Candidates", {}))),
             "header_image_url":      extract_text(props.get("Header Image URL", {})),
+            "gif_url":               extract_text(props.get("GIF URL", {})),
             "default_winner":        "yes" if extract_text(props.get("Default Winner", {})) else "",
         })
 
