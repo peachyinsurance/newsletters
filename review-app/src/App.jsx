@@ -489,8 +489,90 @@ export default function App() {
     catch { return {}; }
   });
   const [sectionNewsletters, setSectionNewsletters] = useState({});
+  const [refreshing, setRefreshing]   = useState(false);
+  const [refreshStatus, setRefreshStatus] = useState("");
+  const [refreshError, setRefreshError]   = useState("");
 
   const isAuthed = Boolean(token);
+
+  async function handleRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    setRefreshError("");
+    setRefreshStatus("Triggering data refresh...");
+    try {
+      // 1. Dispatch the Deploy Review App workflow
+      const dispatchRes = await fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/deploy_review_app.yml/dispatches`,
+        {
+          method:  "POST",
+          headers: {
+            "Accept":               "application/vnd.github+json",
+            "Authorization":        `Bearer ${token}`,
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+          body: JSON.stringify({ ref: "main" }),
+        }
+      );
+      if (!dispatchRes.ok) {
+        throw new Error(`Dispatch failed: HTTP ${dispatchRes.status}`);
+      }
+
+      // 2. Poll the workflow's recent runs until the dispatched run completes.
+      const dispatchedAt = Date.now();
+      const MAX_WAIT_MS  = 5 * 60 * 1000;   // 5 min hard cap
+      const POLL_MS      = 4000;
+      let foundRunId = null;
+      let conclusion = null;
+
+      while (Date.now() - dispatchedAt < MAX_WAIT_MS) {
+        await new Promise(r => setTimeout(r, POLL_MS));
+        const runsRes = await fetch(
+          `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/deploy_review_app.yml/runs?event=workflow_dispatch&per_page=5`,
+          {
+            headers: {
+              "Accept":               "application/vnd.github+json",
+              "Authorization":        `Bearer ${token}`,
+              "X-GitHub-Api-Version": "2022-11-28",
+            },
+          }
+        );
+        if (!runsRes.ok) continue;
+        const data = await runsRes.json();
+        // Find the most recent run created after our dispatch
+        const candidate = (data.workflow_runs || []).find(
+          r => new Date(r.created_at).getTime() >= dispatchedAt - 30000
+        );
+        if (!candidate) {
+          setRefreshStatus("Waiting for workflow to start...");
+          continue;
+        }
+        foundRunId = candidate.id;
+        if (candidate.status === "completed") {
+          conclusion = candidate.conclusion;
+          break;
+        }
+        setRefreshStatus(`Workflow running (${candidate.status})...`);
+      }
+
+      if (!foundRunId) {
+        throw new Error("Workflow did not start within the time limit.");
+      }
+      if (conclusion !== "success") {
+        throw new Error(`Workflow finished with status: ${conclusion || "unknown"}`);
+      }
+
+      // 3. Reload the page so all section data re-fetches from gh-pages.
+      setRefreshStatus("Refresh complete. Reloading...");
+      // Small buffer so the gh-pages CDN has time to serve fresh JSON
+      await new Promise(r => setTimeout(r, 1500));
+      window.location.reload();
+    } catch (err) {
+      setRefreshError(String(err.message || err));
+      setRefreshing(false);
+      setRefreshStatus("");
+    }
+  }
 
   function markApproved(section, newsletter) {
     const key = `${section}:${newsletter}`;
@@ -571,6 +653,26 @@ export default function App() {
         </>
       ) : (
         <div className="app-layout">
+          {refreshing && (
+            <div className="refresh-overlay" aria-live="polite">
+              <div className="refresh-dialog">
+                <div className="refresh-spinner" />
+                <p className="refresh-text">{refreshStatus || "Refreshing data..."}</p>
+                <p className="refresh-sub">This may take 30-60 seconds. Don't close this tab.</p>
+              </div>
+            </div>
+          )}
+          <div className="refresh-bar">
+            <button
+              className="btn btn-refresh"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              title="Sync Notion → review app (runs Deploy Review App workflow)"
+            >
+              {refreshing ? "Refreshing..." : "↻ Refresh data"}
+            </button>
+            {refreshError && <span className="refresh-error">⚠ {refreshError}</span>}
+          </div>
           <div className="nav-bar">
             <div className="nav-tabs">
               {pages.map(p => (

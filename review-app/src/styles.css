@@ -190,3 +190,74 @@ body { background: var(--cream); font-family: 'DM Sans', sans-serif; color: var(
 .winner-highlight { margin-bottom: 32px; }
 .winner-highlight .tile { outline: 3px solid var(--sage); outline-offset: -3px; }
 .other-candidates-label { font-size: 11px; font-weight: 500; letter-spacing: 0.2em; text-transform: uppercase; color: #6B5744; text-align: center; margin-bottom: 16px; }
+
+/* ── Refresh bar + blocking overlay ── */
+.refresh-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  padding: 12px 24px;
+  background: white;
+  border-bottom: 1px solid var(--sand);
+}
+.btn-refresh {
+  background: var(--bark);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+.btn-refresh:hover:not(:disabled) { background: #3a2e22; }
+.btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+.refresh-error {
+  font-size: 13px;
+  color: var(--rust);
+}
+
+/* Full-screen blocking overlay */
+.refresh-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 14, 8, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: all;
+}
+.refresh-dialog {
+  background: white;
+  border-radius: 16px;
+  padding: 40px 48px;
+  text-align: center;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.25);
+  max-width: 420px;
+}
+.refresh-spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid var(--sand);
+  border-top-color: var(--bark);
+  border-radius: 50%;
+  margin: 0 auto 20px;
+  animation: refresh-spin 0.9s linear infinite;
+}
+@keyframes refresh-spin {
+  to { transform: rotate(360deg); }
+}
+.refresh-text {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.2rem;
+  color: var(--bark);
+  margin-bottom: 8px;
+}
+.refresh-sub {
+  font-size: 13px;
+  color: #6B5744;
+}
