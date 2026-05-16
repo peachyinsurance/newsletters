@@ -175,6 +175,22 @@ def parse_detail(html: str) -> dict:
 # Card-to-pet normalization (matches Furry_Friends_Marietta.py's
 # _rg_pet_to_pipeline_dict output so downstream code is shape-agnostic).
 # ---------------------------------------------------------------------------
+def _public_pet_url(pet_id: str, species: str) -> str:
+    """Build the Petplace.com public-facing pet URL. Petango is being
+    phased out into Petplace; the detail page itself links here via its
+    'Favorite This Pet' button. URL pattern observed on the Lewisville
+    detail page:
+        https://www.petplace.com/pet-adoption/{cats|dogs}/{id}/PP3942
+    The 'PP3942' suffix is a Petplace referrer code; safe to hard-code
+    since the page renders even without it but Petplace treats it as
+    the canonical incoming link."""
+    if not pet_id:
+        return ""
+    sp = (species or "").lower()
+    species_path = "dogs" if sp == "dog" else "cats" if sp == "cat" else "other"
+    return f"https://www.petplace.com/pet-adoption/{species_path}/{pet_id}/PP3942"
+
+
 def _to_pipeline_pet(listing: dict, detail: dict) -> dict:
     species_norm = (listing.get("species") or "").capitalize()
     name        = listing.get("name") or "Unknown"
@@ -182,7 +198,8 @@ def _to_pipeline_pet(listing: dict, detail: dict) -> dict:
     age         = listing.get("age", "")
     gender      = listing.get("gender", "")
     description = detail.get("description", "")
-    url         = listing.get("detail_url", "")
+    # Public-facing Petplace link instead of the bare Petango widget URL.
+    url         = _public_pet_url(listing.get("id", ""), species_norm)
     photo       = detail.get("photo_url_large") or listing.get("photo_url") or ""
     org_info    = {
         "name":    SHELTER_INFO["shelter_name"],
