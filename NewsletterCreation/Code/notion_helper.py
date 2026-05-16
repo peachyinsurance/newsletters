@@ -555,6 +555,11 @@ def setup_notion_databases():
                 {"name": "East_Cobb_Connect"},
                 {"name": "Perimeter_Post"},
                 {"name": "Lewisville_Lake_Lookout"},
+                # ECC_PP — events that apply to BOTH East Cobb Connect
+                # AND Perimeter Post (Sandy Springs sits between the two
+                # coverage areas). Featured Event ORs this with the
+                # primary newsletter tag at query time.
+                {"name": "ECC_PP"},
             ]}},
             "Event Name":       {"rich_text": {}},
             "Description":      {"rich_text": {}},

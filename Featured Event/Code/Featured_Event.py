@@ -85,24 +85,44 @@ def _rich_text(prop: dict) -> str:
     return "".join(c.get("plain_text", "") for c in chunks).strip()
 
 
+# Newsletter tags that pull from a shared event pool. ECC_PP is written
+# by the Sandy Springs scraper (visitsandysprings.org sits geographically
+# between East Cobb and Perimeter coverage areas), so both newsletters
+# OR-include it at query time.
+SHARED_NEWSLETTER_TAGS = {
+    "East_Cobb_Connect":       ["East_Cobb_Connect", "ECC_PP"],
+    "Perimeter_Post":          ["Perimeter_Post",    "ECC_PP"],
+    "Lewisville_Lake_Lookout": ["Lewisville_Lake_Lookout"],
+}
+
+
 def fetch_events_from_notion(newsletter_name: str,
                              window_start: date,
                              window_end: date) -> list[dict]:
     """Query the Weekend Events Notion DB for rows tagged with this
-    newsletter whose Date falls in [window_start, window_end] inclusive.
+    newsletter (or a shared tag like ECC_PP) whose Date falls in
+    [window_start, window_end] inclusive.
 
     Returns candidate dicts shaped like the old Brave output so the
     downstream Claude eval can consume them unchanged."""
     if not NOTION_WEEKEND_EVENTS_DB_ID:
         print("  ⚠ NOTION_WEEKEND_EVENTS_DB_ID not set — skipping Notion fetch")
         return []
+    tags = SHARED_NEWSLETTER_TAGS.get(newsletter_name, [newsletter_name])
+    if len(tags) == 1:
+        newsletter_clause = {"property": "Newsletter", "select": {"equals": tags[0]}}
+    else:
+        newsletter_clause = {"or": [
+            {"property": "Newsletter", "select": {"equals": t}} for t in tags
+        ]}
     filters = {
         "and": [
-            {"property": "Newsletter", "select": {"equals": newsletter_name}},
+            newsletter_clause,
             {"property": "Date", "date": {"on_or_after": window_start.isoformat()}},
             {"property": "Date", "date": {"on_or_before": window_end.isoformat()}},
         ]
     }
+    print(f"  Newsletter filter: {tags}")
     pages = query_database(NOTION_WEEKEND_EVENTS_DB_ID, filters=filters) or []
     candidates: list[dict] = []
     for p in pages:
