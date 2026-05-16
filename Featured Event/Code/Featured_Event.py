@@ -32,6 +32,7 @@ from notion_helper import (
     save_events_to_notion,
     get_existing_event_urls,
     query_database,
+    update_page,
     NOTION_WEEKEND_EVENTS_DB_ID,
 )
 from newsletters_config import NEWSLETTERS, filter_by_env
@@ -122,7 +123,16 @@ def fetch_events_from_notion(newsletter_name: str,
             {"property": "Date", "date": {"on_or_before": window_end.isoformat()}},
         ]
     }
-    print(f"  Newsletter filter: {tags}")
+    # Status filter: exclude rows already picked by Featured Event /
+    # Weekend Planner, and human-rejected / archived rows. The Notion
+    # `select` filter requires one `does_not_equal` per status.
+    filters["and"].extend([
+        {"property": "Status", "select": {"does_not_equal": "featured"}},
+        {"property": "Status", "select": {"does_not_equal": "wp_used"}},
+        {"property": "Status", "select": {"does_not_equal": "rejected"}},
+        {"property": "Status", "select": {"does_not_equal": "archived"}},
+    ])
+    print(f"  Newsletter filter: {tags}  (excluding featured/wp_used/rejected/archived)")
     pages = query_database(NOTION_WEEKEND_EVENTS_DB_ID, filters=filters) or []
     candidates: list[dict] = []
     for p in pages:
@@ -153,6 +163,8 @@ def fetch_events_from_notion(newsletter_name: str,
             "time":        _rich_text(props.get("Time")),
             "start_date":  event_start.isoformat() if event_start else "",
             "source":      "weekend_events_db",
+            # Page ID so we can PATCH the source row's Status after pick.
+            "notion_page_id": p.get("id"),
         })
     candidates.sort(key=lambda c: c.get("start_date", ""))
     return candidates
@@ -622,6 +634,11 @@ Candidates:
         seen_indices.add(idx)
         r["source_url"] = candidate_url
         r["ticket_url"] = source.get("ticket_url", "") or ""
+        # Notion page ID of the source Weekend Events row — used after
+        # save_events_to_notion to PATCH that row's Status to 'featured'
+        # so Weekend Planner doesn't re-pick the same event.
+        if source.get("notion_page_id"):
+            r["notion_page_id"] = source["notion_page_id"]
         # Carry the scraped image forward as the primary; the image-lookup
         # stage will add og:image / Brave Image candidates to the gallery
         # but keep this one as the default.
@@ -992,6 +1009,21 @@ if __name__ == "__main__":
 
         # Save to Notion
         save_events_to_notion(results, newsletter["name"])
+
+        # Mark each picked source row in the Weekend Events DB as
+        # 'featured' so the next Weekend Planner run skips them.
+        marked = 0
+        for r in results:
+            page_id = r.get("notion_page_id")
+            if not page_id:
+                continue
+            try:
+                update_page(page_id, {"Status": {"select": {"name": "featured"}}})
+                marked += 1
+            except Exception as e:
+                print(f"  ⚠ couldn't mark '{r.get('event_name','?')[:40]}' as featured: {e}")
+        if marked:
+            print(f"  ↳ Marked {marked} Weekend Events row(s) as Status='featured'")
 
         # Save local JSON backup
         output_dir = Path(__file__).parent / "output"

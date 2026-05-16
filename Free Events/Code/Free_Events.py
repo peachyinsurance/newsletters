@@ -16,7 +16,12 @@ import requests
 import anthropic
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
-from notion_helper import save_free_events_to_notion, get_used_free_event_urls
+from notion_helper import (
+    save_free_events_to_notion,
+    get_used_free_event_urls,
+    query_database,
+    NOTION_WEEKEND_EVENTS_DB_ID,
+)
 from url_validator import validate_url
 from newsletters_config import NEWSLETTERS, filter_by_env
 from event_date_filter import (
@@ -679,6 +684,149 @@ def expand_aggregator(aggregator_url: str) -> list[dict]:
     extras = f"({skipped_generic} generic skipped)" if skipped_generic else ""
     print(f"    ↳ Extracted {len(candidates)} primary sources from {label} {extras}".rstrip())
     return candidates
+
+
+# ---------------------------------------------------------------------------
+# 3b. PULL FREE EVENTS FROM THE WEEKEND EVENTS NOTION DB
+# ---------------------------------------------------------------------------
+# Mirror of Featured_Event.py's SHARED_NEWSLETTER_TAGS so an ECC run
+# also pulls ECC_PP-tagged events (Sandy Springs is shared territory).
+_SHARED_NEWSLETTER_TAGS = {
+    "East_Cobb_Connect":       ["East_Cobb_Connect", "ECC_PP"],
+    "Perimeter_Post":          ["Perimeter_Post",    "ECC_PP"],
+    "Lewisville_Lake_Lookout": ["Lewisville_Lake_Lookout"],
+}
+
+# Keyword patterns that mark an event as free. Run case-insensitively
+# against the concatenated Event Name + Description. We match whole
+# words / phrases so 'free parking' on a paid event still triggers
+# (false-positive risk is acceptable — Claude does final filtering).
+_FREE_PATTERNS = [
+    _re.compile(r"\bfree\b", _re.IGNORECASE),
+    _re.compile(r"\bno\s+(?:charge|cost|fee|admission)\b", _re.IGNORECASE),
+    _re.compile(r"\bcomplimentary\b", _re.IGNORECASE),
+    _re.compile(r"\$\s*0(?:\.00)?\b"),
+]
+
+
+def _rich_text(prop: dict) -> str:
+    """Concatenate all rich_text/title runs in a Notion property."""
+    if not isinstance(prop, dict):
+        return ""
+    chunks = prop.get("rich_text") or prop.get("title") or []
+    return "".join(c.get("plain_text", "") for c in chunks).strip()
+
+
+def _looks_free(*texts: str) -> bool:
+    blob = " ".join(t for t in texts if t)
+    return any(p.search(blob) for p in _FREE_PATTERNS)
+
+
+def fetch_free_events_from_notion(newsletter_name: str,
+                                  window_start,
+                                  window_end) -> list[dict]:
+    """Query the Weekend Events Notion DB for rows tagged with this
+    newsletter (or the shared ECC_PP tag) in [window_start, window_end]
+    inclusive, then keep only those whose Event Name or Description
+    mentions 'free' / 'no charge' / 'complimentary' / '$0'.
+
+    Returns dicts shaped like Brave candidates so the downstream
+    pipeline (date filter, full_text, blurb writing) is shape-agnostic."""
+    if not NOTION_WEEKEND_EVENTS_DB_ID:
+        print("  ⚠ NOTION_WEEKEND_EVENTS_DB_ID not set — skipping Notion free-event pull")
+        return []
+    tags = _SHARED_NEWSLETTER_TAGS.get(newsletter_name, [newsletter_name])
+    if len(tags) == 1:
+        nl_clause = {"property": "Newsletter", "select": {"equals": tags[0]}}
+    else:
+        nl_clause = {"or": [
+            {"property": "Newsletter", "select": {"equals": t}} for t in tags
+        ]}
+    filters = {
+        "and": [
+            nl_clause,
+            {"property": "Date", "date": {"on_or_after": window_start.isoformat()}},
+            {"property": "Date", "date": {"on_or_before": window_end.isoformat()}},
+        ]
+    }
+    pages = query_database(NOTION_WEEKEND_EVENTS_DB_ID, filters=filters) or []
+    out: list[dict] = []
+    skipped_not_free = 0
+    for p in pages:
+        props = p.get("properties", {})
+        title = _rich_text(props.get("Event Name")) or _rich_text(props.get("Name"))
+        description = _rich_text(props.get("Description"))
+        url   = (props.get("Source URL", {}).get("url") or "").strip()
+        if not title or not url:
+            continue
+        if not _looks_free(title, description):
+            skipped_not_free += 1
+            continue
+        # Source hostname (best-effort — used by aggregator detection downstream).
+        host = _hostname(url) if url else ""
+        # Date string for display; downstream filter_candidates_by_date scans this.
+        date_prop  = (props.get("Date") or {}).get("date") or {}
+        date_iso   = (date_prop.get("start") or "")[:10]
+        out.append({
+            "title":     title,
+            "url":       url,
+            "source":    host,
+            "date":      date_iso,
+            "summary":   description[:600],
+            # Pre-populate full_text so the article-text enrichment step
+            # doesn't spend an HTTP request on a row whose body we already
+            # have. (enrich_candidates_with_full_text skips entries that
+            # already carry full_text.)
+            "full_text": description,
+            "_from_notion": True,
+        })
+    print(f"  Notion: {len(out)} free-event row(s) "
+          f"(skipped {skipped_not_free} non-free in-window rows)")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 3c. MERGE NOTION + BRAVE CANDIDATES (dedup by normalized title)
+# ---------------------------------------------------------------------------
+def _normalize_title_for_dedup(t: str) -> str:
+    """Lowercase, strip punctuation + leading article + year tokens —
+    so 'The Marietta Greek Festival' and 'Marietta Greek Festival 2026'
+    collide into the same dedup key."""
+    if not t:
+        return ""
+    s = t.lower()
+    s = _re.sub(r"\b20\d{2}\b", "", s)
+    s = _re.sub(r"[^a-z0-9 ]+", " ", s)
+    s = _re.sub(r"^(the|a|an)\s+", "", s)
+    s = _re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def merge_dedup_by_title(primary: list[dict], secondary: list[dict]) -> list[dict]:
+    """Return primary + any secondary items whose normalized title isn't
+    already present. Primary wins on title collisions."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for c in primary:
+        k = _normalize_title_for_dedup(c.get("title", ""))
+        if k and k not in seen:
+            seen.add(k)
+            out.append(c)
+        elif not k:
+            out.append(c)  # no title — can't dedup
+    dropped = 0
+    for c in secondary:
+        k = _normalize_title_for_dedup(c.get("title", ""))
+        if k and k in seen:
+            dropped += 1
+            continue
+        if k:
+            seen.add(k)
+        out.append(c)
+    if dropped:
+        print(f"  Dedup: dropped {dropped} secondary candidate(s) "
+              f"with same normalized title as a primary")
+    return out
 
 
 def fetch_candidates(search_areas: list[str], excluded_urls: set | None = None) -> list[dict]:
@@ -1353,8 +1501,25 @@ if __name__ == "__main__":
         MIN_VALID_CANDIDATES = 8
         floor = _upcoming_friday()
         candidates: list[dict] = []
+
+        # First — pull free-tagged rows from the Weekend Events Notion DB.
+        # Window: this week's Friday → +14 days (matches Featured Event).
+        from datetime import timedelta as _td
+        notion_window_end = floor + _td(days=14)
+        print(f"\n  --- Notion free-event pull ({floor} → {notion_window_end}) ---")
+        notion_free = fetch_free_events_from_notion(
+            newsletter["name"], floor, notion_window_end,
+        )
+        # Filter against URLs we've previously featured.
+        notion_free = [c for c in notion_free if c.get("url") not in excluded]
+        candidates.extend(notion_free)
+        if notion_free:
+            print(f"  ↳ {len(notion_free)} free Notion event(s) added to pool")
+
         brave_dead = False
         for round_idx in range(1, 4):
+            if len(candidates) >= MIN_VALID_CANDIDATES:
+                break
             if brave_dead:
                 print(f"  ⏭ Skipping round {round_idx} — Brave returned nothing last round")
                 break
@@ -1364,11 +1529,9 @@ if __name__ == "__main__":
                 brave_dead = True
             kept, past_urls = filter_candidates_by_date(new_pool, floor)
             excluded.update(past_urls)
-            seen = {c.get("url") for c in candidates}
-            for c in kept:
-                if c.get("url") and c["url"] not in seen:
-                    candidates.append(c)
-                    seen.add(c["url"])
+            # Title-dedup Brave results against what we already have
+            # (Notion pulls + earlier Brave rounds win on title collisions).
+            candidates = merge_dedup_by_title(candidates, kept)
             print(f"  ↳ pool size after round {round_idx}: {len(candidates)}")
             if len(candidates) >= MIN_VALID_CANDIDATES:
                 break

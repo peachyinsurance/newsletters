@@ -579,6 +579,12 @@ def setup_notion_databases():
                 {"name": "approved"},
                 {"name": "rejected"},
                 {"name": "archived"},
+                # System-set when an event is chosen by a downstream picker.
+                # 'featured' = Featured Event picked it; 'wp_used' = Weekend
+                # Planner picked it. Both pickers exclude rows in these
+                # statuses so events don't get double-used in the same issue.
+                {"name": "featured"},
+                {"name": "wp_used"},
             ]}},
             "Date Generated":   {"date": {}},
         }

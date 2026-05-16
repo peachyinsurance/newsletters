@@ -26,6 +26,9 @@ from claude_json import call_with_json_output
 from notion_helper import (
     save_weekend_events_to_notion,
     get_existing_weekend_event_urls,
+    query_database,
+    update_page,
+    NOTION_WEEKEND_EVENTS_DB_ID,
 )
 from newsletters_config import NEWSLETTERS, filter_by_env
 from event_date_filter import upcoming_friday, filter_candidates_by_date, filter_candidates_in_date_range
@@ -298,6 +301,118 @@ Candidates:
 # ---------------------------------------------------------------------------
 # 7. PROCESS ONE BUCKET (audience × day) — with adaptive retry
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Notion candidate pool — replaces the Brave-search flow. One pull per
+# newsletter, cached for the run so all audiences share the same pool.
+# ---------------------------------------------------------------------------
+# Mirror of Featured_Event.py's SHARED_NEWSLETTER_TAGS so ECC also
+# pulls ECC_PP-tagged events (Sandy Springs is shared territory).
+_SHARED_NEWSLETTER_TAGS = {
+    "East_Cobb_Connect":       ["East_Cobb_Connect", "ECC_PP"],
+    "Perimeter_Post":          ["Perimeter_Post",    "ECC_PP"],
+    "Lewisville_Lake_Lookout": ["Lewisville_Lake_Lookout"],
+}
+
+# Statuses that mean "off-limits for Weekend Planner":
+#   - featured   — Featured Event already picked it
+#   - wp_used    — a previous Weekend Planner run already picked it
+#   - rejected   — human marked it rejected
+#   - archived   — past event, cleaned up
+_EXCLUDE_STATUSES = ("featured", "wp_used", "rejected", "archived")
+
+
+def _rich_text_value(prop) -> str:
+    if not isinstance(prop, dict):
+        return ""
+    chunks = prop.get("rich_text") or prop.get("title") or []
+    return "".join(c.get("plain_text", "") for c in chunks).strip()
+
+
+def fetch_weekend_events_from_notion(newsletter_name: str,
+                                     target_weekend: dict,
+                                     excluded_urls: set) -> list[dict]:
+    """Query the Weekend Events Notion DB for rows tagged with this
+    newsletter (or the shared ECC_PP tag) whose Date falls in
+    [Friday, Sunday] of the target weekend, excluding rows already
+    featured/used/rejected/archived and any URLs in excluded_urls.
+
+    Returns dicts shaped like Brave search_web output (url, title,
+    description, age) so the downstream Claude eval is shape-agnostic.
+    Each row also carries `notion_page_id` so we can PATCH its Status
+    after a pick."""
+    if not NOTION_WEEKEND_EVENTS_DB_ID:
+        print("  ⚠ NOTION_WEEKEND_EVENTS_DB_ID not set — no Notion pool")
+        return []
+    tags = _SHARED_NEWSLETTER_TAGS.get(newsletter_name, [newsletter_name])
+    if len(tags) == 1:
+        nl_clause = {"property": "Newsletter", "select": {"equals": tags[0]}}
+    else:
+        nl_clause = {"or": [
+            {"property": "Newsletter", "select": {"equals": t}} for t in tags
+        ]}
+    friday = target_weekend["Friday"]
+    sunday = target_weekend["Sunday"]
+    filters = {
+        "and": [
+            nl_clause,
+            {"property": "Date", "date": {"on_or_after": friday}},
+            {"property": "Date", "date": {"on_or_before": sunday}},
+        ] + [
+            {"property": "Status", "select": {"does_not_equal": s}}
+            for s in _EXCLUDE_STATUSES
+        ]
+    }
+    pages = query_database(NOTION_WEEKEND_EVENTS_DB_ID, filters=filters) or []
+    out: list[dict] = []
+    for p in pages:
+        props = p.get("properties", {})
+        title = _rich_text_value(props.get("Event Name")) or _rich_text_value(props.get("Name"))
+        url   = (props.get("Source URL", {}).get("url") or "").strip()
+        if not title or not url:
+            continue
+        if url in excluded_urls:
+            continue
+        date_prop = (props.get("Date") or {}).get("date") or {}
+        start_str = (date_prop.get("start") or "")[:10]
+        description = _rich_text_value(props.get("Description"))
+        venue   = _rich_text_value(props.get("Location"))
+        address = _rich_text_value(props.get("Address"))
+        out.append({
+            "title":       title,
+            "url":         url,
+            "description": description,
+            "summary":     description[:600],
+            "age":         start_str,
+            "date":        start_str,
+            "venue":       venue,
+            "address":     address,
+            "image_url":   (props.get("Image URL", {}).get("url") or "").strip(),
+            "notion_page_id": p.get("id"),
+            "_from_notion": True,
+        })
+    print(f"  Notion pool: {len(out)} candidate(s) in window "
+          f"({friday} → {sunday}) for {tags}")
+    return out
+
+
+# Per-run cache: avoid re-querying Notion for each audience.
+_NOTION_POOL_CACHE: dict[tuple[str, str], list[dict]] = {}
+
+
+def get_notion_pool(newsletter_name: str,
+                    target_weekend: dict,
+                    excluded_urls: set) -> list[dict]:
+    """Cached wrapper around fetch_weekend_events_from_notion. Cache key
+    is (newsletter, weekend) so a single run sharing the same weekend
+    across audiences only hits Notion once."""
+    key = (newsletter_name, target_weekend.get("Friday", ""))
+    if key not in _NOTION_POOL_CACHE:
+        _NOTION_POOL_CACHE[key] = fetch_weekend_events_from_notion(
+            newsletter_name, target_weekend, excluded_urls,
+        )
+    return list(_NOTION_POOL_CACHE[key])
+
+
 def fetch_and_filter_candidates(
     queries: list[str],
     max_per_query: int,
@@ -750,64 +865,28 @@ def process_audience(
     skill_prompt: str,
     existing_urls: set,
 ) -> list[dict]:
-    """Pool all 3 days' worth of Brave queries for one audience, send Claude
-    one call, return the picked events. Each returned event includes a
-    `_source_candidate` field so the caller can extract its days."""
+    """Pull the Notion Weekend Events pool for this newsletter+weekend,
+    let Claude select what fits this audience. The Brave-search retry /
+    gap-fill paths are gone — a single Notion query returns the entire
+    in-window pool, so re-pulling can't find anything new."""
     print(f"\n  ━━━ {audience} pool ━━━")
 
-    target_range = (
-        date.fromisoformat(target_weekend["Friday"]),
-        date.fromisoformat(target_weekend["Sunday"]),
-    )
-
-    # Pool Brave queries across Friday + Saturday + Sunday for this audience.
-    # Dedup is handled inside fetch_and_filter_candidates via `seen_urls`
-    # within search_web, plus the excluded_urls set we maintain externally.
-    all_queries: list[str] = []
-    for day in DAYS:
-        all_queries.extend(build_queries(newsletter, audience, day, target_weekend[day]))
-
-    candidates = fetch_and_filter_candidates(
-        all_queries, MAX_RESULTS_PER_QUERY, existing_urls,
-        label=f"{audience.lower()} primary", target_range=target_range,
-        target_weekend=target_weekend,
-    )
+    candidates = get_notion_pool(newsletter["name"], target_weekend, existing_urls)
+    if not candidates:
+        print(f"    No Notion candidates for {audience}")
+        return []
 
     results = call_claude_for_audience(
         candidates, newsletter, audience, target_weekend, skill_prompt
     )
-    print(f"    Primary pass: {len(results)} events accepted")
+    print(f"    {audience} pass: {len(results)} event(s) accepted "
+          f"(from {len(candidates)} Notion candidates)")
 
-    # Backfill if below MIN_PER_AUDIENCE
-    seen_candidate_urls = {c["url"] for c in candidates}
-    if len(results) < MIN_PER_AUDIENCE:
-        print(f"    Retrying broader (only {len(results)} events, want ≥{MIN_PER_AUDIENCE})")
-        retry_excluded = set(existing_urls) | seen_candidate_urls
-        retry_queries: list[str] = []
-        for day in DAYS:
-            retry_queries.extend(build_fallback_queries(newsletter, audience, day, target_weekend[day]))
-        candidates_p2 = fetch_and_filter_candidates(
-            retry_queries, RETRY_RESULTS_PER_QUERY, retry_excluded,
-            label=f"{audience.lower()} retry", target_range=target_range,
-            target_weekend=target_weekend,
-        )
-        more = call_claude_for_audience(
-            candidates_p2, newsletter, audience, target_weekend, skill_prompt
-        )
-        seen = {r["source_url"] for r in results}
-        added = 0
-        for r in more:
-            if r["source_url"] and r["source_url"] not in seen:
-                results.append(r)
-                seen.add(r["source_url"])
-                added += 1
-        seen_candidate_urls |= {c["url"] for c in candidates_p2}
-        print(f"    Retry pass added {added} events ({audience} total: {len(results)})")
-
-    # Per-day gap fill — hard rule: each of Fri/Sat/Sun must have at least
-    # one pick per audience. After primary + retry, check which days the
-    # current picks actually cover (via the source candidate's text) and
-    # fire targeted queries for any day with zero coverage.
+    # Day coverage report — no more gap-fill HTTP fan-out since the
+    # Notion pull already returned everything in the [Fri, Sun] window.
+    # If a day is uncovered, it's because the Notion DB genuinely has no
+    # event for that day in this newsletter's area; a re-fetch wouldn't
+    # find one. We just log it so the reviewer knows.
     def _covered_days(events: list[dict]) -> set[str]:
         covered = set()
         for ev in events:
@@ -820,42 +899,8 @@ def process_audience(
     covered = _covered_days(results)
     missing = [d for d in DAYS if d not in covered]
     if missing:
-        print(f"    Day coverage gap: {missing} uncovered — running targeted gap-fill")
-        gap_excluded = set(existing_urls) | seen_candidate_urls | {r["source_url"] for r in results}
-        seen = {r["source_url"] for r in results}
-        for day in missing:
-            gap_queries = (
-                build_queries(newsletter, audience, day, target_weekend[day])
-                + build_fallback_queries(newsletter, audience, day, target_weekend[day])
-            )
-            gap_target_range = (date.fromisoformat(target_weekend[day]),
-                                date.fromisoformat(target_weekend[day]))
-            gap_candidates = fetch_and_filter_candidates(
-                gap_queries, RETRY_RESULTS_PER_QUERY, gap_excluded,
-                label=f"{audience.lower()} gap-fill {day}",
-                target_range=gap_target_range,
-                target_weekend=target_weekend,
-            )
-            gap_picks = call_claude_for_audience(
-                gap_candidates, newsletter, audience, target_weekend, skill_prompt
-            )
-            added_for_day = 0
-            for r in gap_picks:
-                if not r.get("source_url") or r["source_url"] in seen:
-                    continue
-                cand = r.get("_source_candidate", {})
-                pre_tagged = cand.get("days") or determine_event_days(cand, target_weekend)
-                day_match = day in pre_tagged
-                if not day_match:
-                    continue
-                results.append(r)
-                seen.add(r["source_url"])
-                added_for_day += 1
-            gap_excluded |= {c["url"] for c in gap_candidates}
-            if added_for_day:
-                print(f"    ✓ Gap-fill {day}: added {added_for_day}")
-            else:
-                print(f"    ⚠ Gap-fill {day}: still no coverage after targeted query")
+        print(f"    ⚠ Day coverage gap: no {audience} picks for {missing} "
+              f"(Notion pool is the limit — add more scraper sources to fill)")
 
     print(f"    ✓ {len(results)} {audience} events accepted")
     for r in results:
@@ -1132,6 +1177,26 @@ if __name__ == "__main__":
 
         print(f"\n  Saving {len(all_events)} total events for {newsletter['name']}...")
         save_weekend_events_to_notion(all_events, newsletter["name"])
+
+        # Mark each picked source row in the Weekend Events DB as
+        # 'wp_used' so the next Featured Event / Weekend Planner run
+        # skips them. We dedup page_ids first so a multi-day event
+        # (one source row → N rendered rows) only gets PATCHed once.
+        page_ids_to_mark: set[str] = set()
+        for ev in all_events:
+            cand = ev.get("_source_candidate") or {}
+            pid = cand.get("notion_page_id") or ev.get("notion_page_id")
+            if pid:
+                page_ids_to_mark.add(pid)
+        marked = 0
+        for pid in page_ids_to_mark:
+            try:
+                update_page(pid, {"Status": {"select": {"name": "wp_used"}}})
+                marked += 1
+            except Exception as e:
+                print(f"  ⚠ couldn't mark page {pid[:8]}… as wp_used: {e}")
+        if marked:
+            print(f"  ↳ Marked {marked} Weekend Events row(s) as Status='wp_used'")
 
         # Local JSON backup
         output_dir = Path(__file__).parent / "output"
