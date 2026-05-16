@@ -638,15 +638,20 @@ if __name__ == "__main__":
             expanded_count = 0
             expanded_total_links = 0
             kept_original = 0
-            skipped_landing = 0
+            dropped_landing = 0
             keep_pool = []
             for c in new_pool:
                 url = c.get("url", "")
                 if is_aggregator_url(url):
                     if _looks_like_landing_or_archive(url):
-                        skipped_landing += 1
-                        print(f"  ↳ aggregator landing/archive (not a listicle), keeping as single: {url}")
-                        keep_pool.append(c)
+                        # Tag archives, business listings, news landing
+                        # pages have no specific event content. Drop them
+                        # entirely — keeping them as candidates confuses
+                        # Claude (it reads sidebar/related-event content
+                        # in the URL's title and picks them as if they
+                        # were the event itself).
+                        dropped_landing += 1
+                        print(f"  ↳ dropped aggregator landing/archive: {url}")
                         continue
                     if not _is_listicle(c):
                         # Aggregator but not obviously a listicle — keep as
@@ -674,8 +679,8 @@ if __name__ == "__main__":
                 print(f"  ↳ expanded {expanded_count} listicle(s) into {expanded_total_links} new candidates")
             if kept_original:
                 print(f"  ↳ kept {kept_original} aggregator candidates with original URL (no expansion)")
-            if skipped_landing:
-                print(f"  ↳ skipped {skipped_landing} landing/archive aggregator URL(s)")
+            if dropped_landing:
+                print(f"  ↳ dropped {dropped_landing} landing/archive aggregator URL(s)")
 
             # Date-floor filter — scan title + summary + article body
             # (always present for aggregator candidates) + primary_text

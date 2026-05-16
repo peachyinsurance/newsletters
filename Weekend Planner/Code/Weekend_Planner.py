@@ -390,8 +390,13 @@ def fetch_and_filter_candidates(
         if _expand_listicle is None:
             dropped_count += 1
             continue
-        if _is_landing_or_archive(url) or not _is_listicle(c):
-            # Not actually a listicle — keep as single candidate.
+        if _is_landing_or_archive(url):
+            # Tag archives / business listings / news landings — drop
+            # entirely, they have no event-specific content.
+            dropped_count += 1
+            continue
+        if not _is_listicle(c):
+            # Aggregator article (single event) — keep as single candidate.
             keep_pool.append(c)
             kept_single += 1
             continue
