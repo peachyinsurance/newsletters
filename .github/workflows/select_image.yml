@@ -11,6 +11,11 @@ on:
         description: 'Image URL to set as the featured image'
         required: true
         type: string
+      newsletter:
+        description: 'Newsletter name (East_Cobb_Connect / Perimeter_Post / Lewisville_Lake_Lookout)'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -24,14 +29,44 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install requests
-      - name: Update Notion Image URL
+      - run: pip install requests Pillow
+      - name: Update Notion + build Canva composite
         env:
           NOTION_API_KEY:      ${{ secrets.NOTION_API_KEY }}
           NOTION_EVENTS_DB_ID: ${{ secrets.NOTION_EVENTS_DB_ID }}
           SOURCE_URL:          ${{ github.event.inputs.source_url }}
           IMAGE_URL:           ${{ github.event.inputs.image_url }}
+          NEWSLETTER:          ${{ github.event.inputs.newsletter }}
         run: python "Featured Event/Code/select_image.py"
+
+      - name: Publish header composite to gh-pages
+        if: ${{ always() }}
+        run: |
+          set -e
+          shopt -s nullglob
+          imgs=("Beehiiv/Code/output/Newsletter_Header_image_"*.png)
+          if [ ${#imgs[@]} -eq 0 ]; then
+            echo "No composite generated; nothing to publish"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Stash other working-tree noise so the branch swap doesn't refuse
+          git stash --include-untracked || true
+          git fetch origin gh-pages
+          git checkout gh-pages
+          mkdir -p gifs
+          cp "${imgs[@]}" gifs/
+          git add gifs/
+          if git diff --staged --quiet; then
+            echo "No composite changes to publish"
+          else
+            git commit -m "update featured event header [skip ci]"
+            git push origin gh-pages
+            echo "✓ Header composite published to gh-pages/gifs/"
+          fi
+          git checkout main
+          git stash pop || true
 
       - name: Refresh review app (re-export events.json)
         if: ${{ always() }}

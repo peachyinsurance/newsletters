@@ -59,6 +59,7 @@ export default function FeaturedEventTile({event, onApprove, approving, approved
                         inputs: {
                             source_url: event.source_url || "",
                             image_url:  selectedImage,
+                            newsletter: event.newsletter_name || "",
                         },
                     }),
                 }
@@ -84,6 +85,17 @@ export default function FeaturedEventTile({event, onApprove, approving, approved
                 alt={event.event_name || "Event image"}
                 onError={(e) => { e.currentTarget.style.display = "none"; }}
             />
+        )}
+        {event.header_image_url && (
+            <div className="header-preview">
+                <div className="header-preview-label">Newsletter header preview</div>
+                <img
+                    className="header-preview-img"
+                    src={event.header_image_url}
+                    alt="Newsletter header composite"
+                    onError={(e) => { e.currentTarget.style.display = "none"; }}
+                />
+            </div>
         )}
         {gallery.length > 1 && (
             <div className="image-picker">

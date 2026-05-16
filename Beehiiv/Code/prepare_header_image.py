@@ -32,9 +32,17 @@ def main() -> int:
         print(f"  ⓘ No featured event for {NEWSLETTER} — skipping header")
         return 0
 
+    # Fast path: if the review-app image picker already generated and
+    # published a composite (Header Image URL field present in Notion),
+    # we don't need to rebuild here — that PNG is already on gh-pages.
+    if event.get("header_image_url"):
+        print(f"  ✓ Header already exists in Notion: {event['header_image_url']}")
+        print(f"    (Pre-built by review-app image picker — skipping rebuild)")
+        return 0
+
     title = event.get("event_name", "")
     photo = event.get("image_url") or event.get("photo") or ""
-    print(f"  Building header for: {title!r}")
+    print(f"  Building header for: {title!r} (legacy fallback path)")
     print(f"  Photo URL: {photo[:80] if photo else '(none)'}")
 
     data = build_header_image(title=title, photo_url=photo or None)

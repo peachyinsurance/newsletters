@@ -409,14 +409,16 @@ def build_replacements(client: BeehiivClient, publication_id: str,
                 image_swaps[ev_img] = hosted
             alt_swaps["event_of_the_week_image"] = hosted or ev_img
 
-        # ---- Newsletter Header thumbnail (Canva-style composite) ----
-        # Generated + published to gh-pages by the
-        # `prepare_header_image.py` step earlier in send_to_beehiiv.yml.
-        # We just point the template <img> at the predicted URL.
-        alt_swaps["newsletter_header_image"] = (
+        # ---- Newsletter Header (Canva-style composite) ----
+        # Prefer the URL already saved to Notion by the review-app image
+        # picker (Header Image URL). Falls back to the predicted gh-pages
+        # URL if the row doesn't have one yet (e.g., legacy rows or events
+        # that haven't been touched via the picker).
+        header_url = event.get("header_image_url") or (
             f"https://peachyinsurance.github.io/newsletters/gifs/"
             f"Newsletter_Header_image_{newsletter_name}.png"
         )
+        alt_swaps["newsletter_header_image"] = header_url
 
     # ---- Restaurants (Tier 1 + others) ----
     restaurants = get_restaurants(newsletter_name)
@@ -872,52 +874,18 @@ def main():
         subject_line=subject,
         content_html=new_body,
         status=STATUS,
-        thumbnail_url=thumbnail_url,
     )
     new_post_id = new_post.get("id", "")
     print(f"  ✓ Post created: {new_post_id}")
 
-    # Diagnostic: did create_post actually store the thumbnail?
-    # Beehiiv may silently drop `thumbnail_url` if the plan doesn't accept
-    # it via the create endpoint. We check the response and, if it's
-    # missing, fall back to a follow-up update_post call which sometimes
-    # works on plans where create doesn't.
-    returned_thumb = new_post.get("thumbnail_url") or new_post.get("web_thumbnail_url") or ""
-    if thumbnail_url and not returned_thumb:
-        print(f"  ⚠ Beehiiv did not return a thumbnail_url on create — retrying via update_post")
-        # Beehiiv PATCH validation requires title to be present alongside
-        # the thumbnail field. We also try multiple field name variants
-        # since Beehiiv's API has historically used both `thumbnail_url`
-        # and `web_thumbnail_url`.
-        variants = [
-            {"title": title, "thumbnail_url": thumbnail_url},
-            {"title": title, "web_thumbnail_url": thumbnail_url},
-            {"title": title, "image_url": thumbnail_url},
-        ]
-        for variant in variants:
-            field_name = next(k for k in variant if k != "title")
-            try:
-                patched = client.update_post(
-                    cfg["publication_id"], new_post_id, **variant,
-                )
-                returned_thumb = (
-                    patched.get("thumbnail_url")
-                    or patched.get("web_thumbnail_url")
-                    or patched.get("image_url")
-                    or ""
-                )
-                if returned_thumb:
-                    print(f"  ✓ Thumbnail set via update_post ({field_name}): {returned_thumb[:80]}")
-                    break
-                else:
-                    print(f"  · update_post with '{field_name}' returned no thumbnail in response")
-            except Exception as e:
-                print(f"  · update_post with '{field_name}' failed: {str(e)[:200]}")
-        if not returned_thumb:
-            print(f"  ⚠ All API thumbnail attempts failed. Set thumbnail manually in the Beehiiv editor for: {new_post_id}")
-            print(f"     URL to upload: {thumbnail_url}")
-    elif returned_thumb:
-        print(f"  ✓ Thumbnail stored: {returned_thumb[:80]}")
+    # Beehiiv's per-post thumbnail API is plan-locked: POST/PATCH `thumbnail_url`
+    # are silently dropped and the post falls back to the publication default
+    # logo. Set the thumbnail manually in the editor instead — the gh-pages
+    # composite URL below is the same image we feed into the email body.
+    print()
+    print("  📌 MANUAL STEP: upload this thumbnail in the Beehiiv editor:")
+    print(f"     {thumbnail_url}")
+    print(f"     (Open the post → top of page → Add/Change thumbnail → paste or upload)")
 
     # Native Beehiiv polls API is plan-locked (POST /polls returns 404).
     # We use inline HTML poll instead — the {poll_question} + {poll_option_N_*}

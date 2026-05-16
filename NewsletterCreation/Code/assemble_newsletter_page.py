@@ -1078,7 +1078,8 @@ def _event_row_to_dict(props: dict) -> dict:
         "blurb":       _rt("Blurb"),
         "source_url":  props.get("Source URL", {}).get("url", ""),
         "ticket_url":  props.get("Ticket URL", {}).get("url", ""),
-        "image_url":   props.get("Image URL", {}).get("url", ""),
+        "image_url":        props.get("Image URL", {}).get("url", ""),
+        "header_image_url": props.get("Header Image URL", {}).get("url", ""),
         "score":       props.get("Total Score", {}).get("number", 0),
     }
 

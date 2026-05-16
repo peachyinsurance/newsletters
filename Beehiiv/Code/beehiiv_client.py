@@ -106,10 +106,15 @@ class BeehiivClient:
                     preview_text: str | None = None,
                     content_html: str = "",
                     status: str = "draft",
-                    thumbnail_url: str | None = None) -> dict:
-        """Create a new post. status: 'draft', 'confirmed', 'scheduled'."""
-        # Beehiiv expects 'body_content' (HTML string) or 'blocks' (structured).
-        # We always send HTML, since we're cloning the template post body.
+                    **_ignored) -> dict:
+        """Create a new post. status: 'draft', 'confirmed', 'scheduled'.
+
+        NOTE: per-post thumbnail is plan-locked on Beehiiv — `thumbnail_url`
+        and `web_thumbnail_url` are silently dropped on POST and PATCH. Set
+        the post thumbnail manually in the editor after creation. The
+        in-body header swap handles displaying the Canva composite inside
+        the email content.
+        """
         body: dict[str, Any] = {
             "title":        title,
             "status":       status,
@@ -118,7 +123,6 @@ class BeehiivClient:
         if subtitle:      body["subtitle"]      = subtitle
         if subject_line:  body["subject_line"]  = subject_line
         if preview_text:  body["preview_text"]  = preview_text
-        if thumbnail_url: body["thumbnail_url"] = thumbnail_url
         result = self._request("POST", f"/publications/{publication_id}/posts",
                                json_body=body)
         return result.get("data") or result
