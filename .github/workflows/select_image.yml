@@ -49,14 +49,19 @@ jobs:
             echo "No composite generated; nothing to publish"
             exit 0
           fi
+          # Copy the generated PNGs to a location OUTSIDE the working tree
+          # so the gh-pages branch switch doesn't wipe them.
+          mkdir -p /tmp/header_previews
+          cp "${imgs[@]}" /tmp/header_previews/
+          echo "Staged $(ls /tmp/header_previews | wc -l) PNG(s) to /tmp"
+
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Stash other working-tree noise so the branch swap doesn't refuse
           git stash --include-untracked || true
           git fetch origin gh-pages
           git checkout gh-pages
           mkdir -p gifs
-          cp "${imgs[@]}" gifs/
+          cp /tmp/header_previews/*.png gifs/
           git add gifs/
           if git diff --staged --quiet; then
             echo "No composite changes to publish"

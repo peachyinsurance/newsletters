@@ -45,6 +45,42 @@ jobs:
           NOTION_EVENTS_DB_ID:      ${{ secrets.NOTION_EVENTS_DB_ID }}
           NEWSLETTER:               ${{ github.event.inputs.newsletter || 'all' }}
         run: python "Featured Event/Code/Featured_Event.py"
+
+      - name: Publish header previews to gh-pages
+        if: ${{ always() }}
+        run: |
+          set -e
+          shopt -s nullglob
+          imgs=("Beehiiv/Code/output/Newsletter_Header_image_"*.png)
+          if [ ${#imgs[@]} -eq 0 ]; then
+            echo "No header previews to publish"
+            exit 0
+          fi
+          # Copy PNGs to /tmp (outside the working tree) so the gh-pages
+          # branch switch doesn't wipe them.
+          mkdir -p /tmp/header_previews
+          cp "${imgs[@]}" /tmp/header_previews/
+          count=$(ls /tmp/header_previews | wc -l)
+          echo "Staged $count PNG(s) to /tmp"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git stash --include-untracked || true
+          git fetch origin gh-pages
+          git checkout gh-pages
+          mkdir -p gifs
+          cp /tmp/header_previews/*.png gifs/
+          git add gifs/
+          if git diff --staged --quiet; then
+            echo "No new header previews to publish"
+          else
+            git commit -m "publish featured-event header previews [skip ci]"
+            git push origin gh-pages
+            echo "✓ Published $count header preview(s) to gh-pages/gifs/"
+          fi
+          git checkout main
+          git stash pop || true
+
       - name: Trigger newsletter page rebuild
         if: ${{ (github.event.inputs.chain || 'true') == 'false' }}
         env:

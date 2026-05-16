@@ -803,6 +803,37 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"  ⚠ image lookup skipped ({e}) — events will save without image_url")
 
+        # Pre-build the Canva header composite for every event so the
+        # review app shows a preview immediately (no reviewer click needed).
+        # The picker can regenerate later if the reviewer swaps images.
+        try:
+            from header_image_maker import build_header_image
+            from pathlib import Path as _Path
+            header_out_dir = _Path(__file__).parent.parent.parent / "Beehiiv" / "Code" / "output"
+            header_out_dir.mkdir(parents=True, exist_ok=True)
+            for idx, r in enumerate(results):
+                photo = r.get("image_url") or ""
+                title = r.get("event_name") or ""
+                if not photo:
+                    continue
+                try:
+                    png = build_header_image(title=title, photo_url=photo)
+                except Exception as e:
+                    print(f"    · header build failed for {title[:50]}: {e}")
+                    continue
+                if not png:
+                    continue
+                # Per-event filename so multiple candidates each have their own preview
+                safe = "".join(c if c.isalnum() else "_" for c in title)[:40] or f"event_{idx}"
+                fname = f"Newsletter_Header_image_{newsletter['name']}_{safe}.png"
+                (header_out_dir / fname).write_bytes(png)
+                r["header_image_url"] = (
+                    f"https://peachyinsurance.github.io/newsletters/gifs/{fname}"
+                )
+                print(f"    ✓ built header preview: {fname}")
+        except Exception as e:
+            print(f"  ⚠ header pre-build skipped ({e})")
+
         # Save to Notion
         save_events_to_notion(results, newsletter["name"])
 
