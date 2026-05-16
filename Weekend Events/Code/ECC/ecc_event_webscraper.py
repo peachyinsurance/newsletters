@@ -62,7 +62,11 @@ SOURCE_URL = SOURCES[0]
 # Matches the Featured Event picker's date window so every event Featured
 # Event might choose is guaranteed to be in the DB.
 END_WINDOW_DAYS = 14
-USER_AGENT  = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120"
+# Keep this UA short. visitmariettaga's WAF 403s anything that looks like
+# a "spoofed" desktop browser (full Chrome UA strings are blocked, but
+# bare Mozilla/5.0 passes through). travelcobb accepts either, so this
+# is the common denominator.
+USER_AGENT  = "Mozilla/5.0"
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +82,7 @@ def fetch_page_events(source_url: str, page: int = 1) -> list[dict]:
         r = requests.get(url, timeout=15, headers={"User-Agent": USER_AGENT},
                          allow_redirects=True)
         if r.status_code != 200 or not r.text:
+            print(f"    [page {page}] HTTP {r.status_code} from {url}")
             return []
     except Exception as e:
         print(f"    [page {page}] fetch error: {e}")
@@ -115,6 +120,21 @@ def _clean_html(s: str) -> str:
     # Strip tags
     s = re.sub(r"<[^>]+>", " ", s)
     # Collapse whitespace
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _normalize_title(t: str) -> str:
+    """Lowercased, punctuation-stripped title key used for cross-source
+    dedup. 'Marietta Greek Festival 2026' and 'The Marietta Greek
+    Festival' both reduce to 'marietta greek festival' so they collide
+    in the (title, date) dedup set."""
+    if not t:
+        return ""
+    s = t.lower()
+    s = re.sub(r"\b20\d{2}\b", "", s)         # strip 4-digit years (2025, 2026, …)
+    s = re.sub(r"[^a-z0-9 ]+", " ", s)        # strip punctuation
+    s = re.sub(r"^(the|a|an)\s+", "", s)      # leading article
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
@@ -320,9 +340,36 @@ def main() -> int:
             page += 1
         print()
 
-    # Sort candidates by start_date for a readable insert log.
+    # Sort candidates by start_date for a readable insert log. Sorting
+    # before cross-source dedup means the earliest-dated copy of any
+    # duplicate event wins (relevant when the same event has slightly
+    # different start_dates on the two sites — e.g. multi-day events).
     candidates = sorted(by_url.values(),
                         key=lambda e: e["start_date"] or date.max)
+
+    # Cross-source name dedup: the same event is often listed on multiple
+    # sources with different URLs AND sometimes different start_dates
+    # (one site lists the opening night, the other lists the run's last
+    # day, etc.). Group by normalized event name only and keep the first
+    # copy. Because `candidates` is sorted by start_date ascending, the
+    # earliest in-window occurrence of each event wins.
+    seen_names: set[str] = set()
+    deduped: list[dict] = []
+    cross_source_dupes = 0
+    for ev in candidates:
+        name_key = _normalize_title(ev.get("event_name", ""))
+        if not name_key:
+            continue
+        if name_key in seen_names:
+            cross_source_dupes += 1
+            continue
+        seen_names.add(name_key)
+        deduped.append(ev)
+    if cross_source_dupes:
+        print(f"  ↓ Removed {cross_source_dupes} cross-source duplicate(s) "
+              f"(same event name, different URL)")
+    candidates = deduped
+
     inserted = 0
     skipped_existing = 0
     print(f"━━ Saving {len(candidates)} in-window candidates ━━")
@@ -338,7 +385,8 @@ def main() -> int:
     print(f"✓ Done. Inserted {inserted}, "
           f"skipped {skipped_existing} existing, "
           f"{skipped_past} past, "
-          f"{skipped_future} beyond {window_end}")
+          f"{skipped_future} beyond {window_end}, "
+          f"{cross_source_dupes} cross-source dupes")
     return 0
 
 
