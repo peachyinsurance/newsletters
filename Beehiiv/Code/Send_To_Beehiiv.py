@@ -877,6 +877,29 @@ def main():
     new_post_id = new_post.get("id", "")
     print(f"  ✓ Post created: {new_post_id}")
 
+    # Diagnostic: did create_post actually store the thumbnail?
+    # Beehiiv may silently drop `thumbnail_url` if the plan doesn't accept
+    # it via the create endpoint. We check the response and, if it's
+    # missing, fall back to a follow-up update_post call which sometimes
+    # works on plans where create doesn't.
+    returned_thumb = new_post.get("thumbnail_url") or new_post.get("web_thumbnail_url") or ""
+    if thumbnail_url and not returned_thumb:
+        print(f"  ⚠ Beehiiv did not return a thumbnail_url on create — retrying via update_post")
+        try:
+            patched = client.update_post(
+                cfg["publication_id"], new_post_id,
+                thumbnail_url=thumbnail_url,
+            )
+            returned_thumb = patched.get("thumbnail_url") or patched.get("web_thumbnail_url") or ""
+            if returned_thumb:
+                print(f"  ✓ Thumbnail set via update_post: {returned_thumb[:80]}")
+            else:
+                print(f"  ⚠ update_post also returned no thumbnail_url — Beehiiv plan may not support API-set thumbnails. Set manually in the Beehiiv editor.")
+        except Exception as e:
+            print(f"  ⚠ update_post failed: {e}")
+    elif returned_thumb:
+        print(f"  ✓ Thumbnail stored: {returned_thumb[:80]}")
+
     # Native Beehiiv polls API is plan-locked (POST /polls returns 404).
     # We use inline HTML poll instead — the {poll_question} + {poll_option_N_*}
     # placeholders in the template are filled by build_replacements above.
