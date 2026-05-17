@@ -1,8 +1,8 @@
 name: Generate Welcome Intro
 
 on:
-  schedule:
-    - cron: '0 13 * * 4'  # Thursday 8am EST (1pm UTC) — uses Mon's pet/restaurant/featured event
+  # schedule:  # ── PAUSED for the week. Uncomment to resume auto-runs. ──
+  #   - cron: '0 13 * * 4'  # Thursday 8am EST (1pm UTC) — uses Mon's pet/restaurant/featured event
   workflow_dispatch:
     inputs:
       newsletter:

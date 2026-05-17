@@ -2,8 +2,8 @@ name: Cleanup Restaurants
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 13 * * 6'  # Every Saturday at 8am EST (1pm UTC)
+  # schedule:  # ── PAUSED for the week. Uncomment to resume auto-runs. ──
+  #   - cron: '0 13 * * 6'  # Every Saturday at 8am EST (1pm UTC)
 
 permissions:
   contents: write

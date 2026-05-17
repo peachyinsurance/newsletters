@@ -1,8 +1,8 @@
 name: Archive Approved Items
 
 on:
-  schedule:
-    - cron: '0 22 * * 5'  # Every Friday at 5pm EST (10pm UTC)
+  # schedule:  # ── PAUSED for the week. Uncomment to resume auto-runs. ──
+  #   - cron: '0 22 * * 5'  # Every Friday at 5pm EST (10pm UTC)
   workflow_dispatch:
 
 permissions:
