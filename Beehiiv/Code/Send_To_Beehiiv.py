@@ -411,19 +411,21 @@ def expand_weekend_slots(html: str, events: list[dict]) -> str:
     """For each (day, audience) slot, duplicate the template card once
     per event.
 
-    The Beehiiv template should contain ONE event card per slot, with
-    these placeholders inside it:
-        {<slot>_title}     bolded event line
-        {<slot>_message}   metadata + description
-        {<slot>_link}      source URL (anchor href)
+    The Beehiiv template should contain three sibling <p> tags per slot:
+        <p>{<slot>_title}</p>
+        <p>{<slot>_message}</p>
+        <p><a href="{<slot>_link}">More Info</a></p>
 
-    We find each anchor placeholder, walk to its enclosing <tr> (or the
-    nearest structural container if no <tr> wraps it), capture that
-    template HTML, and replace it with N copies — one per event in that
-    (day, audience) slot — with the placeholders substituted inline.
+    We find the title placeholder's <p>, then walk forward through
+    consecutive <p> siblings collecting any that contain the message or
+    link placeholders for the same slot. That tuple of <p>s is the
+    "card." We then insert N substituted copies of those <p>s in place
+    of the originals.
 
-    Slots with zero events have their card removed entirely so the
-    section collapses cleanly."""
+    Slots with zero events: the placeholder <p>s are removed. The h2
+    above and the placeholder image stay; the image gets pruned later
+    by prune_unused_image_slots when no alt_swap is registered for the
+    slot's image filename token."""
     try:
         from bs4 import BeautifulSoup
     except ImportError:
@@ -435,43 +437,67 @@ def expand_weekend_slots(html: str, events: list[dict]) -> str:
     for slot_key, day, audience in WEEKEND_SLOT_KEYS:
         slot_events = [e for e in events
                        if e.get("day") == day and e.get("audience") == audience]
-        anchor_token = f"{{{slot_key}_title}}"
-        anchor_node = soup.find(string=lambda t: t and anchor_token in str(t))
-        if not anchor_node:
-            print(f"    · weekend slot '{slot_key}' — no {anchor_token} in template, skipping")
+        title_token = f"{{{slot_key}_title}}"
+        msg_token   = f"{{{slot_key}_message}}"
+        link_token  = f"{{{slot_key}_link}}"
+
+        title_text = soup.find(string=lambda t: t and title_token in str(t))
+        if not title_text:
+            print(f"    · weekend slot '{slot_key}' — no {title_token} in template, skipping")
             continue
 
-        container = anchor_node.parent
-        while container is not None and container.name not in ("tr", "table", "div"):
-            container = container.parent
-        if container is None:
-            print(f"    · weekend slot '{slot_key}' — couldn't find enclosing container")
+        # Walk up to the title's enclosing <p>.
+        title_p = title_text.parent
+        while title_p is not None and title_p.name != "p":
+            title_p = title_p.parent
+        if title_p is None:
+            print(f"    · weekend slot '{slot_key}' — title placeholder isn't inside a <p>")
             continue
+
+        # Collect consecutive <p> siblings that contain THIS slot's
+        # message or link tokens. Stop at the first non-<p> element or
+        # at a <p> that doesn't contain a relevant placeholder.
+        card_nodes = [title_p]
+        sib = title_p.next_sibling
+        while sib is not None:
+            if getattr(sib, "name", None) == "p":
+                stext = str(sib)
+                if msg_token in stext or link_token in stext:
+                    card_nodes.append(sib)
+                    sib = sib.next_sibling
+                    continue
+                break  # a <p> with no matching token = end of card
+            if getattr(sib, "name", None) is not None:
+                break  # any non-<p> element (image, h2, divider) = end of card
+            sib = sib.next_sibling  # whitespace text node — skip
 
         if not slot_events:
-            container.decompose()
-            print(f"    · weekend slot '{slot_key}' — 0 events, card removed")
+            for n in card_nodes:
+                n.decompose()
+            print(f"    · weekend slot '{slot_key}' — 0 events, {len(card_nodes)} placeholder <p>(s) removed")
             continue
 
-        template_html = str(container)
+        # Build the card template from the collected <p>s, then duplicate
+        # once per event with placeholders substituted inline.
+        template_html = "".join(str(n) for n in card_nodes)
         new_chunks: list[str] = []
         for ev in slot_events:
             copy = template_html
             for k, v in _weekend_event_to_card(ev, slot_key).items():
                 token = "{" + k + "}"
                 copy = copy.replace(token, v)
-                # Beehiiv auto-prepends http:// to placeholders pasted in
-                # URL fields; clean both prefixed forms for the link.
+                # Beehiiv may auto-prepend a scheme to placeholders pasted
+                # into URL fields; clean both prefixed forms for the link.
                 if k.endswith("_link"):
                     for scheme in ("http://", "https://"):
                         copy = copy.replace(scheme + token, v)
             new_chunks.append(copy)
 
         new_fragment = BeautifulSoup("".join(new_chunks), "html.parser")
-        new_nodes = list(new_fragment.children)
-        for node in new_nodes:
-            container.insert_before(node)
-        container.decompose()
+        for node in list(new_fragment.children):
+            card_nodes[0].insert_before(node)
+        for n in card_nodes:
+            n.decompose()
         total_expanded += len(slot_events)
         print(f"    ✓ weekend slot '{slot_key}' — expanded into {len(slot_events)} card(s)")
 
@@ -806,12 +832,12 @@ def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
         "PET_IMAGE":                   "pet-photo",
         "PET_PHOTO":                   "pet-photo",
         "free_event_image_1":          "free-event",
-        "friday_family_image":         "weekend-friday-family",
-        "friday_adult_image":          "weekend-friday-adult",
-        "saturday_family_image":       "weekend-saturday-family",
-        "saturday_adult_image":        "weekend-saturday-adult",
-        "sunday_family_image":         "weekend-sunday-family",
-        "sunday_adult_image":          "weekend-sunday-adult",
+        "friday_family_image":         "family_event_friday",
+        "friday_adult_image":          "adult_event_friday",
+        "saturday_family_image":       "family_event_saturday",
+        "saturday_adult_image":        "adult_event_saturday",
+        "sunday_family_image":         "family_event_sunday",
+        "sunday_adult_image":          "adult_event_sunday",
     }
 
     out = html
@@ -863,12 +889,12 @@ def prune_unused_image_slots(html: str, alt_swaps: dict[str, str]) -> tuple[str,
         "PET_IMAGE":                   "pet-photo",
         "PET_PHOTO":                   "pet-photo",
         "free_event_image_1":          "free-event",
-        "friday_family_image":         "weekend-friday-family",
-        "friday_adult_image":          "weekend-friday-adult",
-        "saturday_family_image":       "weekend-saturday-family",
-        "saturday_adult_image":        "weekend-saturday-adult",
-        "sunday_family_image":         "weekend-sunday-family",
-        "sunday_adult_image":          "weekend-sunday-adult",
+        "friday_family_image":         "family_event_friday",
+        "friday_adult_image":          "adult_event_friday",
+        "saturday_family_image":       "family_event_saturday",
+        "saturday_adult_image":        "adult_event_saturday",
+        "sunday_family_image":         "family_event_sunday",
+        "sunday_adult_image":          "adult_event_sunday",
     }
 
     out = html
