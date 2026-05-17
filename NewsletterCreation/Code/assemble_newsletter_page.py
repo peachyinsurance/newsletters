@@ -1173,15 +1173,14 @@ def _weekend_event_row_to_dict(props: dict) -> dict:
 
 
 def get_weekend_events(newsletter_name: str) -> list[dict]:
-    """Fetch this weekend's events for this newsletter (Fri/Sat/Sun of the
-    running week — same window the pipeline targets).
+    """Fetch Weekend Planner events for this newsletter.
 
     Filters: Newsletter == newsletter_name, Status not in (rejected,
-    approved-old), Date inside this week's Fri-Sun window. The upper bound
-    matters: rows from a previous run that landed on a future Saturday
-    (e.g. May 23 when this weekend is May 16) would otherwise still render
-    under "Saturday" and produce mismatched date headers like
-    "Saturday, May 23"."""
+    approved-old). The weekend-window filter is intentionally NOT applied
+    here — Weekend_Planner.py already restricts saves to the target
+    weekend at scrape time, and Status flipping handles last-week's rows.
+    Re-filtering here just risked dropping the current batch whenever the
+    assembler's local date math disagreed with the picker's."""
     if not NOTION_WEEKEND_PLANNER_DB_ID:
         print(f"  ⚠ NOTION_WEEKEND_PLANNER_DB_ID is empty — Weekend Planner section will not render")
         return []
@@ -1192,19 +1191,7 @@ def get_weekend_events(newsletter_name: str) -> list[dict]:
         print(f"  Weekend Planner query failed: {e}")
         return []
 
-    # Compute this week's Fri/Sat/Sun window. Same math the pipeline uses
-    # (Weekend_Planner.target_weekend_dates) — duplicated rather than
-    # imported to keep the assembler standalone.
-    today = datetime.today().date()
-    days_until_friday = 4 - today.weekday()  # negative on Sat/Sun, snaps back
-    target_friday = today + timedelta(days=days_until_friday)
-    target_sunday = target_friday + timedelta(days=2)
-    target_friday_iso = target_friday.isoformat()
-    target_sunday_iso = target_sunday.isoformat()
-    print(f"  Target weekend window: {target_friday_iso}..{target_sunday_iso}")
-
     events = []
-    out_of_window = 0
     for p in pages:
         props = p["properties"]
         if (props.get("Newsletter", {}).get("select") or {}).get("name") != newsletter_name:
@@ -1212,14 +1199,8 @@ def get_weekend_events(newsletter_name: str) -> list[dict]:
         status = (props.get("Status", {}).get("select") or {}).get("name", "")
         if status in ("rejected", "approved - old"):
             continue
-        row = _weekend_event_row_to_dict(props)
-        if row["date"] and not (target_friday_iso <= row["date"] <= target_sunday_iso):
-            out_of_window += 1
-            continue
-        events.append(row)
-    if out_of_window:
-        print(f"  Skipped {out_of_window} rows outside the target weekend window")
-    print(f"  Found {len(events)} upcoming Weekend Planner events for {newsletter_name}")
+        events.append(_weekend_event_row_to_dict(props))
+    print(f"  Found {len(events)} Weekend Planner events for {newsletter_name}")
     return events
 
 
