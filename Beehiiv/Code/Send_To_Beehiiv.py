@@ -517,7 +517,21 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
         if title_token in cs or msg_token in cs or link_token in cs:
             indices.append(i)
     if indices:
-        card_nodes = element_children[min(indices):max(indices) + 1]
+        start_idx = min(indices)
+        end_idx = max(indices)
+        # Extend forward to include trailing decorative blocks (dividers,
+        # spacers, blank rows) so a visual separator placed between cards
+        # in the template clones with each card instead of appearing
+        # only at the bottom of the section.
+        for i in range(end_idx + 1, len(element_children)):
+            ch = element_children[i]
+            text = (ch.get_text() or "").replace("\xa0", " ").strip()
+            has_hr = ch.find("hr") is not None
+            if not text or has_hr:
+                end_idx = i
+            else:
+                break
+        card_nodes = element_children[start_idx:end_idx + 1]
     else:
         # Placeholders are directly inside `ancestor`, not inside its
         # children — treat the ancestor itself as the card.
