@@ -1,17 +1,20 @@
 """
 Meme Corner scraper. Pulls top-of-the-week posts from a curated list of
-subreddits via Reddit's public JSON endpoints (no auth needed), filters
-for SFW image memes, and writes candidates to the Notion Meme Corner DB
-for editorial review.
+subreddits, filters for SFW image memes, and writes candidates to the
+Notion Meme Corner DB for editorial review.
 
-Reddit JSON access notes:
-  - Endpoint: https://www.reddit.com/r/<sub>/top.json?t=week&limit=N
-  - 60 unauthenticated req/min per IP (we make ~3 requests/run, well
-    under).
-  - 403/429 on generic UA strings ("Mozilla/5.0", "python-requests"). A
-    descriptive bot UA is required — we use "peachy-newsletter-bot/1.0".
-  - Some hot subs occasionally return partial / empty payloads on the
-    first hit; we retry once on empty.
+Reddit API access notes:
+  - PREFERRED: app-only OAuth (oauth.reddit.com). Needs
+    REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET env vars (register a
+    "script" app at https://www.reddit.com/prefs/apps — no user
+    account required for client_credentials grant). Gives ~600 req/
+    10min and works from cloud IPs.
+  - FALLBACK: unauthenticated www.reddit.com endpoints. 60 req/min
+    per IP and Reddit aggressively blocks cloud IPs (GitHub Actions,
+    AWS, GCP, etc.) with 403, so this path is for local dev only.
+  - Reddit requires a descriptive User-Agent; generic ones (Mozilla,
+    python-requests) get 403'd. We use "peachy-newsletter-bot/1.0".
+  - Empty payloads on hot subs occasionally; we retry once.
 
 Filters per sub:
   - over_18 == False        (SFW)
@@ -26,6 +29,7 @@ Env vars:
   NOTION_MEMES_DB_ID
   NEWSLETTER  — East_Cobb_Connect | Perimeter_Post | Lewisville_Lake_Lookout | all
 """
+import base64
 import os
 import sys
 import time
@@ -62,22 +66,67 @@ PER_SUB_LIMIT = 25    # how many top-of-week to ask for
 ACCEPT_PER_SUB = 6    # max candidates we'll save per sub per run
 
 USER_AGENT = "peachy-newsletter-bot/1.0 (by /u/peachy-newsletters)"
-HTTP_HEADERS = {"User-Agent": USER_AGENT}
+
+REDDIT_CLIENT_ID     = os.environ.get("REDDIT_CLIENT_ID", "").strip()
+REDDIT_CLIENT_SECRET = os.environ.get("REDDIT_CLIENT_SECRET", "").strip()
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".gifv", ".webp")
 
 
-def fetch_top(subreddit: str, limit: int = PER_SUB_LIMIT,
+def get_oauth_token() -> str | None:
+    """Fetch an app-only OAuth token (client_credentials grant). Returns
+    the bearer token on success, or None if credentials aren't set or
+    Reddit refuses. Token TTL is ~1 hour, plenty for one run."""
+    if not REDDIT_CLIENT_ID or not REDDIT_CLIENT_SECRET:
+        return None
+    auth = base64.b64encode(
+        f"{REDDIT_CLIENT_ID}:{REDDIT_CLIENT_SECRET}".encode()
+    ).decode()
+    try:
+        r = requests.post(
+            "https://www.reddit.com/api/v1/access_token",
+            headers={
+                "Authorization": f"Basic {auth}",
+                "User-Agent":    USER_AGENT,
+            },
+            data={"grant_type": "client_credentials"},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            print(f"  ⚠ Reddit OAuth failed: HTTP {r.status_code} {r.text[:200]}")
+            return None
+        token = (r.json() or {}).get("access_token")
+        if token:
+            print("  ✓ Got Reddit OAuth token (app-only)")
+        return token
+    except Exception as e:
+        print(f"  ⚠ Reddit OAuth error: {e}")
+        return None
+
+
+def fetch_top(subreddit: str, token: str | None,
+              limit: int = PER_SUB_LIMIT,
               window: str = "week") -> list[dict]:
-    """Fetch the top posts from a sub for the given time window. Returns
-    the raw `data` payload of each child post, or [] on failure. Retries
-    once on empty payload because Reddit occasionally returns partial
-    responses for hot subs on the first hit."""
-    url = f"https://www.reddit.com/r/{subreddit}/top.json"
+    """Fetch the top posts from a sub for the given time window. Uses
+    oauth.reddit.com when a token is present (works from cloud IPs);
+    falls back to www.reddit.com which routinely returns 403 from
+    GitHub Actions / AWS / GCP IP ranges. Returns the raw `data`
+    payload of each child post, or [] on failure. Retries once on
+    empty payload (hot subs sometimes return partial responses)."""
+    if token:
+        url = f"https://oauth.reddit.com/r/{subreddit}/top"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "User-Agent":    USER_AGENT,
+        }
+    else:
+        url = f"https://www.reddit.com/r/{subreddit}/top.json"
+        headers = {"User-Agent": USER_AGENT}
     params = {"t": window, "limit": limit}
+
     for attempt in range(2):
         try:
-            r = requests.get(url, params=params, headers=HTTP_HEADERS, timeout=20)
+            r = requests.get(url, params=params, headers=headers, timeout=20)
             if r.status_code != 200:
                 print(f"    ✗ r/{subreddit} HTTP {r.status_code}")
                 time.sleep(3)
@@ -174,12 +223,15 @@ def save_candidate(newsletter_name: str, post: dict, sub_label: str) -> bool:
         return False
 
 
-def scrape_for_newsletter(newsletter_name: str) -> int:
+def scrape_for_newsletter(newsletter_name: str, token: str | None) -> int:
     print(f"\n{'=' * 60}")
     print(f"  Scraping memes for {newsletter_name}")
     print(f"{'=' * 60}")
     if not NOTION_MEMES_DB_ID:
         print("  ⚠ NOTION_MEMES_DB_ID is empty — saves will be skipped")
+    if not token:
+        print("  ⚠ No Reddit OAuth token — falling back to unauthenticated "
+              "endpoints (likely to 403 from cloud IPs)")
 
     already_saved = existing_permalinks(newsletter_name)
     print(f"  {len(already_saved)} existing permalinks to skip")
@@ -187,7 +239,7 @@ def scrape_for_newsletter(newsletter_name: str) -> int:
     saved_total = 0
     for sub_url_name, sub_label in SUBREDDITS:
         print(f"\n  → r/{sub_url_name}")
-        posts = fetch_top(sub_url_name)
+        posts = fetch_top(sub_url_name, token)
         if not posts:
             print(f"    · no posts returned")
             continue
@@ -215,12 +267,13 @@ def scrape_for_newsletter(newsletter_name: str) -> int:
 
 
 def main() -> int:
+    token = get_oauth_token()
     if NEWSLETTER.lower() == "all":
         targets = ["East_Cobb_Connect", "Perimeter_Post", "Lewisville_Lake_Lookout"]
     else:
         targets = [NEWSLETTER]
     for nl in targets:
-        scrape_for_newsletter(nl)
+        scrape_for_newsletter(nl, token)
     return 0
 
 
