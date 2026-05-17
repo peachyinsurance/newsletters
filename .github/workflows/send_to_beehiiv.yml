@@ -106,8 +106,11 @@ jobs:
       # a poll-counts refresh immediately so the landing page reflects votes
       # from the moment subscribers start clicking — no waiting for the next
       # 30-min cron tick. Drafts skip this since there's nothing to poll yet.
+      #
+      # DISABLED: poll counts paused at user request. Re-enable by
+      # flipping `if: false` back to `if: ${{ github.event.inputs.status != 'draft' }}`.
       - name: Trigger initial poll counts update
-        if: ${{ github.event.inputs.status != 'draft' }}
+        if: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

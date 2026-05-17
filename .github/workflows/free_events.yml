@@ -21,6 +21,14 @@ on:
         options:
           - 'true'
           - 'false'
+      data_source:
+        description: 'Where to pull events from. "notion" = use whatever the last scrape saved (fast). "scrape" = re-run web scrapers first to refresh the Notion DB.'
+        required: false
+        default: 'notion'
+        type: choice
+        options:
+          - 'notion'
+          - 'scrape'
 
 permissions:
   contents: write
@@ -39,6 +47,39 @@ jobs:
           python-version: '3.11'
 
       - run: pip install requests anthropic beautifulsoup4 curl_cffi
+
+      # ── Optional pre-scrape (data_source == 'scrape') ───────────────────
+      - name: Refresh Cobb-County calendars (travelcobb/visitmariettaga/kennesaw)
+        if: ${{ github.event.inputs.data_source == 'scrape' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  East_Cobb_Connect
+        run: python "Weekend Events/Code/ECC/ecc_event_webscraper.py"
+
+      - name: Refresh Sandy Springs (ECC_PP shared pool)
+        if: ${{ github.event.inputs.data_source == 'scrape' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ECC_PP
+        run: python "Weekend Events/Code/ECC_PP/sandy_springs_webscraper.py"
+
+      - name: Refresh Eventbrite
+        if: ${{ github.event.inputs.data_source == 'scrape' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  East_Cobb_Connect
+        run: python "Weekend Events/Code/ECC/eventbrite_webscraper.py"
+
+      - name: Refresh cobbcounty.gov
+        if: ${{ github.event.inputs.data_source == 'scrape' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  East_Cobb_Connect
+        run: python "Weekend Events/Code/ECC/cobb_county_webscraper.py"
 
       - name: Generate Free Events
         env:

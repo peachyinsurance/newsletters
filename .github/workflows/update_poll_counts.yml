@@ -1,14 +1,18 @@
 name: Update Poll Counts
 
 on:
-  schedule:
-    # Polling window: Friday → Sunday only, every 30 min between 12:00–23:30 UTC.
-    # That covers ~7 AM EST (Fri morning send time) through 7:30 PM EST Sunday,
-    # which is when readers actually click vote links. Mon–Thu polling was
-    # noise — newsletter hadn't been sent yet so click counts were unchanged.
-    #
-    # Cron weekday: 5=Fri 6=Sat 0=Sun
-    - cron: '*/30 12-23 * * 5,6,0'
+  # Cron disabled — poll counts paused at user request. Re-enable by
+  # un-commenting the schedule block below. Manual workflow_dispatch
+  # still works so you can run it ad-hoc to verify it still works.
+  #
+  # schedule:
+  #   # Polling window: Friday → Sunday only, every 30 min between 12:00–23:30 UTC.
+  #   # That covers ~7 AM EST (Fri morning send time) through 7:30 PM EST Sunday,
+  #   # which is when readers actually click vote links. Mon–Thu polling was
+  #   # noise — newsletter hadn't been sent yet so click counts were unchanged.
+  #   #
+  #   # Cron weekday: 5=Fri 6=Sat 0=Sun
+  #   - cron: '*/30 12-23 * * 5,6,0'
   workflow_dispatch:
 
 permissions:
