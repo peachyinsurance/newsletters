@@ -539,7 +539,15 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["event_of_the_week_link"]        = ev_link
         # Alias: template URL fields sometimes lose the `_link` suffix
         repl["event_of_the_week"]             = ev_link
-        ev_img = event.get("image_url") or event.get("photo") or ""
+        # Prefer the body composite GIF (built by build_event_body_gif —
+        # has the ticket / date / address / venue text overlaid on rotating
+        # candidate photos) over the raw event photo. Mirrors what the
+        # assembled Notion landing page does: gif_url is the primary visual
+        # for the featured-event card, with image_url as the static fallback.
+        ev_img = (event.get("gif_url")
+                  or event.get("image_url")
+                  or event.get("photo")
+                  or "")
         if ev_img:
             hosted = upload_remote_image(client, publication_id, ev_img)
             if hosted:
