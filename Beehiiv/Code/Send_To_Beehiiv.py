@@ -740,6 +740,15 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         paragraph_prose["intro_message"] = intro_msg
         repl["intro_message"] = md_to_html(intro_msg)  # inline fallback
 
+        # "In Today's Connect" teaser block. The skill emits a bold
+        # header line + 5-8 emoji-led lines with blank-line separators,
+        # so the same DOM-level paragraph expansion that handles the
+        # free-event description turns each line into its own <p>.
+        teaser = (intro.get("in_todays_connect") or "").strip()
+        if teaser:
+            paragraph_prose["in_todays_connect"] = teaser
+            repl["in_todays_connect"] = md_to_html(teaser)
+
     # ---- Featured Event ----
     event = get_featured_event(newsletter_name)
     if event and event.get("blurb"):

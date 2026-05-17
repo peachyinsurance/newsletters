@@ -1,0 +1,61 @@
+name: Generate In Today's Connect
+
+on:
+  # No cron — runs in the weekly chain (kicked off by welcome_intro.yml
+  # right after Subject Line) or manually via workflow_dispatch.
+  workflow_dispatch:
+    inputs:
+      newsletter:
+        description: 'Which newsletter to generate for. "all" = every newsletter.'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'East_Cobb_Connect'
+          - 'Perimeter_Post'
+          - 'Lewisville_Lake_Lookout'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install requests anthropic
+
+      - name: Generate In Today's Connect
+        env:
+          CLAUDE_API_KEY:              ${{ secrets.CLAUDE_API_KEY }}
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_INTRO_DB_ID:          ${{ secrets.NOTION_INTRO_DB_ID }}
+          NOTION_EVENTS_DB_ID:         ${{ secrets.NOTION_EVENTS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID:    ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+          NOTION_LOWDOWN_DB_ID:        ${{ secrets.NOTION_LOWDOWN_DB_ID }}
+          NOTION_PETS_DB_ID:           ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_FREE_EVENTS_DB_ID:    ${{ secrets.NOTION_FREE_EVENTS_DB_ID }}
+          NOTION_RE_DB_ID:             ${{ secrets.NOTION_RE_DB_ID }}
+          NOTION_BUSINESS_BRIEF_DB_ID: ${{ secrets.NOTION_BUSINESS_BRIEF_DB_ID }}
+          NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'all' }}
+        run: python "In Todays Connect/Code/In_Todays_Connect.py"
+
+      - name: Trigger newsletter page rebuild
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
+            -d '{"ref":"main","inputs":{"section":"intro"}}'
+          echo "✓ Newsletter page rebuild triggered"

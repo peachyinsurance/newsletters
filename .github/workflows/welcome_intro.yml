@@ -70,3 +70,15 @@ jobs:
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/subject_line.yml/dispatches \
             -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"${NEWSLETTER}\"}}"
           echo "→ Triggered Generate Subject Line for ${NEWSLETTER}"
+
+      - name: Trigger In Today's Connect generation
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEWSLETTER:   ${{ github.event.inputs.newsletter || 'all' }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/in_todays_connect.yml/dispatches \
+            -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"${NEWSLETTER}\"}}"
+          echo "→ Triggered Generate In Today's Connect for ${NEWSLETTER}"

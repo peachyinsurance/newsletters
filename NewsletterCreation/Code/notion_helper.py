@@ -427,6 +427,7 @@ def setup_notion_databases():
             "Greeting":          {"rich_text": {}},
             "Blurb":             {"rich_text": {}},
             "Subject Line":      {"rich_text": {}},
+            "In Todays Connect": {"rich_text": {}},
             "Word Count":        {"number": {"format": "number"}},
             "Review Score":      {"number": {"format": "number"}},
             "Review Violations": {"rich_text": {}},
