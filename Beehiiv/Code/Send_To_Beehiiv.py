@@ -207,8 +207,7 @@ URL_TYPED_KEYS = {
     "real_estate_starter_link",
     "real_estate_sweetspot_link",
     "real_estate_showcase_link",
-    "local_lowdown1_link", "local_lowdown2_link", "local_lowdown3_link",
-    "local_lowdown4_link", "local_lowdown5_link",
+    "local_lowdown_link",
     # (Poll URLs intentionally NOT here — we use `{poll_option_N_slug}`
     # embedded in the template URL field, e.g.
     # `https://www.eastcobbconnect.com/?vote={poll_option_1_slug}`. Beehiiv
@@ -243,12 +242,9 @@ PRUNEABLE_SLOTS = [
     ("restaurant_radar_5_name",    "restaurant_radar_5_name"),
     ("restaurant_radar_5_name",    "restaurant_radar_5_message"),
     ("restaurant_radar_5_name",    "restaurant_radar_5_url"),
-    # Local Lowdown
-    ("local_lowdown1_title",       "local_lowdown1_title"),
-    ("local_lowdown2_title",       "local_lowdown2_title"),
-    ("local_lowdown3_title",       "local_lowdown3_title"),
-    ("local_lowdown4_title",       "local_lowdown4_title"),
-    ("local_lowdown5_title",       "local_lowdown5_title"),
+    # Local Lowdown — slots are now expanded dynamically by
+    # expand_lowdown_slots (clones one template card per parsed story),
+    # so the prune-on-empty machinery is no longer needed here.
     # Local Events
     ("local_event_date_1",         "local_event_date_1"),
     ("local_event_date_2",         "local_event_date_2"),
@@ -407,25 +403,93 @@ def _weekend_event_to_card(ev: dict, slot_key: str) -> dict[str, str]:
     }
 
 
+_CARD_BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "div", "li"}
+
+
+def _expand_one_slot(soup, slot_key: str, items: list[dict],
+                     item_to_fields) -> int:
+    """Generic slot expansion. Finds the {<slot>_title} placeholder in
+    `soup`, walks up to its enclosing block element, then collects
+    consecutive sibling block elements that contain THIS slot's
+    `_message` or `_link` placeholders. That tuple is the "card" — we
+    insert N substituted copies in place of the originals.
+
+    `items` is the list of data records for this slot.
+    `item_to_fields` takes `(item, slot_key)` and returns a
+    `{key: value}` dict for the placeholder substitutions.
+
+    Returns the number of cards rendered (0 if the slot is empty AND
+    the placeholder cards were removed; -1 if the title placeholder
+    wasn't found in the template; otherwise len(items))."""
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return -1
+
+    title_token = f"{{{slot_key}_title}}"
+    msg_token   = f"{{{slot_key}_message}}"
+    link_token  = f"{{{slot_key}_link}}"
+
+    title_text = soup.find(string=lambda t: t and title_token in str(t))
+    if not title_text:
+        return -1
+
+    # Walk up to the nearest block-level container for the title.
+    title_node = title_text.parent
+    while title_node is not None and title_node.name not in _CARD_BLOCK_TAGS:
+        title_node = title_node.parent
+    if title_node is None:
+        return -1
+
+    # Collect consecutive sibling block elements that carry this slot's
+    # _message or _link tokens. Stop at the first non-card sibling.
+    card_nodes = [title_node]
+    sib = title_node.next_sibling
+    while sib is not None:
+        name = getattr(sib, "name", None)
+        if name is None:
+            sib = sib.next_sibling  # whitespace text node
+            continue
+        if name in _CARD_BLOCK_TAGS:
+            stext = str(sib)
+            if msg_token in stext or link_token in stext:
+                card_nodes.append(sib)
+                sib = sib.next_sibling
+                continue
+        break
+
+    if not items:
+        for n in card_nodes:
+            n.decompose()
+        return 0
+
+    template_html = "".join(str(n) for n in card_nodes)
+    new_chunks: list[str] = []
+    for item in items:
+        copy = template_html
+        for k, v in item_to_fields(item, slot_key).items():
+            token = "{" + k + "}"
+            copy = copy.replace(token, v)
+            # Beehiiv may auto-prepend a scheme to placeholders pasted
+            # into URL fields; clean both prefixed forms for the link.
+            if k.endswith("_link"):
+                for scheme in ("http://", "https://"):
+                    copy = copy.replace(scheme + token, v)
+        new_chunks.append(copy)
+
+    new_fragment = BeautifulSoup("".join(new_chunks), "html.parser")
+    for node in list(new_fragment.children):
+        card_nodes[0].insert_before(node)
+    for n in card_nodes:
+        n.decompose()
+    return len(items)
+
+
 def expand_weekend_slots(html: str, events: list[dict]) -> str:
-    """For each (day, audience) slot, duplicate the template card once
-    per event.
-
-    The Beehiiv template should contain three sibling <p> tags per slot:
-        <p>{<slot>_title}</p>
-        <p>{<slot>_message}</p>
-        <p><a href="{<slot>_link}">More Info</a></p>
-
-    We find the title placeholder's <p>, then walk forward through
-    consecutive <p> siblings collecting any that contain the message or
-    link placeholders for the same slot. That tuple of <p>s is the
-    "card." We then insert N substituted copies of those <p>s in place
-    of the originals.
-
-    Slots with zero events: the placeholder <p>s are removed. The h2
-    above and the placeholder image stay; the image gets pruned later
-    by prune_unused_image_slots when no alt_swap is registered for the
-    slot's image filename token."""
+    """For each (day, audience) Weekend Planner slot, duplicate the
+    template card once per event. See `_expand_one_slot` for the
+    template structure (title/message/link in consecutive sibling
+    block elements). Empty slots have their card removed."""
     try:
         from bs4 import BeautifulSoup
     except ImportError:
@@ -437,71 +501,47 @@ def expand_weekend_slots(html: str, events: list[dict]) -> str:
     for slot_key, day, audience in WEEKEND_SLOT_KEYS:
         slot_events = [e for e in events
                        if e.get("day") == day and e.get("audience") == audience]
-        title_token = f"{{{slot_key}_title}}"
-        msg_token   = f"{{{slot_key}_message}}"
-        link_token  = f"{{{slot_key}_link}}"
-
-        title_text = soup.find(string=lambda t: t and title_token in str(t))
-        if not title_text:
-            print(f"    · weekend slot '{slot_key}' — no {title_token} in template, skipping")
-            continue
-
-        # Walk up to the title's enclosing <p>.
-        title_p = title_text.parent
-        while title_p is not None and title_p.name != "p":
-            title_p = title_p.parent
-        if title_p is None:
-            print(f"    · weekend slot '{slot_key}' — title placeholder isn't inside a <p>")
-            continue
-
-        # Collect consecutive <p> siblings that contain THIS slot's
-        # message or link tokens. Stop at the first non-<p> element or
-        # at a <p> that doesn't contain a relevant placeholder.
-        card_nodes = [title_p]
-        sib = title_p.next_sibling
-        while sib is not None:
-            if getattr(sib, "name", None) == "p":
-                stext = str(sib)
-                if msg_token in stext or link_token in stext:
-                    card_nodes.append(sib)
-                    sib = sib.next_sibling
-                    continue
-                break  # a <p> with no matching token = end of card
-            if getattr(sib, "name", None) is not None:
-                break  # any non-<p> element (image, h2, divider) = end of card
-            sib = sib.next_sibling  # whitespace text node — skip
-
-        if not slot_events:
-            for n in card_nodes:
-                n.decompose()
-            print(f"    · weekend slot '{slot_key}' — 0 events, {len(card_nodes)} placeholder <p>(s) removed")
-            continue
-
-        # Build the card template from the collected <p>s, then duplicate
-        # once per event with placeholders substituted inline.
-        template_html = "".join(str(n) for n in card_nodes)
-        new_chunks: list[str] = []
-        for ev in slot_events:
-            copy = template_html
-            for k, v in _weekend_event_to_card(ev, slot_key).items():
-                token = "{" + k + "}"
-                copy = copy.replace(token, v)
-                # Beehiiv may auto-prepend a scheme to placeholders pasted
-                # into URL fields; clean both prefixed forms for the link.
-                if k.endswith("_link"):
-                    for scheme in ("http://", "https://"):
-                        copy = copy.replace(scheme + token, v)
-            new_chunks.append(copy)
-
-        new_fragment = BeautifulSoup("".join(new_chunks), "html.parser")
-        for node in list(new_fragment.children):
-            card_nodes[0].insert_before(node)
-        for n in card_nodes:
-            n.decompose()
-        total_expanded += len(slot_events)
-        print(f"    ✓ weekend slot '{slot_key}' — expanded into {len(slot_events)} card(s)")
-
+        n = _expand_one_slot(soup, slot_key, slot_events, _weekend_event_to_card)
+        if n == -1:
+            print(f"    · weekend slot '{slot_key}' — no {{{slot_key}_title}} in template")
+        elif n == 0:
+            print(f"    · weekend slot '{slot_key}' — 0 events, card removed")
+        else:
+            total_expanded += n
+            print(f"    ✓ weekend slot '{slot_key}' — expanded into {n} card(s)")
     print(f"  Weekend Planner expansion: {total_expanded} event card(s) total")
+    return str(soup)
+
+
+def _lowdown_story_to_card(story: dict, slot_key: str) -> dict[str, str]:
+    """Map a parsed lowdown story to the title/message/link placeholders."""
+    return {
+        f"{slot_key}_title":   story.get("heading", ""),
+        f"{slot_key}_message": story.get("body", ""),
+        f"{slot_key}_link":    story.get("url", ""),
+    }
+
+
+def expand_lowdown_slots(html: str, stories: list[dict]) -> str:
+    """Duplicate the Local Lowdown template card once per parsed story.
+    Slot key: `local_lowdown`. The template should contain ONE card with
+    {local_lowdown_title}, {local_lowdown_message}, {local_lowdown_link}
+    placeholders in consecutive block elements."""
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        print("  ⚠ beautifulsoup4 not installed; skipping Local Lowdown expansion")
+        return html
+
+    soup = BeautifulSoup(html, "html.parser")
+    n = _expand_one_slot(soup, "local_lowdown", stories, _lowdown_story_to_card)
+    if n == -1:
+        print(f"    · local_lowdown — no {{local_lowdown_title}} in template, "
+              f"skipping ({len(stories)} parsed stories will not render)")
+    elif n == 0:
+        print(f"    · local_lowdown — 0 stories, placeholder card removed")
+    else:
+        print(f"    ✓ local_lowdown — expanded into {n} card(s)")
     return str(soup)
 
 
@@ -509,16 +549,17 @@ def expand_weekend_slots(html: str, events: list[dict]) -> str:
 # 4. SECTION DATA → REPLACEMENT MAP
 # ---------------------------------------------------------------------------
 def build_replacements(client: BeehiivClient, publication_id: str,
-                      newsletter_name: str) -> tuple[dict, dict, dict, int, list]:
+                      newsletter_name: str) -> tuple[dict, dict, dict, int, list, list]:
     """Pull section data, upload images, return:
       (text_replacements, image_url_swaps, alt_image_swaps,
-       lowdown_story_count, weekend_events)
+       lowdown_story_count, weekend_events, lowdown_stories)
 
     text_replacements: {placeholder_key: string_value}
     image_url_swaps:   {original_url: beehiiv_hosted_url}  — used as fallback string-find
     alt_image_swaps:   {alt_text: image_url}  — used to swap <img alt="..." src="...">
-    lowdown_story_count: number of stories actually used (0-5)
+    lowdown_story_count: number of stories actually used (presence flag for subject-line context)
     weekend_events:    raw list of Weekend Planner events for slot expansion
+    lowdown_stories:   parsed Local Lowdown stories (heading/body/url) for slot expansion
     """
     repl: dict[str, str] = {}
     image_swaps: dict[str, str] = {}
@@ -648,18 +689,19 @@ def build_replacements(client: BeehiivClient, publication_id: str,
                 else:
                     repl[f"showcase_answer_{i}"] = ""
 
-    # ---- Local Lowdown (1–5 stories) ----
+    # ---- Local Lowdown (parsed into a story list; rendered via
+    #      expand_lowdown_slots which clones ONE template card per story).
+    lowdown_stories: list[dict] = []
     lowdown_text = get_latest_lowdown(newsletter_name)
-    story_count = 0
     if lowdown_text:
         # Parse the markdown: ### {emoji} {headline}\n\n{body}\n\nMore: [label](url)
         sections = re.split(r"\n(?=### )", lowdown_text.strip())
-        for i, section in enumerate(sections[:5], start=1):
+        for section in sections:
             lines = section.splitlines()
             heading = lines[0].lstrip("# ").strip() if lines else ""
             body_lines = [ln for ln in lines[1:] if ln.strip()]
             # Pull the trailing markdown link `More: [label](url)` if present.
-            # The URL becomes {local_lowdown{i}_link} (used by the button/hyperlink),
+            # The URL becomes {local_lowdown_link} (used by the button/hyperlink),
             # so strip the line from the body to avoid the same link appearing twice.
             story_url = ""
             cleaned_body_lines = []
@@ -679,10 +721,20 @@ def build_replacements(client: BeehiivClient, publication_id: str,
                     continue  # drop the line from body
                 cleaned_body_lines.append(ln)
             body = "\n".join(cleaned_body_lines).strip()
-            repl[f"local_lowdown{i}_title"]   = heading
-            repl[f"local_lowdown{i}_message"] = body
-            repl[f"local_lowdown{i}_link"]    = story_url
-            story_count += 1
+            if heading or body:
+                lowdown_stories.append({
+                    "heading": heading,
+                    "body":    body,
+                    "url":     story_url,
+                })
+    # Keep `story_count` for the existing return-tuple contract; callers
+    # (currently just subject-line generation) use it as a presence flag.
+    story_count = len(lowdown_stories)
+    if lowdown_stories:
+        # Expose the first story's heading via the legacy placeholder name
+        # so the subject-line context that reads `local_lowdown1_title`
+        # keeps working without a downstream change.
+        repl["local_lowdown1_title"] = lowdown_stories[0].get("heading", "")
 
     # ---- Pet ----
     pet = get_approved_pet(newsletter_name)
@@ -802,7 +854,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     for day, friendly in weekend_dates_seen.items():
         repl[f"{day.lower()}_date"] = friendly
 
-    return repl, image_swaps, alt_swaps, story_count, weekend_events
+    return repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories
 
 
 def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
@@ -1018,17 +1070,19 @@ def main():
 
     # Gather all section data + upload images
     print("\n  Gathering section data + uploading images…")
-    repl, image_swaps, alt_swaps, story_count, weekend_events = build_replacements(
+    repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories = build_replacements(
         client, cfg["publication_id"], NEWSLETTER,
     )
 
-    # Weekend Planner: duplicate each slot's template card once per event.
-    # Has to run BEFORE prune_empty_slots so the pruner doesn't yank the
-    # original (unfilled) template card thinking it's an empty slot, and
-    # BEFORE replace_placeholders because the substitutions for the
-    # duplicated cards happen inline during expansion.
+    # Dynamic-slot expansions must run BEFORE prune_empty_slots so the
+    # pruner doesn't yank the original (unfilled) template card thinking
+    # it's an empty slot, and BEFORE replace_placeholders because the
+    # substitutions for the duplicated cards happen inline during
+    # expansion.
     print("\n  Expanding Weekend Planner slots…")
     body_html = expand_weekend_slots(body_html, weekend_events)
+    print("\n  Expanding Local Lowdown slots…")
+    body_html = expand_lowdown_slots(body_html, lowdown_stories)
 
     # Apply text placeholder replacements
     # Prune unused repeating slots (restaurants 4-5, lowdown 4-5, etc.)
@@ -1037,7 +1091,6 @@ def main():
     pruned_body = prune_empty_slots(body_html, repl)
 
     new_body = replace_placeholders(pruned_body, repl)
-    new_body = hide_unused_lowdown_slots(new_body, story_count)
 
     # Apply image URL string-swaps (covers cases where the template already
     # references the original gh-pages URL directly)
