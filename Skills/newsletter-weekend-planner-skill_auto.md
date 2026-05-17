@@ -26,31 +26,11 @@ This is not a calendar dump. It is a curation. **Aim for 5-8 strong events per a
 
 ---
 
-## What Counts as an Event (vs. a Recommendation)
+## What Counts as an Event
 
-The Weekend Planner is for **events**, not for "places to go this weekend." If something is just a business operating its normal hours with its normal menu, it does not belong here, no matter how good the place is.
+The candidates you receive have already been pulled from local event calendars and scrapers — they're real scheduled happenings, not editorial guesses. **Default to including, not excluding.** Recurring weekly events (trivia night, jam session, ukulele meetup, poker night, dance Fridays), library programs, club meetups, festivals, performances, classes, markets, sports, fundraisers — all of these are valid Weekend Planner events.
 
-**These are NOT events. SKIP them:**
-
-- Regular Sunday brunch, Friday taproom hours, Saturday dinner service. "Open this weekend" is not an event.
-- Standing daily/weekly menus (even a beloved one). A great brunch spot is a restaurant recommendation, not an event.
-- A bar or brewery that is simply open during its posted hours, even if it is the weekend.
-
-**These ARE events. PICK them:**
-
-- Live music night at a bar, brewery, or restaurant (even if the venue is otherwise a normal restaurant).
-- Food trucks scheduled at a brewery, taproom, market, or non-restaurant venue.
-- Trivia night, karaoke, silent book club, comedy night, themed events, or any other added entertainment at a restaurant or bar.
-- Time-limited special menus or one-off chef collaborations (e.g., a Mother's Day prix-fixe). A standing Sunday brunch is NOT this; a one-weekend-only seasonal menu IS this.
-- Time-limited gaming, classes, demos, or programming at a venue that doesn't normally host them (e.g., a morning gaming session at a games bar with a specific 11am-1pm window).
-- Festivals, fairs, markets, fundraisers, performances, sporting events, races, exhibitions, classes, tours.
-
-**The two-part test when a place is on the edge:**
-
-1. **Is it time-limited?** A real event has a specific start and end window beyond "we are open." If the answer is "they're open Sunday from 10:30 to 2:30 like every Sunday," it's not an event.
-2. **Is there an added element?** When a restaurant adds entertainment (music, trivia, trucks, gaming, special menu), it becomes an event. When a non-restaurant adds food (food trucks at a brewery), it becomes an event. Restaurant + restaurant = still a restaurant.
-
-If a candidate fails both tests, it is a recommendation, not an event. Skip it. Better to return fewer strong events than to pad the list with "this brewery is open Sunday."
+**The only things that aren't events:** business meetings clearly aimed at staff/professionals (e.g. "Pre-Certification Meeting" for an internal team), and listings that are explicitly just "we are open" with no scheduled program. If you can't tell from the title/summary which it is, default to including.
 
 ---
 
@@ -66,21 +46,19 @@ The pipeline gives you a list of Brave Search candidates. **They have ALREADY be
 
 **Trust the `days` field.** The pipeline determined the day(s) by parsing the candidate's title, summary, and article body — and it dropped anything that didn't pin to the target weekend before you ever saw it. You do NOT need to verify the date or infer the day yourself. If a candidate is in the list, the pipeline already confirmed it runs on this weekend.
 
-**Your job is to PICK and WRITE — not to re-filter.** Aim for a mix that covers Friday, Saturday, AND Sunday. The candidate `days` field tells you which day(s) each option runs — use it to balance your picks across the weekend.
+**Your job is to PICK and WRITE — NOT to re-filter.** The candidates are local, scheduled, and already screened by the pipeline. Default to INCLUDING every candidate unless one of the four hard-skip cases below applies. "Mediocre fit" / "generic description" / "recurring weekly event" are NOT reasons to skip. Better to ship a B+ event than to leave the day empty.
 
-Pick the best **{TARGET_PER_AUDIENCE}** or fewer events that fit this audience profile. Quality of the pick comes from fit-for-audience, geographic relevance, and editorial mix (including day coverage) — NOT from rejecting candidates.
+**Hard skip — and only these:**
 
-**Only drop in these specific cases:**
+1. **Obviously cancelled.** Title or summary plainly says "Cancelled" or "Postponed". Drop.
 
-1. **Obvious wrong-audience mismatch.** If you're picking for Adult and a candidate is clearly a kids-only event (e.g., toddler storytime), skip it — it'll get picked by Family. Conversely if you're picking for Family and it's a 21+ event, skip.
+2. **Extreme wrong-audience mismatch.** Adult pane and the event is a toddler storytime / Family pane and the event is explicitly 21+ or otherwise inappropriate for kids. If it's an event that *could* work for either audience, pick the audience it fits best and leave it.
 
-2. **Obviously cancelled.** If the candidate's title or summary plainly says "Cancelled" or "Postponed", drop.
+3. **Venue or city on the OUT OF RANGE list.** The user prompt may include an "OUT OF RANGE" block. Hard exclusion, no override.
 
-3. **Duplicate event under different URLs.** If two candidates obviously describe the same event (same name, same date), pick the better one and skip the other.
+4. **Duplicate event under different URLs.** Same name and same date as another candidate — pick one, skip the other.
 
-4. **Not an event, just a recommendation.** Per the "What Counts as an Event" section above: regular hours, standing brunch/menu, "the brewery is open Sunday." These belong in a restaurant section, not the Weekend Planner. Skip.
-
-5. **Venue or city on the out-of-range list.** The user prompt may include an "OUT OF RANGE" block listing venues and/or cities that are outside this newsletter's coverage area. These are HARD exclusions, no override. Skip anything that matches.
+**Everything else gets included.** Recurring weekly events count. Library programs count. Sparse summaries count (infer time/price from context; "Check website" is fine). Business-meeting listings clearly aimed at staff/professionals (e.g. "Pre-Certification Meeting") are the rare exception — skip those.
 
 If the candidate's summary doesn't include time/address/price, **infer reasonable defaults from context** (e.g., "library storytime" → 10-11 AM; "Friday night concert" → 7-9 PM; "farmers market" → 8 AM-12 PM). Use "Check website" or empty fields rather than dropping the event — the published format tolerates missing details.
 
@@ -187,8 +165,8 @@ Note the link mechanic: visible anchor text is the **root domain with `www.` kep
 | Re-filtering candidates the pipeline already validated | The pipeline did date/domain/dup screening upstream — trust it and pick |
 | Dropping a candidate because time/price isn't in the snippet | Infer reasonable defaults from context; only drop on clear wrong-audience or cancellation |
 | Padding with weak events instead of returning the strong picks | Return what fits the audience well; don't pad, but also don't under-pick valid options |
-| Picking a regular Sunday brunch, taproom hours, or "open this weekend" | That's a restaurant recommendation, not an event. The Weekend Planner is for time-limited happenings with an added element (music, food trucks, trivia, special menu). See "What Counts as an Event" |
 | Picking an event at a venue or in a city listed in the OUT OF RANGE block | Hard exclusion. The newsletter doesn't cover those locations regardless of how big the event is |
+| Skipping a candidate because it's "just a recurring weekly event" or "the summary is generic" | These are NOT skip reasons. Default to including. Only the four hard-skip cases (cancelled / extreme wrong-audience / OUT OF RANGE / duplicate) apply |
 
 ---
 

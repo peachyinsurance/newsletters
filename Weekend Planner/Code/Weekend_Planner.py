@@ -856,20 +856,23 @@ here are the ones not already taken.
 least one pick covering each of Friday, Saturday, and Sunday if the
 candidate pool supports it.
 
-HARD TARGET: return exactly {gap_fill_count or TARGET_PER_AUDIENCE} picks (or as close as
-possible). If you find yourself excluding borderline candidates because
-they're slightly recurring, less-than-perfect audience fit, or
-generically described — RELAX those guardrails to hit the target.
-Better to include a B+ event than to come up short on the section.
-Only return fewer than {gap_fill_count or TARGET_PER_AUDIENCE} if you genuinely don't have
-enough viable candidates that meet the basic bar (real event, runs in
-the date window, in coverage area, not on the hard-exclusion lists).
-Empty days are acceptable if no pool candidate runs that day.
+DEFAULT TO INCLUDING. The candidates have already been pulled from real
+local event calendars by the pipeline. Your bar for INCLUSION is low:
+unless an event is (a) clearly cancelled, (b) extreme wrong-audience
+(toddler storytime for Adult / 21+ show for Family), (c) on the OUT OF
+RANGE block, or (d) a duplicate of another candidate — INCLUDE IT.
+"Generic description", "recurring weekly", "no time listed", "vague
+summary" are NOT skip reasons. Infer reasonable defaults for missing
+fields. Better to include a B+ event with a thin description than to
+leave a day empty.
 
-CRITICAL: each event belongs to ONLY ONE audience (Family OR Adult). Do
-not include events that would feel equally appropriate for the OTHER
-audience — pick the audience it fits best, leave it for that audience's
-pool.
+Return up to {gap_fill_count or TARGET_PER_AUDIENCE} picks. Only return
+fewer if the candidate pool genuinely doesn't have that many AFTER
+applying ONLY the four hard-skip cases above.
+
+CRITICAL: each event belongs to ONLY ONE audience (Family OR Adult). For
+events that could fit either, pick the better-fitting audience and leave
+the other empty. This avoids the same event showing up in both panes.
 
 Use `candidate_index` to reference URLs — do NOT include raw URLs in
 the output.
@@ -1284,20 +1287,37 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"  ⚠ event image fetch skipped ({e})")
 
-        # One photo per audience — clear image_url on everything except the
-        # top-scored event in Family and the top-scored event in Adult.
-        # Result: exactly two photos render in the Weekend Planner section
-        # (one for each audience pane).
+        # One photo per (audience, day) — at most six images render in the
+        # Weekend Planner section (Friday/Saturday/Sunday × Family/Adult).
+        # Also enforce no URL reuse across slots: if Family Friday and
+        # Family Saturday would both grab the same recurring event's photo,
+        # only the first slot gets it and Saturday falls through to the
+        # next-best event with a still-unused image.
+        used_image_urls: set[str] = set()
         for aud in AUDIENCES:
-            in_aud = [e for e in all_events if e.get("audience") == aud
-                                              and e.get("image_url")]
-            in_aud.sort(key=lambda e: e.get("total_score", 0), reverse=True)
-            for ev in in_aud[1:]:
-                ev.pop("image_url", None)
-            if in_aud:
-                kept = in_aud[0].get("event_name", "?")[:50]
-                print(f"  ↳ {aud}: keeping image on '{kept}', cleared "
-                      f"{len(in_aud) - 1} other(s)")
+            for day in ("Friday", "Saturday", "Sunday"):
+                in_slot = [e for e in all_events
+                           if e.get("audience") == aud
+                           and e.get("day") == day
+                           and e.get("image_url")]
+                in_slot.sort(key=lambda e: e.get("total_score", 0), reverse=True)
+                kept = None
+                for ev in in_slot:
+                    if ev["image_url"] not in used_image_urls:
+                        kept = ev
+                        used_image_urls.add(ev["image_url"])
+                        break
+                cleared = 0
+                for ev in in_slot:
+                    if ev is not kept:
+                        ev.pop("image_url", None)
+                        cleared += 1
+                if kept:
+                    print(f"  ↳ {aud} {day}: keeping image on "
+                          f"'{kept.get('event_name','?')[:50]}', cleared {cleared} other(s)")
+                elif in_slot:
+                    print(f"  ↳ {aud} {day}: no unique image available "
+                          f"(all {len(in_slot)} candidates' images already used elsewhere)")
 
         # Half-size each surviving image. Notion's image_block API has no
         # width control — display size is the file's pixel size, capped at
