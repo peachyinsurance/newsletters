@@ -411,12 +411,19 @@ def build_replacements(client: BeehiivClient, publication_id: str,
 
         # ---- Newsletter Header (Canva-style composite) ----
         # Prefer the URL already saved to Notion by the review-app image
-        # picker (Header Image URL). Falls back to the predicted gh-pages
-        # URL with a cache-bust if the row doesn't have one yet.
+        # picker (Header Image URL). Falls back to the predicted per-event
+        # gh-pages URL (matching what the picker writes) so we don't point
+        # at the shared `Newsletter_Header_image_{nl}.png` file — that
+        # generic name gets overwritten by every event and surfaces the
+        # wrong image when an older row is approved.
         import time as _t
+        safe_title = "".join(
+            c if c.isalnum() else "_" for c in (event.get("event_name") or "")
+        )[:40] or "event"
         header_url = event.get("header_image_url") or (
             f"https://peachyinsurance.github.io/newsletters/gifs/"
-            f"Newsletter_Header_image_{newsletter_name}.png?v={int(_t.time())}"
+            f"Newsletter_Header_image_{newsletter_name}_{safe_title}.png"
+            f"?v={int(_t.time())}"
         )
         alt_swaps["newsletter_header_image"] = header_url
 

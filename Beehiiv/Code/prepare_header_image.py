@@ -51,7 +51,12 @@ def main() -> int:
         return 1
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    fname = f"Newsletter_Header_image_{NEWSLETTER}.png"
+    # Per-event filename so the file URL Send_To_Beehiiv falls back to
+    # matches the picker/select_image convention. Writing to the shared
+    # `Newsletter_Header_image_{nl}.png` would get overwritten by every
+    # newsletter run for any other event.
+    safe_title = "".join(c if c.isalnum() else "_" for c in title)[:40] or "event"
+    fname = f"Newsletter_Header_image_{NEWSLETTER}_{safe_title}.png"
     out   = OUT_DIR / fname
     out.write_bytes(data)
     print(f"  ✓ Wrote {out} ({len(data):,} bytes)")

@@ -105,9 +105,18 @@ def main() -> int:
             print(f"  ✗ Header composite returned empty bytes")
             return 1
 
+        # Per-event filename matches what Featured_Event.py picker writes.
+        # The generic `Newsletter_Header_image_{nl}.png` is shared across
+        # every event for that newsletter, so writing here would overwrite
+        # any other event's composite — and since the Notion URL is set to
+        # this same path, approving any other event later would surface
+        # whichever event's composite was last written (the "default /
+        # wrong image" symptom).
+        safe_title = "".join(c if c.isalnum() else "_" for c in title)[:40] or "event"
+        fname = f"Newsletter_Header_image_{nl_name}_{safe_title}.png"
         out_dir = Path(__file__).parent.parent.parent / "Beehiiv" / "Code" / "output"
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_file = out_dir / f"Newsletter_Header_image_{nl_name}.png"
+        out_file = out_dir / fname
         out_file.write_bytes(png_bytes)
         print(f"  ✓ Wrote composite → {out_file} ({len(png_bytes):,} bytes)")
 
@@ -116,7 +125,7 @@ def main() -> int:
         # Append a cache-bust query string so browsers + Notion don't
         # show the previous regeneration's image.
         cache_bust = int(time.time())
-        header_url = f"{GH_PAGES_BASE}/Newsletter_Header_image_{nl_name}.png?v={cache_bust}"
+        header_url = f"{GH_PAGES_BASE}/{fname}?v={cache_bust}"
 
         # 4. Save header URL to Notion
         if not patch_notion_field(page_id, "Header Image URL", header_url):
