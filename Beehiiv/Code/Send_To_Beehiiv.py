@@ -372,36 +372,92 @@ def replace_placeholders(html: str, replacements: dict[str, str]) -> str:
     return out
 
 
-def md_to_html(text: str) -> str:
-    """Convert the lightweight markdown our content sections use into HTML
-    suitable for substitution into a Beehiiv template placeholder:
-
-      `**bold**`           → <strong>bold</strong>
-      `[label](url)`       → <a href="url" target="_blank" ...>label</a>
-      blank-line breaks    → </p><p> (splits the wrapping placeholder
-                                       paragraph into separate <p> blocks
-                                       so Beehiiv's email CSS gives them
-                                       real paragraph spacing)
-      lone newlines        → single space
-
-    Beehiiv strips or visually collapses <br><br>, so blank-line breaks
-    must split the wrapping <p>. The placeholder is almost always inside
-    a <p> in the template; if it isn't, browsers/email clients tolerate
-    the orphan close/open tags by auto-closing."""
+def md_inline_to_html(text: str) -> str:
+    """Inline-only markdown → HTML conversion (bold + links). No paragraph
+    handling — that's done by expand_paragraph_field via real DOM ops."""
     if not text:
         return ""
     out = text
-    # Links first so the URL in `[x](http://...)` doesn't get mangled by the
-    # bold pass if a URL happened to contain `**`.
     out = re.sub(
         r"\[([^\]]+)\]\((https?://[^)]+)\)",
         r'<a href="\2" target="_blank" rel="noopener noreferrer">\1</a>',
         out,
     )
     out = re.sub(r"\*\*([^*]+?)\*\*", r"<strong>\1</strong>", out)
-    out = re.sub(r"\n\s*\n+", "</p><p>", out)
     out = out.replace("\n", " ")
     return out
+
+
+def md_to_html(text: str) -> str:
+    """Backwards-compatible alias for short single-paragraph fields where
+    paragraph splitting isn't needed (e.g. the free-event metadata line).
+    For multi-paragraph prose, use expand_paragraph_field instead — it
+    creates real sibling <p> blocks that Beehiiv won't collapse."""
+    return md_inline_to_html(text)
+
+
+def expand_paragraph_field(html: str, placeholder_key: str, text: str) -> str:
+    """Replace the placeholder's wrapping <p> with one real <p> block per
+    blank-line-separated paragraph in `text`. Each paragraph gets inline
+    markdown (bold + links) converted to HTML.
+
+    Why this exists: Beehiiv strips injected raw tags like `</p><p>` and
+    `<br><br>` when they appear inside an existing <p> via string
+    substitution — the resulting email renders as one wall of text.
+    Properly-structured sibling <p> elements created via the DOM tree
+    can't be ignored, so they render with real paragraph spacing.
+
+    If the placeholder isn't in the HTML or isn't inside a <p>, falls
+    back to inline-only substitution so the field still renders (just
+    without paragraph breaks)."""
+    if not text:
+        return html
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return html
+
+    token = "{" + placeholder_key + "}"
+    if token not in html:
+        return html
+
+    soup = BeautifulSoup(html, "html.parser")
+    node = soup.find(string=lambda t: t and token in str(t))
+    if not node:
+        return html
+
+    # Walk up to the wrapping <p>. If the placeholder sits inside an
+    # inline element (span, strong, em, a), keep climbing.
+    block = node.parent
+    while block is not None and block.name != "p":
+        block = block.parent
+    if block is None:
+        # No <p> wrapper — fall back to inline substitution. Caller's
+        # replace_placeholders pass will substitute the raw token.
+        return html
+
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n+", text) if p.strip()]
+    if not paragraphs:
+        block.decompose()
+        return str(soup)
+
+    # Preserve the wrapping <p>'s attributes (style, class, id) so the
+    # new paragraphs inherit the template's typography.
+    attrs_html = "".join(f' {k}="{v}"' for k, v in (block.attrs or {}).items()
+                         if isinstance(v, str))
+    if "class" in (block.attrs or {}):
+        cls = " ".join(block["class"]) if isinstance(block["class"], list) else block["class"]
+        attrs_html = re.sub(r' class="[^"]*"', "", attrs_html)
+        attrs_html += f' class="{cls}"'
+
+    new_html = "".join(
+        f"<p{attrs_html}>{md_inline_to_html(p)}</p>" for p in paragraphs
+    )
+    new_fragment = BeautifulSoup(new_html, "html.parser")
+    for child in list(new_fragment.children):
+        block.insert_before(child)
+    block.decompose()
+    return str(soup)
 
 
 def hide_unused_lowdown_slots(html: str, used_count: int) -> str:
@@ -653,10 +709,11 @@ def expand_lowdown_slots(html: str, stories: list[dict]) -> str:
 # 4. SECTION DATA → REPLACEMENT MAP
 # ---------------------------------------------------------------------------
 def build_replacements(client: BeehiivClient, publication_id: str,
-                      newsletter_name: str) -> tuple[dict, dict, dict, int, list, list]:
+                      newsletter_name: str) -> tuple[dict, dict, dict, int, list, list, dict]:
     """Pull section data, upload images, return:
       (text_replacements, image_url_swaps, alt_image_swaps,
-       lowdown_story_count, weekend_events, lowdown_stories)
+       lowdown_story_count, weekend_events, lowdown_stories,
+       paragraph_prose)
 
     text_replacements: {placeholder_key: string_value}
     image_url_swaps:   {original_url: beehiiv_hosted_url}  — used as fallback string-find
@@ -664,16 +721,24 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     lowdown_story_count: number of stories actually used (presence flag for subject-line context)
     weekend_events:    raw list of Weekend Planner events for slot expansion
     lowdown_stories:   parsed Local Lowdown stories (heading/body/url) for slot expansion
+    paragraph_prose:   {placeholder_key: raw_text} for fields whose wrapping
+                       <p> needs DOM-level splitting into per-paragraph <p>s
+                       (Beehiiv strips injected `<br><br>` / `</p><p>`)
     """
     repl: dict[str, str] = {}
     image_swaps: dict[str, str] = {}
     alt_swaps: dict[str, str] = {}
+    # Raw multi-paragraph text for fields that need DOM-level paragraph
+    # expansion (real sibling <p> blocks so Beehiiv doesn't collapse them
+    # into one wall of text).
+    paragraph_prose: dict[str, str] = {}
 
     # ---- Welcome Intro ----
     intro = get_latest_intro(newsletter_name)
     if intro:
         intro_msg = ((intro.get("greeting") or "") + "\n\n" + (intro.get("blurb") or "")).strip()
-        repl["intro_message"] = md_to_html(intro_msg)
+        paragraph_prose["intro_message"] = intro_msg
+        repl["intro_message"] = md_to_html(intro_msg)  # inline fallback
 
     # ---- Featured Event ----
     event = get_featured_event(newsletter_name)
@@ -844,6 +909,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     business = get_business_brief(newsletter_name)
     if business and business.get("blurb"):
         repl["business_brief_name"]    = business.get("name", "")
+        paragraph_prose["business_brief_blurb"] = business.get("blurb", "")
         repl["business_brief_blurb"]   = md_to_html(business.get("blurb", ""))
         repl["business_brief_city"]    = business.get("city", "")
         repl["business_brief_price"]   = business.get("price_level", "")
@@ -858,6 +924,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     tip = get_latest_tip(newsletter_name)
     if tip and tip.get("blurb"):
         repl["insurance_tip_title"]  = tip.get("tip_title", "")
+        paragraph_prose["insurance_tip_blurb"] = tip.get("blurb", "")
         repl["insurance_tip_blurb"]  = md_to_html(tip.get("blurb", ""))
         tip_url = tip.get("source_url", "") or ""
         repl["insurance_tip_url"]    = tip_url
@@ -906,6 +973,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
                     break
             repl["free_event_title_1"]       = title
             repl["free_event_address_1"]     = md_to_html(details)
+            paragraph_prose["free_event_description_1"] = description
             repl["free_event_description_1"] = md_to_html(description)
             repl["free_event_link_1"]        = link
             # Alias: template URL fields sometimes drop the trailing `_1`
@@ -983,7 +1051,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     for day, friendly in weekend_dates_seen.items():
         repl[f"{day.lower()}_date"] = friendly
 
-    return repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories
+    return repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose
 
 
 def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
@@ -1199,7 +1267,7 @@ def main():
 
     # Gather all section data + upload images
     print("\n  Gathering section data + uploading images…")
-    repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories = build_replacements(
+    repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose_fields = build_replacements(
         client, cfg["publication_id"], NEWSLETTER,
     )
 
@@ -1212,6 +1280,20 @@ def main():
     body_html = expand_weekend_slots(body_html, weekend_events)
     print("\n  Expanding Local Lowdown slots…")
     body_html = expand_lowdown_slots(body_html, lowdown_stories)
+
+    # Long-form prose fields: split each into real sibling <p> blocks via
+    # DOM ops so Beehiiv renders paragraph spacing. Done here (vs. inside
+    # build_replacements) because we need the live HTML to find the
+    # placeholder's wrapping <p>.
+    print("\n  Expanding paragraph prose fields…")
+    for key, raw_text in (paragraph_prose_fields or {}).items():
+        if raw_text:
+            body_html = expand_paragraph_field(body_html, key, raw_text)
+            # Once expanded into real <p> blocks the placeholder is gone,
+            # so drop it from repl to avoid the later string-replace pass
+            # writing the already-expanded value into other parts of the
+            # template that happen to contain the same token.
+            repl.pop(key, None)
 
     # Apply text placeholder replacements
     # Prune unused repeating slots (restaurants 4-5, lowdown 4-5, etc.)
