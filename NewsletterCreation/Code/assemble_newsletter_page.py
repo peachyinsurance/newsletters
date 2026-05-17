@@ -994,11 +994,13 @@ def get_latest_intro(newsletter_name: str) -> dict | None:
     )
     props = pages[0]["properties"]
     greeting_rt = props.get("Greeting", {}).get("rich_text", [])
-    blurb_rt = props.get("Blurb", {}).get("rich_text", [])
-    greeting = "".join(chunk.get("text", {}).get("content", "") for chunk in greeting_rt) if greeting_rt else ""
-    blurb = "".join(chunk.get("text", {}).get("content", "") for chunk in blurb_rt) if blurb_rt else ""
+    blurb_rt    = props.get("Blurb",    {}).get("rich_text", [])
+    subject_rt  = props.get("Subject Line", {}).get("rich_text", [])
+    greeting = "".join(c.get("text", {}).get("content", "") for c in greeting_rt) if greeting_rt else ""
+    blurb    = "".join(c.get("text", {}).get("content", "") for c in blurb_rt) if blurb_rt else ""
+    subject  = "".join(c.get("text", {}).get("content", "") for c in subject_rt) if subject_rt else ""
     if blurb:
-        return {"greeting": greeting, "blurb": blurb}
+        return {"greeting": greeting, "blurb": blurb, "subject_line": subject}
     return None
 
 
