@@ -526,6 +526,14 @@ def expand_weekend_slots(html: str, events: list[dict]) -> str:
     for slot_key, day, audience in WEEKEND_SLOT_KEYS:
         slot_events = [e for e in events
                        if e.get("day") == day and e.get("audience") == audience]
+        # The slot's single image lives above the cards in the column.
+        # Sort image-owner first so that image is visually adjacent to
+        # its matching event's card after expansion (otherwise the image
+        # looks adopted by whichever event happened to sort first).
+        slot_events.sort(key=lambda e: (
+            0 if e.get("image_url") else 1,
+            -(e.get("total_score") or 0),
+        ))
         n, width = _expand_one_slot(soup, slot_key, slot_events, _weekend_event_to_card)
         if n == -1:
             print(f"    · weekend slot '{slot_key}' — no {{{slot_key}_title}} in template")
