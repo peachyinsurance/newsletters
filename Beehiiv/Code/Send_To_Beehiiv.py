@@ -441,41 +441,31 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
     if title_node is None:
         return -1
 
-    # Collect consecutive sibling block elements that carry this slot's
-    # _message or _link tokens. Skip over decorative widget divs
-    # (Beehiiv's editor inserts "anchor indicator" widgets between
-    # placeholder blocks) and empty/whitespace siblings. Stop at the
-    # first sibling that's CONTENT but doesn't carry our placeholders.
-    def _is_decorative(node) -> bool:
-        if getattr(node, "name", None) is None:
-            return False
-        classes = node.get("class") or []
-        if isinstance(classes, str):
-            classes = [classes]
-        if any("node-indicator" in c or "ProseMirror-widget" in c for c in classes):
-            return True
-        # Visually empty element (no text, no <img>) — likely an editor artifact.
-        if not node.get_text(strip=True) and not node.find("img"):
-            return True
-        return False
+    # The "card" is the range of sibling block elements from the title's
+    # block through the block containing the latest of (_message, _link).
+    # We use range-by-position instead of a strict consecutive-sibling
+    # walk because Beehiiv's editor can insert decorative wrappers
+    # (anchor indicators, ProseMirror widgets) or unrelated filler
+    # blocks between the placeholder paragraphs.
+    title_parent = title_node.parent
+    if title_parent is None:
+        return -1
+    sibling_blocks = [c for c in title_parent.children
+                      if getattr(c, "name", None) in _CARD_BLOCK_TAGS]
+    if title_node not in sibling_blocks:
+        return -1
+    title_idx = sibling_blocks.index(title_node)
 
-    card_nodes = [title_node]
-    sib = title_node.next_sibling
-    while sib is not None:
-        name = getattr(sib, "name", None)
-        if name is None:
-            sib = sib.next_sibling  # whitespace text node
-            continue
-        if _is_decorative(sib):
-            sib = sib.next_sibling  # skip widget / empty wrapper
-            continue
-        if name in _CARD_BLOCK_TAGS:
-            stext = str(sib)
-            if msg_token in stext or link_token in stext:
-                card_nodes.append(sib)
-                sib = sib.next_sibling
-                continue
-        break
+    end_idx = title_idx
+    for i, blk in enumerate(sibling_blocks[title_idx + 1:], start=title_idx + 1):
+        stext = str(blk)
+        if msg_token in stext or link_token in stext:
+            end_idx = i
+        # Stop once we'd cross into another instance of THIS slot's title
+        # (defensive — shouldn't happen, but avoids over-capture).
+        if i > title_idx and title_token in stext:
+            break
+    card_nodes = sibling_blocks[title_idx:end_idx + 1]
 
     if not items:
         for n in card_nodes:
