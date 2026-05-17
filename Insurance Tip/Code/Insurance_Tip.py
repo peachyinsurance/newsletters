@@ -198,15 +198,20 @@ Below are insurance tip candidates pulled from trusted consumer-insurance source
 Each candidate has a topic, category, source URL, source domain, title, and summary.
 
 Your job:
-1. Pick the top {TARGET_TIPS} tips that work for BOTH audiences, applying the guardrails
+1. Pick up to {TARGET_TIPS} tips that work for BOTH audiences, applying the guardrails
    and scoring rules in your instructions.
+   **HARD MINIMUM: you MUST return at least 1 tip.** This section can't be empty —
+   if no candidate meets every guardrail perfectly, relax the dedup-angle requirement
+   first (a repeat-subject tip with the same angle as a prior one is preferable to an
+   empty section). Only as a last resort, pick the highest-scoring candidate and write
+   the best blurb you can. Empty returns are NOT acceptable.
 2. For each pick, write a polished blurb following the skill's format and voice rules
    exactly (short title, 3-5 sentence body, soft Peachy CTA, "Learn more" line).
 3. Also write a 1-2 sentence `summary` capturing the SUBJECT and ANGLE of the tip (not the
    voice). This is used for future dedup — future runs will read it to judge whether a
    new candidate is a repeat subject. Keep it factual, specific, and under 300 characters.
-4. Diversify categories — do not return two tips from the same category unless there
-   are no good alternatives.
+4. Diversify categories when you have multiple picks — but don't drop a pick just to
+   maintain category diversity if it puts you under the minimum.
 5. Score each 1-10 on relevance, actionability, timeliness.
 
 Return ONLY a JSON array with no preamble, explanation, or markdown fences. Exact format:
@@ -342,8 +347,39 @@ if __name__ == "__main__":
         print("  Skipping Insurance Tip generation this run.")
         sys.exit(0)
 
+    # Fallback: if Claude still came back empty despite the "MUST pick
+    # at least 1" instruction, re-call with maximum-softness instructions
+    # asking it to just pick the single best candidate from what we have.
     if not results:
-        print("Claude found no qualifying tips. Exiting.")
+        print("  ⚠ Claude returned 0 picks despite the minimum-1 instruction — retrying with softer guardrails…")
+        fallback_prompt = f"""
+The first call returned no picks, but we need at least ONE insurance tip for this
+issue. Drop every guardrail except basic factual accuracy and pick exactly 1 tip
+from the candidates below. Repeating a recently-covered subject is allowed if
+that's the best you can do. Write the blurb in the skill's voice; keep it short.
+
+Audiences:
+{build_claude_user_prompt.__defaults__ if False else ''}
+
+Candidates:
+{json.dumps(candidates, indent=2)}
+
+Return ONLY a JSON array with exactly one entry, same schema as the original
+prompt (topic, category, tip_title, blurb, summary, source_url, source_name,
+relevance_score, actionability_score, timeliness_score, scoring_notes).
+"""
+        try:
+            results = call_with_json_output(
+                api_key=CLAUDE_API_KEY,
+                system=skill_prompt,
+                user_content=fallback_prompt,
+            )
+        except ClaudeJSONError as e:
+            print(f"  ⚠ Fallback also failed: {e}")
+            results = []
+
+    if not results:
+        print("Claude found no qualifying tips even after fallback. Exiting.")
         sys.exit(0)
 
     results = score_and_sort(results)

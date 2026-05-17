@@ -34,6 +34,7 @@ from notion_helper import (
     query_database,
     update_page,
     NOTION_WEEKEND_EVENTS_DB_ID,
+    NOTION_EVENTS_DB_ID,
 )
 from newsletters_config import NEWSLETTERS, filter_by_env
 # Shared event-date filtering (Friday floor + parsing) lives in
@@ -57,9 +58,12 @@ MAX_RESULTS_PER_QUERY = 10
 # we spend tokens feeding Claude full descriptions. Pass-2 then evaluates
 # and writes blurbs for the survivors, returning CANDIDATE_EVENTS picks.
 TOP_N_TITLES          = 10
-CANDIDATE_EVENTS      = 8   # ask Claude for this many in pass 2
+CANDIDATE_EVENTS      = 8   # ask Claude for up to this many in pass 2
 TARGET_EVENTS         = CANDIDATE_EVENTS  # legacy alias used in the prompt
 FINAL_EVENTS          = 3   # keep this many after the date-floor filter
+# Hard floor on picks per newsletter. Section is never empty — if the
+# initial Claude call returns fewer, we re-call with relaxed guardrails.
+MIN_PICKS_PER_NL      = 3
 # Date window for Notion event lookup: upcoming Friday → +14 days.
 DATE_WINDOW_DAYS      = 14
 
@@ -1041,6 +1045,59 @@ if __name__ == "__main__":
                 print(f"  ⚠ couldn't mark '{r.get('event_name','?')[:40]}' as featured: {e}")
         if marked:
             print(f"  ↳ Marked {marked} Weekend Events row(s) as Status='featured'")
+
+        # ── Refresh headers for ALL still-active Featured Event rows ────
+        # This run only built fresh header PNGs for the events it just
+        # picked. Older picks (chosen in previous Featured Event runs but
+        # still showing in the review-app / Notion UI) still have their
+        # original PNGs on gh-pages — those were built before the latest
+        # template edit, so they show the old red-box design. Walk every
+        # Notion row whose Status isn't rejected/old and rebuild its
+        # header PNG against the CURRENT template. The workflow's
+        # gh-pages publish step picks up everything in the output dir.
+        if NOTION_EVENTS_DB_ID:
+            try:
+                from header_image_maker import build_header_image as _build_hdr
+                refresh_filter = {
+                    "and": [
+                        {"property": "Newsletter",
+                         "select": {"equals": newsletter["name"]}},
+                        {"property": "Status",
+                         "select": {"does_not_equal": "rejected"}},
+                        {"property": "Status",
+                         "select": {"does_not_equal": "approved - old"}},
+                    ]
+                }
+                active_pages = query_database(NOTION_EVENTS_DB_ID,
+                                              filters=refresh_filter) or []
+                print(f"\n  Refreshing headers for {len(active_pages)} "
+                      f"active Featured Event row(s)…")
+                hdr_out = Path(__file__).parent.parent.parent / "Beehiiv" / "Code" / "output"
+                hdr_out.mkdir(parents=True, exist_ok=True)
+                refreshed = 0
+                for p in active_pages:
+                    props = p.get("properties", {})
+                    ev_name = (_rich_text(props.get("Event Name"))
+                               or _rich_text(props.get("Name")))
+                    img_url = (props.get("Image URL", {}).get("url") or "").strip()
+                    if not ev_name or not img_url:
+                        continue
+                    try:
+                        png = _build_hdr(title=ev_name, photo_url=img_url)
+                    except Exception as e:
+                        print(f"    · skipped '{ev_name[:50]}': {e}")
+                        continue
+                    if not png:
+                        continue
+                    safe = "".join(c if c.isalnum() else "_"
+                                   for c in ev_name)[:40] or "event"
+                    fname = f"Newsletter_Header_image_{newsletter['name']}_{safe}.png"
+                    (hdr_out / fname).write_bytes(png)
+                    refreshed += 1
+                print(f"  ↳ Rebuilt {refreshed} header PNG(s) "
+                      f"against the current template")
+            except Exception as e:
+                print(f"  ⚠ Header refresh stage skipped ({e})")
 
         # Save local JSON backup
         output_dir = Path(__file__).parent / "output"
