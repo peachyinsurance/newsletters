@@ -530,9 +530,14 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
         # Extend forward to include trailing decorative blocks (dividers,
         # spacers, blank rows) so a visual separator placed between cards
         # in the template clones with each card instead of appearing
-        # only at the bottom of the section.
+        # only at the bottom of the section. Stop the moment we hit a
+        # block with real content — especially an <img> (the next
+        # section's hero image), so we don't accidentally pull in
+        # something that belongs to a different section.
         for i in range(end_idx + 1, len(element_children)):
             ch = element_children[i]
+            if ch.find("img") is not None:
+                break
             text = (ch.get_text() or "").replace("\xa0", " ").strip()
             has_hr = ch.find("hr") is not None
             if not text or has_hr:
