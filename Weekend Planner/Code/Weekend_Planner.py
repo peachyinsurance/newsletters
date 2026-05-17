@@ -368,6 +368,17 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
         ]
     }
     pages = query_database(NOTION_WEEKEND_EVENTS_DB_ID, filters=filters) or []
+    # Map the target weekend ISO dates → day labels so we can pre-fill
+    # `days` directly from each row's structured Date / Dates fields.
+    # Without this, downstream determine_event_days() re-scans the title
+    # text for date mentions — and most scraped rows don't repeat the
+    # date in their summary, so it returns [] and the pick gets dropped
+    # even though we already know the date from Notion.
+    weekend_day_by_iso = {
+        target_weekend["Friday"]:   "Friday",
+        target_weekend["Saturday"]: "Saturday",
+        target_weekend["Sunday"]:   "Sunday",
+    }
     out: list[dict] = []
     for p in pages:
         props = p.get("properties", {})
@@ -382,6 +393,22 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
         description = _rich_text_value(props.get("Description"))
         venue   = _rich_text_value(props.get("Location"))
         address = _rich_text_value(props.get("Address"))
+        # Pre-fill `days` from structured Notion fields. Start with the
+        # row's primary Date, then merge any ISO dates parsed out of the
+        # `Dates` rich-text field (for recurring events).
+        days: list[str] = []
+        if start_str in weekend_day_by_iso:
+            days.append(weekend_day_by_iso[start_str])
+        dates_text = _rich_text_value(props.get("Dates"))
+        if dates_text:
+            import re as _re_iso
+            for iso in _re_iso.findall(r"\d{4}-\d{2}-\d{2}", dates_text):
+                label = weekend_day_by_iso.get(iso)
+                if label and label not in days:
+                    days.append(label)
+        if days:
+            order = ["Friday", "Saturday", "Sunday"]
+            days = sorted(days, key=order.index)
         out.append({
             "title":       title,
             "url":         url,
@@ -394,6 +421,7 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
             "image_url":   (props.get("Image URL", {}).get("url") or "").strip(),
             "notion_page_id": p.get("id"),
             "_from_notion": True,
+            "days":        days,
         })
     print(f"  Notion pool: {len(out)} candidate(s) in window "
           f"({friday} → {sunday}) for {tags}")
