@@ -123,7 +123,7 @@
     ],
     "header_image_url": "https://peachyinsurance.github.io/newsletters/gifs/Newsletter_Header_image_East_Cobb_Connect_Steeped_in_Peace__Women_s_Edition.png?v=1779019542",
     "gif_url": "https://peachyinsurance.github.io/newsletters/gifs/event_gif_East_Cobb_Connect_Steeped_in_Peace__Women_s_Edition.gif?v=1779019548",
-    "default_winner": "yes"
+    "default_winner": ""
   },
   {
     "source_url": "https://www.eventbrite.com/e/the-r-tistry-presents-verses-and-vibez-tickets-1989383429390",
@@ -492,7 +492,7 @@
     ],
     "header_image_url": "https://peachyinsurance.github.io/newsletters/gifs/Newsletter_Header_image_East_Cobb_Connect_Classic_Love__Music_of_Gerald_LeVert.png?v=1778978161",
     "gif_url": "https://peachyinsurance.github.io/newsletters/gifs/event_gif_East_Cobb_Connect_Classic_Love__Music_of_Gerald_LeVert.gif?v=1778978167",
-    "default_winner": "yes"
+    "default_winner": ""
   },
   {
     "source_url": "https://www.kennesaw-ga.gov/kennesaw-event/pollinator-palooza-3/",
@@ -504,7 +504,7 @@
     "blurb": "Smith-Gilbert Gardens is celebrating the 10-year anniversary of its \"A Garden with Wings\" exhibit this Saturday with Pollinator Palooza, a full day of gardens, butterflies, and native plant education from 10am to 5pm. It's a genuinely beautiful property and a good slow-morning kind of outing. This one skews toward nature lovers, gardeners, and anyone who wants a reason to be outside without a crowd pressing in on all sides. The anniversary makes this year's edition worth noting. Check the Smith-Gilbert Gardens site for admission details.",
     "ticket_url": "",
     "date_generated": "2026-05-17",
-    "status": "approved",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "total_score": "21",
     "demographic_fit_score": "7",
