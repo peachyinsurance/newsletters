@@ -41,10 +41,12 @@ BRAVE_NEWS_API_KEY = os.environ["BRAVE_NEWS_API_KEY"]
 
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-weekend-planner-skill_auto.md"
 
-TARGET_PER_AUDIENCE = 18     # upper bound Claude picks per audience (Family OR Adult); ~6/day × 3 days
-MIN_PER_AUDIENCE    = 3      # per-audience floor — at least 3 Family events and 3 Adult events
-                             # per newsletter. If Adult is short, family events get promoted
-                             # (one-way only — see _backfill_adult_from_family in main).
+TARGET_PER_AUDIENCE = 20     # HARD target Claude tries to hit per audience (Family OR Adult)
+MIN_PER_AUDIENCE    = 20     # same as target — we want to hit 20/audience consistently.
+                             # If Adult is short, family events get promoted (one-way only —
+                             # see _backfill_adult_from_family in main). If Claude itself
+                             # returns fewer than TARGET, the Python fallback re-prompts
+                             # asking it to fill the gap with eased guardrails.
 MAX_RESULTS_PER_QUERY = 15
 PAUSE_BETWEEN_BRAVE = 0.5    # rate-limit buffer
 
@@ -738,6 +740,7 @@ def call_claude_for_audience(
     audience: str,
     target_weekend: dict,
     skill_prompt: str,
+    gap_fill_count: int | None = None,
 ) -> list[dict]:
     """Ask Claude to pick the best events for one audience across the whole
     weekend. Returns validated event dicts WITHOUT day/date assignment —
@@ -746,7 +749,13 @@ def call_claude_for_audience(
 
     Two anchor dates passed in the prompt so Claude has full context, but
     Claude is told the candidate set was already date-filtered for the target
-    weekend and should not re-filter."""
+    weekend and should not re-filter.
+
+    `gap_fill_count` — when set, signals this is a follow-up call to fill
+    a gap from a prior pass. The prompt asks for that many additional
+    picks with softened guardrails (already-relaxed criteria, allow
+    weaker audience fits, allow recurring without 'special edition'
+    framing, etc.)."""
     if not candidates:
         return []
 
@@ -803,10 +812,30 @@ Each candidate has a `days` field listing which of Fri/Sat/Sun it runs
 on — that's the source of truth. Do NOT try to figure out the date or
 day yourself. The pipeline already did it.
 
-Your job is to PICK the best {TARGET_PER_AUDIENCE} or fewer for the
+{f'''GAP-FILL PASS: an earlier pass picked some of the candidates but came up short
+of the {TARGET_PER_AUDIENCE} target for this audience. The candidates below are
+ONLY the ones the first pass DIDN'T pick. Pick up to {gap_fill_count} more events
+to fill the gap. Soften the guardrails further — accept events that are decent
+but not perfect, accept recurring events even when they're not special editions,
+accept events whose audience fit is weaker than ideal as long as they're
+plausibly {audience.lower()}-appropriate. The goal is fill the section, not
+chase perfection. Avoid duplicating events from the first pass; the candidates
+here are the ones not already taken.
+
+''' if gap_fill_count else ''}Your job is to PICK {gap_fill_count or TARGET_PER_AUDIENCE} events for the
 {audience.lower()} audience and WRITE the event description. Aim for at
 least one pick covering each of Friday, Saturday, and Sunday if the
 candidate pool supports it.
+
+HARD TARGET: return exactly {gap_fill_count or TARGET_PER_AUDIENCE} picks (or as close as
+possible). If you find yourself excluding borderline candidates because
+they're slightly recurring, less-than-perfect audience fit, or
+generically described — RELAX those guardrails to hit the target.
+Better to include a B+ event than to come up short on the section.
+Only return fewer than {gap_fill_count or TARGET_PER_AUDIENCE} if you genuinely don't have
+enough viable candidates that meet the basic bar (real event, runs in
+the date window, in coverage area, not on the hard-exclusion lists).
+Empty days are acceptable if no pool candidate runs that day.
 
 CRITICAL: each event belongs to ONLY ONE audience (Family OR Adult). Do
 not include events that would feel equally appropriate for the OTHER
@@ -890,6 +919,31 @@ def process_audience(
     )
     print(f"    {audience} pass: {len(results)} event(s) accepted "
           f"(from {len(candidates)} Notion candidates)")
+
+    # If Claude came up short, re-prompt for the gap using ONLY the
+    # candidates it didn't pick last time + softened guardrails. The
+    # second call usually fills 5-15 more events. Stops trying after one
+    # gap pass — Claude won't suddenly invent quality where there is
+    # none, so two passes is enough.
+    gap = TARGET_PER_AUDIENCE - len(results)
+    if gap > 0 and len(results) < len(candidates):
+        used_urls = {r.get("source_url") for r in results if r.get("source_url")}
+        remaining = [c for c in candidates if c.get("url") not in used_urls]
+        if remaining and len(remaining) >= 1:
+            print(f"    Gap pass: Claude returned {len(results)}, target is "
+                  f"{TARGET_PER_AUDIENCE} — re-prompting for {gap} more "
+                  f"from {len(remaining)} remaining candidates with eased guardrails")
+            extra = call_claude_for_audience(
+                remaining, newsletter, audience, target_weekend, skill_prompt,
+                gap_fill_count=gap,
+            )
+            # Cross-dedup by URL (in case Claude re-picks)
+            for ev in extra:
+                if ev.get("source_url") and ev["source_url"] not in used_urls:
+                    results.append(ev)
+                    used_urls.add(ev["source_url"])
+            print(f"    Gap pass added {len(extra)} event(s) — "
+                  f"{audience} total now {len(results)}")
 
     # Day coverage report — no more gap-fill HTTP fan-out since the
     # Notion pull already returned everything in the [Fri, Sun] window.
@@ -1121,28 +1175,36 @@ if __name__ == "__main__":
             print(f"  ↳ within-run dedup: {len(all_events)} → {len(deduped)} rows")
         all_events = deduped
 
-        # One-way Family → Adult backfill. If Adult has fewer than
-        # MIN_PER_AUDIENCE events for this newsletter, take the lowest-
-        # ranked Family events and re-tag them as Adult. Reverse
-        # (Adult → Family) is NOT done because adult-only events (bars,
-        # nightlife, 21+) shouldn't end up in the Family section.
+        # One-way Family → Adult backfill. If Adult is short of the
+        # TARGET, take the lowest-ranked Family events and re-tag them
+        # as Adult — Family events are generally acceptable for Adult
+        # audiences too, just less optimal. Reverse (Adult → Family) is
+        # NOT done because adult-only events (bars, nightlife, 21+)
+        # shouldn't end up in the Family section.
+        #
+        # FAMILY_FLOOR caps how much we'll drain Family to fill Adult.
+        # Set to half the target so Family never gets gutted, but the
+        # gate is loose enough that an Adult-short run actually gets
+        # backfilled (previously this required Family > MIN, which with
+        # MIN=TARGET=20 meant Family had to over-hit before promotion
+        # could even start).
+        FAMILY_FLOOR = MIN_PER_AUDIENCE // 2
         from collections import Counter
         per_audience = Counter(ev["audience"] for ev in all_events)
         adult_count  = per_audience.get("Adult",  0)
         family_count = per_audience.get("Family", 0)
-        if adult_count < MIN_PER_AUDIENCE and family_count > MIN_PER_AUDIENCE:
-            need = MIN_PER_AUDIENCE - adult_count
+        if adult_count < TARGET_PER_AUDIENCE and family_count > FAMILY_FLOOR:
+            need = TARGET_PER_AUDIENCE - adult_count
             # Use Family events that have a `total_score` if Claude
             # ranked them; otherwise just take the last `need` Family
             # entries (assumed to be lowest priority).
             family_events = [e for e in all_events if e["audience"] == "Family"]
             family_events.sort(key=lambda e: e.get("total_score", 0))
             moved = 0
-            # Only promote events that won't break the family quota.
             for ev in family_events:
                 if moved >= need:
                     break
-                if family_count - 1 < MIN_PER_AUDIENCE:
+                if family_count - 1 < FAMILY_FLOOR:
                     break
                 ev["audience"] = "Adult"
                 ev["audience_promoted_from"] = "Family"
@@ -1151,7 +1213,9 @@ if __name__ == "__main__":
                 moved += 1
                 print(f"  ↳ Promoted Family → Adult: {ev.get('event_name','?')[:50]}")
             if moved:
-                print(f"  ↳ Family→Adult backfill moved {moved} event(s)")
+                print(f"  ↳ Family→Adult backfill moved {moved} event(s) "
+                      f"(Family now {family_count}, Adult now {adult_count}, "
+                      f"family floor={FAMILY_FLOOR})")
 
         per_audience = Counter(ev["audience"] for ev in all_events)
         for aud in AUDIENCES:
