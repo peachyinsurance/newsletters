@@ -42,6 +42,7 @@ from assemble_newsletter_page import (
     get_latest_free_events,
     get_latest_free_event_image,
     get_latest_poll,
+    get_weekend_events,
     sync_edits_back,
     notion_search_page,
 )
@@ -371,17 +372,127 @@ def hide_unused_lowdown_slots(html: str, used_count: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Weekend Planner slot definitions
+# ---------------------------------------------------------------------------
+# Day-first naming so the template can render Friday/Saturday/Sunday as
+# top-level sections with Family and Adult side-by-side under each.
+WEEKEND_SLOT_KEYS: list[tuple[str, str, str]] = [
+    ("friday_family",   "Friday",   "Family"),
+    ("friday_adult",    "Friday",   "Adult"),
+    ("saturday_family", "Saturday", "Family"),
+    ("saturday_adult",  "Saturday", "Adult"),
+    ("sunday_family",   "Sunday",   "Family"),
+    ("sunday_adult",    "Sunday",   "Adult"),
+]
+
+
+def _weekend_event_to_card(ev: dict, slot_key: str) -> dict[str, str]:
+    """Render one event into the local-lowdown-style title/message/link
+    triple. Title bolds the event name (with leading emoji); message
+    chains venue / address / time / price with bullets and appends the
+    one-sentence description on its own line; link is the source URL."""
+    emoji = (ev.get("emoji") or "").strip()
+    name  = (ev.get("event_name") or "").strip()
+    title = f"{emoji} {name}".strip() if emoji else name
+
+    meta_parts = [ev.get(k, "") for k in ("venue", "address", "time", "price")]
+    metadata = " • ".join(p for p in meta_parts if p)
+    desc = (ev.get("description") or "").strip()
+    message = metadata + (f"\n\n{desc}" if desc else "")
+
+    return {
+        f"{slot_key}_title":   title,
+        f"{slot_key}_message": message,
+        f"{slot_key}_link":    ev.get("source_url") or "",
+    }
+
+
+def expand_weekend_slots(html: str, events: list[dict]) -> str:
+    """For each (day, audience) slot, duplicate the template card once
+    per event.
+
+    The Beehiiv template should contain ONE event card per slot, with
+    these placeholders inside it:
+        {<slot>_title}     bolded event line
+        {<slot>_message}   metadata + description
+        {<slot>_link}      source URL (anchor href)
+
+    We find each anchor placeholder, walk to its enclosing <tr> (or the
+    nearest structural container if no <tr> wraps it), capture that
+    template HTML, and replace it with N copies — one per event in that
+    (day, audience) slot — with the placeholders substituted inline.
+
+    Slots with zero events have their card removed entirely so the
+    section collapses cleanly."""
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        print("  ⚠ beautifulsoup4 not installed; skipping Weekend Planner expansion")
+        return html
+
+    soup = BeautifulSoup(html, "html.parser")
+    total_expanded = 0
+    for slot_key, day, audience in WEEKEND_SLOT_KEYS:
+        slot_events = [e for e in events
+                       if e.get("day") == day and e.get("audience") == audience]
+        anchor_token = f"{{{slot_key}_title}}"
+        anchor_node = soup.find(string=lambda t: t and anchor_token in str(t))
+        if not anchor_node:
+            print(f"    · weekend slot '{slot_key}' — no {anchor_token} in template, skipping")
+            continue
+
+        container = anchor_node.parent
+        while container is not None and container.name not in ("tr", "table", "div"):
+            container = container.parent
+        if container is None:
+            print(f"    · weekend slot '{slot_key}' — couldn't find enclosing container")
+            continue
+
+        if not slot_events:
+            container.decompose()
+            print(f"    · weekend slot '{slot_key}' — 0 events, card removed")
+            continue
+
+        template_html = str(container)
+        new_chunks: list[str] = []
+        for ev in slot_events:
+            copy = template_html
+            for k, v in _weekend_event_to_card(ev, slot_key).items():
+                token = "{" + k + "}"
+                copy = copy.replace(token, v)
+                # Beehiiv auto-prepends http:// to placeholders pasted in
+                # URL fields; clean both prefixed forms for the link.
+                if k.endswith("_link"):
+                    for scheme in ("http://", "https://"):
+                        copy = copy.replace(scheme + token, v)
+            new_chunks.append(copy)
+
+        new_fragment = BeautifulSoup("".join(new_chunks), "html.parser")
+        new_nodes = list(new_fragment.children)
+        for node in new_nodes:
+            container.insert_before(node)
+        container.decompose()
+        total_expanded += len(slot_events)
+        print(f"    ✓ weekend slot '{slot_key}' — expanded into {len(slot_events)} card(s)")
+
+    print(f"  Weekend Planner expansion: {total_expanded} event card(s) total")
+    return str(soup)
+
+
+# ---------------------------------------------------------------------------
 # 4. SECTION DATA → REPLACEMENT MAP
 # ---------------------------------------------------------------------------
 def build_replacements(client: BeehiivClient, publication_id: str,
-                      newsletter_name: str) -> tuple[dict, dict, int]:
+                      newsletter_name: str) -> tuple[dict, dict, dict, int, list]:
     """Pull section data, upload images, return:
-      (text_replacements, image_url_swaps, alt_image_swaps, lowdown_story_count)
+      (text_replacements, image_url_swaps, alt_image_swaps,
+       lowdown_story_count, weekend_events)
 
     text_replacements: {placeholder_key: string_value}
     image_url_swaps:   {original_url: beehiiv_hosted_url}  — used as fallback string-find
     alt_image_swaps:   {alt_text: image_url}  — used to swap <img alt="..." src="...">
     lowdown_story_count: number of stories actually used (0-5)
+    weekend_events:    raw list of Weekend Planner events for slot expansion
     """
     repl: dict[str, str] = {}
     image_swaps: dict[str, str] = {}
@@ -619,7 +730,45 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         print(f"  ✓ Poll filled: '{poll['question'][:60]}…' "
               f"({len(poll.get('options') or [])} options)")
 
-    return repl, image_swaps, alt_swaps, story_count
+    # ---- Weekend Planner ----
+    # Card text is substituted by expand_weekend_slots() AFTER this returns
+    # (it duplicates the template card once per event). Here we only handle
+    # the per-(day, audience) image (uploaded to Beehiiv and wired via the
+    # alt-text/filename-token swap mechanism) plus the day-level date
+    # strings for the section headers.
+    weekend_events = get_weekend_events(newsletter_name)
+    weekend_dates_seen: dict[str, str] = {}
+    for slot_key, day, audience in WEEKEND_SLOT_KEYS:
+        slot_events = [e for e in weekend_events
+                       if e.get("day") == day and e.get("audience") == audience]
+        if not slot_events:
+            continue
+        # Remember the date for this day so the section header can show e.g.
+        # "Friday, May 22". Any event in this day-bucket has the same date.
+        if day not in weekend_dates_seen:
+            iso = slot_events[0].get("date") or ""
+            if iso:
+                try:
+                    dt = datetime.fromisoformat(iso)
+                    weekend_dates_seen[day] = f"{dt.strftime('%B')} {dt.day}"
+                except Exception:
+                    pass
+        # Upload + register the single image for this (day, audience) slot.
+        # Image dedup happens in Weekend_Planner.py — at most one event in
+        # the slot will have image_url populated.
+        img_event = next((e for e in slot_events if e.get("image_url")), None)
+        if img_event:
+            src = img_event["image_url"]
+            hosted = upload_remote_image(client, publication_id, src)
+            if hosted:
+                image_swaps[src] = hosted
+            alt_swaps[f"{slot_key}_image"] = hosted or src
+
+    # Day-level date placeholders (used in the section headers).
+    for day, friendly in weekend_dates_seen.items():
+        repl[f"{day.lower()}_date"] = friendly
+
+    return repl, image_swaps, alt_swaps, story_count, weekend_events
 
 
 def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
@@ -657,6 +806,12 @@ def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
         "PET_IMAGE":                   "pet-photo",
         "PET_PHOTO":                   "pet-photo",
         "free_event_image_1":          "free-event",
+        "friday_family_image":         "weekend-friday-family",
+        "friday_adult_image":          "weekend-friday-adult",
+        "saturday_family_image":       "weekend-saturday-family",
+        "saturday_adult_image":        "weekend-saturday-adult",
+        "sunday_family_image":         "weekend-sunday-family",
+        "sunday_adult_image":          "weekend-sunday-adult",
     }
 
     out = html
@@ -708,6 +863,12 @@ def prune_unused_image_slots(html: str, alt_swaps: dict[str, str]) -> tuple[str,
         "PET_IMAGE":                   "pet-photo",
         "PET_PHOTO":                   "pet-photo",
         "free_event_image_1":          "free-event",
+        "friday_family_image":         "weekend-friday-family",
+        "friday_adult_image":          "weekend-friday-adult",
+        "saturday_family_image":       "weekend-saturday-family",
+        "saturday_adult_image":        "weekend-saturday-adult",
+        "sunday_family_image":         "weekend-sunday-family",
+        "sunday_adult_image":          "weekend-sunday-adult",
     }
 
     out = html
@@ -823,9 +984,17 @@ def main():
 
     # Gather all section data + upload images
     print("\n  Gathering section data + uploading images…")
-    repl, image_swaps, alt_swaps, story_count = build_replacements(client,
-                                                                  cfg["publication_id"],
-                                                                  NEWSLETTER)
+    repl, image_swaps, alt_swaps, story_count, weekend_events = build_replacements(
+        client, cfg["publication_id"], NEWSLETTER,
+    )
+
+    # Weekend Planner: duplicate each slot's template card once per event.
+    # Has to run BEFORE prune_empty_slots so the pruner doesn't yank the
+    # original (unfilled) template card thinking it's an empty slot, and
+    # BEFORE replace_placeholders because the substitutions for the
+    # duplicated cards happen inline during expansion.
+    print("\n  Expanding Weekend Planner slots…")
+    body_html = expand_weekend_slots(body_html, weekend_events)
 
     # Apply text placeholder replacements
     # Prune unused repeating slots (restaurants 4-5, lowdown 4-5, etc.)
