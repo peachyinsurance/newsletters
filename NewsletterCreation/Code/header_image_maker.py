@@ -24,7 +24,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 
 REPO_ROOT     = Path(__file__).resolve().parent.parent.parent
-TEMPLATE_PATH = REPO_ROOT / "Featured Event" / "Template" / "featured_event_template.png"
+TEMPLATE_PATH = REPO_ROOT / "Featured Event" / "Template" / "feature_event_image.png"
 
 # ── Header composite template (used for build_header_image) ──
 # Auto-measured from the magenta chroma extents in the current template
@@ -280,51 +280,45 @@ def build_header_image(title: str, photo_url: str | None = None,
     base     = template.copy()
 
     # ---- 1. Blob photo ---------------------------------------------------
+    # Photo goes into the right-side blob only. The left side of the
+    # template (the red-tinted Canva backdrop) is left untouched — the
+    # title (drawn next) overlays it with see-through letters + stroke
+    # so the Canva design shows behind/between the letters.
     if photo is None and photo_url:
         photo = _fetch_photo(photo_url)
     if photo is not None:
         x1, y1, x2, y2 = BLOB_BBOX
         box_w, box_h = x2 - x1, y2 - y1
-        # Scale-and-center-crop with minimal cropping: cover the bbox
-        # while preserving aspect ratio (Pillow's fit() does center crop).
         fitted = ImageOps.fit(photo, (box_w, box_h), method=Image.Resampling.LANCZOS)
-
-        # Build a full-canvas RGB image that has the photo at the bbox and
-        # transparent everywhere else; we'll composite using the blob mask.
         canvas = Image.new("RGB", base.size, (0, 0, 0))
         canvas.paste(fitted, (x1, y1))
-
         mask = _build_blob_mask(template)
         base = Image.composite(canvas, base, mask)
 
-    # ---- 2. Title text ---------------------------------------------------
+    # ---- 2. Title text — see-through overlay on the Canva backdrop ------
+    # Title sits in its original TITLE_BOX position. White letters with
+    # a thick black stroke for legibility against any backdrop. No
+    # opaque background; the Canva backdrop shows through between each
+    # letter.
     if title:
-        # White out the baked "{title}" placeholder text only — keep the
-        # red background by sampling its average color in that area.
-        # Simpler: don't white-out; the placeholder is white text on red,
-        # so painting our title in white over the same area covers it.
         draw = ImageDraw.Draw(base)
-        font, lines = _fit_title(draw, title, TITLE_BOX)
         x1, y1, x2, y2 = TITLE_BOX
-        line_h = font.size + 8
+        font, lines = _fit_title(draw, title, TITLE_BOX)
+        line_h  = font.size + 8
         total_h = line_h * len(lines)
-        # Vertically center within the title box
-        cy = y1 + (y2 - y1 - total_h) // 2
-        # First, cover the existing placeholder by drawing a slightly shadowed
-        # rectangle in the brand red. We sample the template at a known-red
-        # coordinate to match the gradient.
-        sampled = template.getpixel((20, 20))   # top-left red wash
-        cover = Image.new("RGB", (x2 - x1, y2 - y1), sampled)
-        base.paste(cover, (x1, y1))
-        draw = ImageDraw.Draw(base)
-        # Re-fit now that the cover is laid (text region is the same size).
+        cy = y1 + (y2 - y1 - total_h) // 2  # vertically centered in box
+        STROKE_PX = max(2, font.size // 18)
         for i, line in enumerate(lines):
             tw = draw.textlength(line, font=font)
             tx = x1 + max(0, ((x2 - x1) - int(tw)) // 2)
             ty = cy + i * line_h
-            # Soft shadow for legibility
-            draw.text((tx + 2, ty + 2), line, fill=(80, 10, 10), font=font)
-            draw.text((tx, ty),         line, fill=TITLE_FILL,    font=font)
+            draw.text(
+                (tx, ty), line,
+                font=font,
+                fill=(255, 255, 255),
+                stroke_width=STROKE_PX,
+                stroke_fill=(0, 0, 0),
+            )
 
     buf = io.BytesIO()
     base.save(buf, format="PNG", optimize=True)
