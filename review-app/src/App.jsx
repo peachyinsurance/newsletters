@@ -4,6 +4,7 @@ import { isOddWeek, checkPassword, decodeBase64Utf8 } from "./helpers";
 import PetTile from "./PetTile";
 import RestaurantTile from "./RestaurantTile";
 import FeaturedEventTile from "./FeaturedEventTile";
+import MemeTile from "./MemeTile";
 
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
@@ -146,6 +147,40 @@ const SECTIONS = {
       sub:        "Review candidates and approve the one that best fits the newsletter.",
     },
   },
+
+  memes: {
+    dataFile:        "memes.json",
+    idField:         "permalink",
+    nameField:       "caption",
+    approveWorkflow: "approve_meme.yml",
+    approveInputs:   (item) => ({ permalink: item.permalink, newsletter: item.newsletter_name || "" }),
+    redoWorkflow:    (newsletter) => `redo_${newsletter.toLowerCase()}.yml`,
+    redoSection:     "meme",
+    approvedStatus:  "approved",
+    rejectedStatus:  "rejected",
+    storageKey:      "approved_meme_ids",
+    sectionPrefix:   "memes",
+    TileComponent:   MemeTile,
+    itemPropName:    "meme",
+    label:           "Memes",
+    navIcon:         "😂",
+    loadingText:     "Loading this week's meme candidates...",
+    emptyText:       "No pending memes found. Run the Meme Corner scraper to fetch fresh candidates.",
+    statusBarText:   (count) => `${count} meme candidates this week — pick up to 4`,
+    emptyCandidatesText: () => ({ title: "No candidates", sub: "Run the Meme Corner scraper." }),
+    filterCandidates: (items) => ({ candidates: items, extra: {} }),
+    renderDefaultWinners: () => ({ label: "Approval Progress", rows: [] }),
+    // Multi-select awareness — see handleApprove + render below.
+    multiSelect:     true,
+    maxApprovals:    4,
+    rejectRemainingWorkflow: "approve_meme.yml",
+    header: {
+      eyebrow:    "Newsletter Meme Corner Review",
+      h1Prefix:   "Pick This Week's",
+      h1Emphasis: "Memes (up to 4)",
+      sub:        "Approve up to 4 memes. After your picks, click \"Reject the rest\" to clear remaining pending rows.",
+    },
+  },
 };
 
 // ── GENERIC REVIEW PAGE ──────────────────────────────────────────────────────
@@ -207,11 +242,19 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
         return item;
       });
 
-      // Build approvedMap purely from data (source of truth)
+      // Build approvedMap purely from data (source of truth).
+      // For multi-select sections (memes) the value is an ARRAY of ids;
+      // for single-select sections it's a single id.
       const dataApprovedMap = {};
       withStatus.forEach(item => {
         if (item._localStatus === "approved" && item.newsletter_name) {
-          dataApprovedMap[item.newsletter_name] = item[config.idField];
+          if (config.multiSelect) {
+            const arr = dataApprovedMap[item.newsletter_name] || [];
+            arr.push(item[config.idField]);
+            dataApprovedMap[item.newsletter_name] = arr;
+          } else {
+            dataApprovedMap[item.newsletter_name] = item[config.idField];
+          }
         }
       });
       // Sync localStorage to match data — clear stale entries
@@ -251,12 +294,16 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
       const fileInfo = await fileRes.json();
       const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));
 
-      // 2. Set statuses for this newsletter (uses section-specific status names)
+      // 2. Set statuses for this newsletter (uses section-specific status names).
+      // Multi-select: ONLY flip the clicked row to approved; leave other
+      // pending rows alone so additional selections can still happen.
+      // Single-select: clicked row → approved, other pending → rejected.
       for (const row of rows) {
         if (row.newsletter_name !== selectedNewsletter) continue;
         if (row[config.idField] === itemId) {
           row.status = config.approvedStatus;
-        } else if (row.status === "pending" || row.status === "Pending") {
+        } else if (!config.multiSelect &&
+                   (row.status === "pending" || row.status === "Pending")) {
           row.status = config.rejectedStatus;
         }
       }
@@ -274,11 +321,28 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
       });
       if (!commitRes.ok) throw new Error("Could not update data file on gh-pages");
 
-      // 4. Update local state immediately
-      setApprovedMap(prev => ({ ...prev, [selectedNewsletter]: itemId }));
+      // 4. Update local state immediately. Multi-select appends; single
+      //    overwrites.
+      setApprovedMap(prev => {
+        if (config.multiSelect) {
+          const arr = Array.isArray(prev[selectedNewsletter])
+            ? [...prev[selectedNewsletter]]
+            : [];
+          if (!arr.includes(itemId)) arr.push(itemId);
+          return { ...prev, [selectedNewsletter]: arr };
+        }
+        return { ...prev, [selectedNewsletter]: itemId };
+      });
       setSuccess({ newsletter: selectedNewsletter, name: item[config.nameField] });
       const savedApprovals = JSON.parse(localStorage.getItem(config.storageKey) || "{}");
-      savedApprovals[selectedNewsletter] = itemId;
+      if (config.multiSelect) {
+        const arr = Array.isArray(savedApprovals[selectedNewsletter])
+          ? [...savedApprovals[selectedNewsletter]] : [];
+        if (!arr.includes(itemId)) arr.push(itemId);
+        savedApprovals[selectedNewsletter] = arr;
+      } else {
+        savedApprovals[selectedNewsletter] = itemId;
+      }
       localStorage.setItem(config.storageKey, JSON.stringify(savedApprovals));
       const aLower = config.approvedStatus.toLowerCase();
       const rLower = config.rejectedStatus.toLowerCase();
@@ -369,21 +433,97 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
   const visibleItems = items.filter(i => i.newsletter_name === selectedNewsletter);
   const { candidates: unsortedCandidates, extra } = config.filterCandidates(visibleItems);
 
-  // Sort candidates by total_score descending (highest first)
+  // Sort candidates by total_score descending (highest first). For memes
+  // total_score isn't set, so the parseInt falls back to 0 and the
+  // fallback below sorts by Reddit `score` instead.
   const candidates = [...unsortedCandidates].sort((a, b) => {
-    const scoreA = parseInt(a.total_score) || 0;
-    const scoreB = parseInt(b.total_score) || 0;
-    return scoreB - scoreA;
+    if (config.multiSelect) {
+      return (parseInt(b.score) || 0) - (parseInt(a.score) || 0);
+    }
+    return (parseInt(b.total_score) || 0) - (parseInt(a.total_score) || 0);
   });
 
   const winners = config.renderDefaultWinners(visibleItems, extra);
   const TileComponent = config.TileComponent;
   const emptyMsg = config.emptyCandidatesText(extra);
 
-  // Split candidates into approved winner and others
-  const winnerId      = approvedMap[selectedNewsletter];
-  const approvedTile  = winnerId ? candidates.find(i => i[config.idField] === winnerId) : null;
-  const otherTiles    = winnerId ? candidates.filter(i => i[config.idField] !== winnerId) : candidates;
+  // Multi-select: approvedMap[nl] is an array of ids; max is config.maxApprovals.
+  // Single-select: approvedMap[nl] is one id (current behavior).
+  const approvedIdsArr = config.multiSelect
+    ? (Array.isArray(approvedMap[selectedNewsletter]) ? approvedMap[selectedNewsletter] : [])
+    : [];
+  const approvedCount  = config.multiSelect ? approvedIdsArr.length : 0;
+  const maxApprovals   = config.maxApprovals || Infinity;
+  const limitReached   = config.multiSelect && approvedCount >= maxApprovals;
+  const winnerId       = config.multiSelect ? null : approvedMap[selectedNewsletter];
+  const approvedTile   = winnerId ? candidates.find(i => i[config.idField] === winnerId) : null;
+  const otherTiles     = winnerId ? candidates.filter(i => i[config.idField] !== winnerId) : candidates;
+
+  // "Reject the Rest" handler — fires the approve workflow in
+  // reject-remaining mode so all pending rows for this newsletter get
+  // flipped to rejected, leaving only the approved picks.
+  async function handleRejectRest() {
+    if (!token || !config.multiSelect) return;
+    setError("");
+    setRedoing(true);
+    const ghHeaders = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" };
+    try {
+      // 1. Local JSON: flip every pending row for this newsletter to rejected.
+      const fileUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${config.dataFile}?ref=gh-pages`;
+      const fileRes = await fetch(fileUrl, { headers: ghHeaders });
+      if (!fileRes.ok) throw new Error("Could not fetch data file from gh-pages");
+      const fileInfo = await fileRes.json();
+      const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));
+      for (const row of rows) {
+        if (row.newsletter_name !== selectedNewsletter) continue;
+        if (row.status === "pending" || row.status === "Pending") {
+          row.status = config.rejectedStatus;
+        }
+      }
+      const commitRes = await fetch(fileUrl, {
+        method: "PUT",
+        headers: ghHeaders,
+        body: JSON.stringify({
+          message: `reject-rest: ${selectedNewsletter} ${config.redoSection}`,
+          content: btoa(unescape(encodeURIComponent(JSON.stringify(rows, null, 2)))),
+          sha: fileInfo.sha,
+          branch: "gh-pages",
+        }),
+      });
+      if (!commitRes.ok) throw new Error("Could not update data file on gh-pages");
+
+      // 2. Update local items.
+      const aLower = config.approvedStatus.toLowerCase();
+      const rLower = config.rejectedStatus.toLowerCase();
+      setItems(rows.map(row => {
+        const s = (row.status || "").toLowerCase();
+        if (s === aLower) return { ...row, _localStatus: "approved" };
+        if (s === rLower) return { ...row, _localStatus: "rejected" };
+        return { ...row, _localStatus: undefined };
+      }));
+
+      // 3. Fire-and-forget Notion sync.
+      fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${config.rejectRemainingWorkflow}/dispatches`,
+        {
+          method: "POST",
+          headers: ghHeaders,
+          body: JSON.stringify({
+            ref: "main",
+            inputs: {
+              newsletter:           selectedNewsletter,
+              reject_remaining:     "true",
+              approved_permalinks:  approvedIdsArr.join(","),
+            },
+          }),
+        }
+      ).catch(() => {});
+    } catch (e) {
+      setError(`Reject-the-rest failed: ${e.message}`);
+    } finally {
+      setRedoing(false);
+    }
+  }
 
   if (loading) return <div className="loading">{config.loadingText}</div>;
   if (items.length === 0 && newsletters.length === 0 && Object.keys(approvedMap).length === 0) return (
@@ -410,23 +550,48 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
       <div className="default-winners">
         <div className="default-winners-label">{winners.label}</div>
         <div className="default-winners-rows">
-          {winners.rows.map((row, i) => (
-            <div className="default-winner-row" key={i}>
-              <span className={`winner-badge ${row.badgeClass}`}>{row.badgeText}</span>
-              <span className="winner-name">{row.name}</span>
-              {row.score && <span className="winner-score">{row.score}</span>}
+          {config.multiSelect ? (
+            <div className="default-winner-row">
+              <span className="winner-badge winner-badge-overall">
+                {approvedCount} / {maxApprovals} approved
+              </span>
+              {limitReached && (
+                <span className="winner-name" style={{color: "#2A7F2A"}}>
+                  Limit reached — click "Reject the rest" below to finalize
+                </span>
+              )}
             </div>
-          ))}
+          ) : (
+            winners.rows.map((row, i) => (
+              <div className="default-winner-row" key={i}>
+                <span className={`winner-badge ${row.badgeClass}`}>{row.badgeText}</span>
+                <span className="winner-name">{row.name}</span>
+                {row.score && <span className="winner-score">{row.score}</span>}
+              </div>
+            ))
+          )}
         </div>
       </div>
 
       <hr className="divider" />
 
       <div className="status-bar">
-        <strong>{config.statusBarText(candidates.length, extra)}</strong> &mdash; select one to feature
+        <strong>{config.statusBarText(candidates.length, extra)}</strong>
+        {!config.multiSelect && " — select one to feature"}
       </div>
 
-      {winnerId && (
+      {config.multiSelect && approvedCount > 0 && (
+        <div style={{textAlign: "center", margin: "16px 0 24px"}}>
+          <button className="btn btn-redo" onClick={handleRejectRest} disabled={redoing}>
+            {redoing ? "⏳ Rejecting…" : "✗ Reject the rest"}
+          </button>
+          <div style={{marginTop: 8, fontSize: 13, color: "#6B5744"}}>
+            Flips every remaining pending meme for this newsletter to rejected.
+          </div>
+        </div>
+      )}
+
+      {!config.multiSelect && winnerId && (
         <>
           <div className="status-bar" style={{background: "#EFF7F0", border: "1px solid #C0DFC4", marginBottom: 16}}>
             <strong>{"\u2705"} Winner selected{approvedTile ? `: ${approvedTile[config.nameField]}` : ""}!</strong> — approved and sent to Notion
@@ -459,14 +624,26 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
         </>
       )}
 
-      {!winnerId && (
+      {(config.multiSelect || !winnerId) && (
         candidates.length === 0 ? (
           <div className="empty"><h2>{emptyMsg.title}</h2><p>{emptyMsg.sub}</p></div>
         ) : (
           <div className="tiles">
-            {candidates.map((item, idx) => (
-              <TileComponent key={item[config.idField] || idx} {...{[config.itemPropName]: item}} onApprove={handleApprove} approving={approving} approved={null} token={token} />
-            ))}
+            {candidates.map((item, idx) => {
+              const id = item[config.idField];
+              const isApproved = config.multiSelect && approvedIdsArr.includes(id);
+              return (
+                <TileComponent
+                  key={id || idx}
+                  {...{[config.itemPropName]: item}}
+                  onApprove={handleApprove}
+                  approving={approving}
+                  approved={isApproved ? id : null}
+                  disableApprove={config.multiSelect && limitReached && !isApproved}
+                  token={token}
+                />
+              );
+            })}
           </div>
         )
       )}

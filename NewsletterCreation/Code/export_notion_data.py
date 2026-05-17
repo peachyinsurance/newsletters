@@ -188,7 +188,41 @@ def export_events():
         json.dump(events, f, indent=2, ensure_ascii=False)
     print(f"Exported {len(events)} events to events.json")
 
+def export_memes():
+    """Export Meme Corner candidates for the review app. Skips
+    `approved - old` so archived weeks don't appear, but keeps
+    `pending`, `approved`, and `rejected` so reviewers see context."""
+    db_id = os.environ.get("NOTION_MEMES_DB_ID", "")
+    if not db_id:
+        print("⚠ NOTION_MEMES_DB_ID empty — skipping memes export")
+        return
+    from notion_helper import query_database  # local import (avoid top-of-file change)
+    pages = query_database(db_id)
+    memes = []
+    for page in pages:
+        props = page["properties"]
+        status_val = extract_text(props.get("Status", {})) or "pending"
+        if status_val == "approved - old":
+            continue
+        memes.append({
+            "permalink":       extract_text(props.get("Reddit Permalink", {})),
+            "image_url":       extract_text(props.get("Image URL", {})),
+            "caption":         extract_text(props.get("Caption", {})),
+            "subreddit":       extract_text(props.get("Subreddit", {})),
+            "reddit_author":   extract_text(props.get("Reddit Author", {})),
+            "score":           str(extract_text(props.get("Score", {}))),
+            "date_generated":  extract_text(props.get("Date Generated", {})),
+            "status":          status_val,
+            "newsletter_name": extract_text(props.get("Newsletter", {})),
+        })
+
+    with open("memes.json", "w", encoding="utf-8") as f:
+        json.dump(memes, f, indent=2, ensure_ascii=False)
+    print(f"Exported {len(memes)} memes to memes.json")
+
+
 if __name__ == "__main__":
     export_pets()
     export_restaurants()
     export_events()
+    export_memes()
