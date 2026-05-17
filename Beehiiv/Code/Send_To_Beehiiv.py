@@ -407,7 +407,7 @@ _CARD_BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "div", "li"}
 
 
 def _expand_one_slot(soup, slot_key: str, items: list[dict],
-                     item_to_fields) -> int:
+                     item_to_fields) -> tuple[int, int]:
     """Generic slot expansion. Finds the {<slot>_title} placeholder in
     `soup`, walks up to its enclosing block element, then collects
     consecutive sibling block elements that contain THIS slot's
@@ -432,45 +432,62 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
 
     title_text = soup.find(string=lambda t: t and title_token in str(t))
     if not title_text:
-        return -1
+        return -1, 0
+    msg_text  = soup.find(string=lambda t: t and msg_token  in str(t))
+    link_text = soup.find(string=lambda t: t and link_token in str(t))
 
     # Walk up to the nearest block-level container for the title.
     title_node = title_text.parent
     while title_node is not None and title_node.name not in _CARD_BLOCK_TAGS:
         title_node = title_node.parent
     if title_node is None:
-        return -1
+        return -1, 0
 
-    # The "card" is the range of sibling block elements from the title's
-    # block through the block containing the latest of (_message, _link).
-    # We use range-by-position instead of a strict consecutive-sibling
-    # walk because Beehiiv's editor can insert decorative wrappers
-    # (anchor indicators, ProseMirror widgets) or unrelated filler
-    # blocks between the placeholder paragraphs.
-    title_parent = title_node.parent
-    if title_parent is None:
-        return -1
-    sibling_blocks = [c for c in title_parent.children
-                      if getattr(c, "name", None) in _CARD_BLOCK_TAGS]
-    if title_node not in sibling_blocks:
-        return -1
-    title_idx = sibling_blocks.index(title_node)
-
-    end_idx = title_idx
-    for i, blk in enumerate(sibling_blocks[title_idx + 1:], start=title_idx + 1):
-        stext = str(blk)
-        if msg_token in stext or link_token in stext:
-            end_idx = i
-        # Stop once we'd cross into another instance of THIS slot's title
-        # (defensive — shouldn't happen, but avoids over-capture).
-        if i > title_idx and title_token in stext:
+    # Find the smallest ancestor of the title that ALSO contains the
+    # message (if it exists) and the link (if it exists). Beehiiv often
+    # wraps each placeholder paragraph in its own <table><tr><td>
+    # structure for email-safe rendering, so the title and message
+    # aren't direct siblings — they're cousins under a common column
+    # ancestor. Walking up until all three placeholders are in the
+    # subtree finds that ancestor.
+    def _subtree_has(node, token):
+        return token in str(node) if node is not None else True
+    need_msg  = msg_text  is not None
+    need_link = link_text is not None
+    ancestor = title_node
+    while ancestor is not None:
+        s = str(ancestor)
+        has_msg  = (not need_msg)  or (msg_token  in s)
+        has_link = (not need_link) or (link_token in s)
+        if has_msg and has_link:
             break
-    card_nodes = sibling_blocks[title_idx:end_idx + 1]
+        ancestor = ancestor.parent
+    if ancestor is None:
+        # Couldn't find a common ancestor — fall back to title only.
+        ancestor = title_node.parent or title_node
+
+    # Within `ancestor`, find the contiguous range of direct children
+    # that touch any of the three placeholders. The "card" is that
+    # range — clone IT, not the entire ancestor subtree, so adjacent
+    # static content (h2 heading, image block, etc.) stays put.
+    element_children = [c for c in ancestor.children
+                        if getattr(c, "name", None) is not None]
+    indices: list[int] = []
+    for i, c in enumerate(element_children):
+        cs = str(c)
+        if title_token in cs or msg_token in cs or link_token in cs:
+            indices.append(i)
+    if indices:
+        card_nodes = element_children[min(indices):max(indices) + 1]
+    else:
+        # Placeholders are directly inside `ancestor`, not inside its
+        # children — treat the ancestor itself as the card.
+        card_nodes = [ancestor]
 
     if not items:
         for n in card_nodes:
             n.decompose()
-        return 0
+        return 0, len(card_nodes)
 
     template_html = "".join(str(n) for n in card_nodes)
     new_chunks: list[str] = []
@@ -491,14 +508,13 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
         card_nodes[0].insert_before(node)
     for n in card_nodes:
         n.decompose()
-    return len(items)
+    return len(items), len(card_nodes)
 
 
 def expand_weekend_slots(html: str, events: list[dict]) -> str:
     """For each (day, audience) Weekend Planner slot, duplicate the
     template card once per event. See `_expand_one_slot` for the
-    template structure (title/message/link in consecutive sibling
-    block elements). Empty slots have their card removed."""
+    template structure. Empty slots have their card removed."""
     try:
         from bs4 import BeautifulSoup
     except ImportError:
@@ -510,14 +526,16 @@ def expand_weekend_slots(html: str, events: list[dict]) -> str:
     for slot_key, day, audience in WEEKEND_SLOT_KEYS:
         slot_events = [e for e in events
                        if e.get("day") == day and e.get("audience") == audience]
-        n = _expand_one_slot(soup, slot_key, slot_events, _weekend_event_to_card)
+        n, width = _expand_one_slot(soup, slot_key, slot_events, _weekend_event_to_card)
         if n == -1:
             print(f"    · weekend slot '{slot_key}' — no {{{slot_key}_title}} in template")
         elif n == 0:
             print(f"    · weekend slot '{slot_key}' — 0 events, card removed")
         else:
             total_expanded += n
-            print(f"    ✓ weekend slot '{slot_key}' — expanded into {n} card(s)")
+            warn = "  ⚠ card width=1 (only title) — message/link not in same parent" if width == 1 else ""
+            print(f"    ✓ weekend slot '{slot_key}' — expanded into {n} card(s) "
+                  f"[card width: {width} block(s) each]{warn}")
     print(f"  Weekend Planner expansion: {total_expanded} event card(s) total")
     return str(soup)
 
@@ -543,14 +561,15 @@ def expand_lowdown_slots(html: str, stories: list[dict]) -> str:
         return html
 
     soup = BeautifulSoup(html, "html.parser")
-    n = _expand_one_slot(soup, "local_lowdown", stories, _lowdown_story_to_card)
+    n, width = _expand_one_slot(soup, "local_lowdown", stories, _lowdown_story_to_card)
     if n == -1:
         print(f"    · local_lowdown — no {{local_lowdown_title}} in template, "
               f"skipping ({len(stories)} parsed stories will not render)")
     elif n == 0:
         print(f"    · local_lowdown — 0 stories, placeholder card removed")
     else:
-        print(f"    ✓ local_lowdown — expanded into {n} card(s)")
+        warn = "  ⚠ card width=1 (only title) — message/link not in same parent" if width == 1 else ""
+        print(f"    ✓ local_lowdown — expanded into {n} card(s) [card width: {width} block(s) each]{warn}")
     return str(soup)
 
 
