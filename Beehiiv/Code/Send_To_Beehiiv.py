@@ -46,6 +46,7 @@ from assemble_newsletter_page import (
     get_business_brief,
     get_latest_tip,
     get_memes,
+    get_sponsor,
     display_domain,
     sync_edits_back,
     notion_search_page,
@@ -216,6 +217,8 @@ URL_TYPED_KEYS = {
     "business_brief_link",
     "insurance_tip_url",
     "insurance_tip_link",
+    "sponsor_url",
+    "sponsor_link",
     # (Poll URLs intentionally NOT here — we use `{poll_option_N_slug}`
     # embedded in the template URL field, e.g.
     # `https://www.eastcobbconnect.com/?vote={poll_option_1_slug}`. Beehiiv
@@ -273,6 +276,10 @@ PRUNEABLE_SLOTS = [
     ("insurance_tip_title",        "insurance_tip_title"),
     ("insurance_tip_title",        "insurance_tip_blurb"),
     ("insurance_tip_title",        "insurance_tip_url"),
+    # Sponsor Corner — if no approved sponsor, drop the whole card.
+    ("sponsor_name",               "sponsor_name"),
+    ("sponsor_name",               "sponsor_blurb"),
+    ("sponsor_name",               "sponsor_url"),
     # Real Estate — three tiers (Starter / Sweet Spot / Showcase). Each tier's
     # data is the listing URL; if a tier has no listing, the URL is empty and
     # the whole tier card gets pruned.
@@ -1012,6 +1019,29 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["business_brief_link"]    = bb_url  # alias for templates wired as `_link`
         repl["business_brief_domain"]  = display_domain(bb_url) if bb_url else ""
 
+    # ---- Sponsor Corner ----
+    # User-curated: one approved sponsor per newsletter, populated by
+    # hand in the Sponsor Corner Notion DB. Logo is usually a
+    # Notion-uploaded file (the .file.url is a signed URL that expires
+    # in ~1 hour), so we upload it to Beehiiv's image hosting up front
+    # to get a stable URL the email can keep loading from.
+    sponsor = get_sponsor(newsletter_name)
+    if sponsor and sponsor.get("name"):
+        repl["sponsor_name"]    = sponsor.get("name", "")
+        paragraph_prose["sponsor_blurb"] = sponsor.get("blurb", "")
+        repl["sponsor_blurb"]   = md_to_html(sponsor.get("blurb", ""))
+        repl["sponsor_hours"]   = sponsor.get("hours", "")
+        sp_url = (sponsor.get("website") or "").strip()
+        repl["sponsor_url"]     = sp_url
+        repl["sponsor_link"]    = sp_url  # alias
+        repl["sponsor_domain"]  = display_domain(sp_url) if sp_url else ""
+        logo = sponsor.get("logo_url") or ""
+        if logo:
+            hosted = upload_remote_image(client, publication_id, logo)
+            if hosted:
+                image_swaps[logo] = hosted
+            alt_swaps["sponsor_logo"] = hosted or logo
+
     # ---- Meme Corner ----
     # Expanded later by expand_meme_slots once we have the live HTML;
     # here we just fetch + return the list. Image URLs are Reddit-hosted
@@ -1187,6 +1217,7 @@ def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
         "PET_IMAGE":                   "pet-photo",
         "PET_PHOTO":                   "pet-photo",
         "free_event_image_1":          "free-event",
+        "sponsor_logo":                "sponsor-logo",
         "friday_family_image":         "family_event_friday",
         "friday_adult_image":          "adult_event_friday",
         "saturday_family_image":       "family_event_saturday",
@@ -1244,6 +1275,7 @@ def prune_unused_image_slots(html: str, alt_swaps: dict[str, str]) -> tuple[str,
         "PET_IMAGE":                   "pet-photo",
         "PET_PHOTO":                   "pet-photo",
         "free_event_image_1":          "free-event",
+        "sponsor_logo":                "sponsor-logo",
         "friday_family_image":         "family_event_friday",
         "friday_adult_image":          "adult_event_friday",
         "saturday_family_image":       "family_event_saturday",

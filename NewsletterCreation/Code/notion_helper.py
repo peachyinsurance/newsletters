@@ -61,6 +61,7 @@ NOTION_WEEKEND_PLANNER_DB_ID = os.environ.get("NOTION_WEEKEND_PLANNER_DB_ID", ""
 NOTION_WEEKEND_EVENTS_DB_ID  = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
 NOTION_BUSINESS_BRIEF_DB_ID = os.environ.get("NOTION_BUSINESS_BRIEF_DB_ID", "")
 NOTION_MEMES_DB_ID          = os.environ.get("NOTION_MEMES_DB_ID", "")
+NOTION_SPONSOR_DB_ID        = os.environ.get("NOTION_SPONSOR_DB_ID", "")
 
 HEADERS = {
     "Authorization":  f"Bearer {NOTION_API_KEY}",

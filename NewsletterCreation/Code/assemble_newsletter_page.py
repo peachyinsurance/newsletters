@@ -35,6 +35,7 @@ NOTION_WEEKEND_PLANNER_DB_ID = os.environ.get("NOTION_WEEKEND_PLANNER_DB_ID", ""
 NOTION_BUSINESS_BRIEF_DB_ID = os.environ.get("NOTION_BUSINESS_BRIEF_DB_ID", "")
 NOTION_TIPS_DB_ID        = os.environ.get("NOTION_TIPS_DB_ID", "")
 NOTION_MEMES_DB_ID       = os.environ.get("NOTION_MEMES_DB_ID", "")
+NOTION_SPONSOR_DB_ID     = os.environ.get("NOTION_SPONSOR_DB_ID", "")
 NOTION_PARENT_PAGE_ID    = os.environ["NOTION_PARENT_PAGE_ID"]
 
 HEADERS = {
@@ -1785,6 +1786,115 @@ def get_memes(newsletter_name: str) -> list[dict]:
     return out[:3]
 
 
+def _extract_file_or_url(prop: dict) -> str:
+    """Extract a usable URL from a Notion property that might be either
+    a `url` type or a `files` type (Notion-uploaded files have a
+    .file.url with a temporary signed URL; external files have a
+    .external.url that's stable). Returns "" if nothing usable."""
+    if not prop:
+        return ""
+    if prop.get("type") == "url" or prop.get("url"):
+        return prop.get("url") or ""
+    files = prop.get("files") or []
+    for f in files:
+        ext = (f.get("external") or {}).get("url")
+        if ext:
+            return ext
+        inner = (f.get("file") or {}).get("url")
+        if inner:
+            return inner
+    return ""
+
+
+def get_sponsor(newsletter_name: str) -> dict | None:
+    """Fetch this week's approved sponsor for the given newsletter.
+    Sponsor DB schema (per the user's existing layout):
+      Name            (title)
+      Logo            (files — Notion-uploaded)
+      Multi-select    (select — value 'Approved' = active)
+      Newsletter      (multi_select — comma-separated list)
+      blurb           (rich_text)
+      hours           (rich_text)
+      images          (files — optional secondary)
+      website         (url)
+    Picks the first 'Approved' row tagged for this newsletter."""
+    if not NOTION_SPONSOR_DB_ID:
+        return None
+    try:
+        pages = query_database(NOTION_SPONSOR_DB_ID)
+    except Exception as e:
+        print(f"  Sponsor query failed: {e}")
+        return None
+
+    def _status_of(p):
+        sel = p["properties"].get("Multi-select", {}).get("select")
+        if sel:
+            return (sel.get("name") or "").strip()
+        # Some Notion templates store status as multi_select instead.
+        for opt in p["properties"].get("Multi-select", {}).get("multi_select") or []:
+            if (opt.get("name") or "").strip().lower() == "approved":
+                return "Approved"
+        return ""
+
+    def _newsletters_of(p):
+        out = []
+        for opt in p["properties"].get("Newsletter", {}).get("multi_select") or []:
+            out.append((opt.get("name") or "").strip())
+        # Fall back to single select shape just in case
+        sel = p["properties"].get("Newsletter", {}).get("select") or {}
+        if sel.get("name"):
+            out.append(sel["name"])
+        return out
+
+    matched = [
+        p for p in pages
+        if _status_of(p).lower() == "approved"
+        and newsletter_name in _newsletters_of(p)
+    ]
+    if not matched:
+        return None
+
+    def _rt(key):
+        rt = matched[0]["properties"].get(key, {}).get("rich_text", [])
+        return "".join(c.get("text", {}).get("content", "") for c in rt) if rt else ""
+
+    def _title(key):
+        t = matched[0]["properties"].get(key, {}).get("title", [])
+        return "".join(c.get("text", {}).get("content", "") for c in t) if t else ""
+
+    props = matched[0]["properties"]
+    return {
+        "name":     _title("Name"),
+        "blurb":    _rt("blurb"),
+        "hours":    _rt("hours"),
+        "website":  (props.get("website") or {}).get("url", "") or "",
+        "logo_url": _extract_file_or_url(props.get("Logo") or {}),
+    }
+
+
+def _build_sponsor(newsletter_name: str) -> list[dict]:
+    """Render the Sponsor Corner on the assembled landing page: logo
+    image + bold sponsor name + blurb + (optional hours) + website link.
+    Falls back to the static placeholder when nothing's approved."""
+    sponsor = get_sponsor(newsletter_name)
+    if not sponsor or not sponsor.get("name"):
+        return [_placeholder("No active sponsor configured. Approve a row in the Sponsor Corner DB.")]
+    out: list[dict] = []
+    if sponsor.get("logo_url"):
+        out.append(image_block(sponsor["logo_url"]))
+    out.append(paragraph_block(sponsor["name"], bold=True))
+    for para in (sponsor.get("blurb") or "").split("\n\n"):
+        para = para.strip()
+        if para:
+            out.append(paragraph_block_with_markdown(para))
+    if sponsor.get("hours"):
+        out.append(paragraph_block_with_markdown(f"**Hours:** {sponsor['hours']}"))
+    if sponsor.get("website"):
+        domain = display_domain(sponsor["website"])
+        out.append(paragraph_block_with_markdown(f"**Visit:** [{domain}]({sponsor['website']})"))
+    return out
+
+
 def _build_meme_corner(newsletter_name: str) -> list[dict]:
     """Render up to 3 approved memes: image + 'r/<sub> • caption' caption
     line under each. Falls back to the static placeholder if nothing's
@@ -1811,7 +1921,7 @@ SECTIONS = {
     "intro":          {"heading": "👋 Welcome Intro",          "builder": _build_intro},
     "summary":        {"heading": "📑 Summary",                "builder": _build_static_placeholder},
     "poll":           {"heading": "📊 Reader Poll",            "builder": _build_poll},
-    "sponsor":        {"heading": "💼 Sponsor Corner",         "builder": _build_static_placeholder},
+    "sponsor":        {"heading": "💼 Sponsor Corner",         "builder": _build_sponsor},
     "featured_event": {"heading": "🎪 Event of the Week",      "builder": _build_featured_event},
     "restaurants":    {"heading": "🍽️ Restaurant Radar",       "builder": _build_restaurants},
     "business_brief": {"heading": "🏢 Business Brief",         "builder": _build_business_brief},
