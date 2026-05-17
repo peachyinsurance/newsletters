@@ -1,0 +1,54 @@
+name: Scrape Meme Corner
+
+on:
+  # No cron — kicked off in the weekly chain (see weekend_events.yml)
+  # once you're ready to enable it, or run manually.
+  workflow_dispatch:
+    inputs:
+      newsletter:
+        description: 'Which newsletter to scrape memes for.'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'East_Cobb_Connect'
+          - 'Perimeter_Post'
+          - 'Lewisville_Lake_Lookout'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install requests
+
+      - name: Scrape Meme Corner
+        env:
+          NOTION_API_KEY:        ${{ secrets.NOTION_API_KEY }}
+          NOTION_MEMES_DB_ID:    ${{ secrets.NOTION_MEMES_DB_ID }}
+          NOTION_PARENT_PAGE_ID: ${{ secrets.NOTION_PARENT_PAGE_ID }}
+          NEWSLETTER:            ${{ github.event.inputs.newsletter || 'all' }}
+        run: python "Meme Corner/Code/Meme_Corner.py"
+
+      - name: Trigger newsletter page rebuild
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
+            -d '{"ref":"main","inputs":{"section":"meme"}}'
+          echo "✓ Newsletter page rebuild triggered"

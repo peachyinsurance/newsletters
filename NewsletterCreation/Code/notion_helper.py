@@ -60,6 +60,7 @@ NOTION_POLLS_DB_ID       = os.environ.get("NOTION_POLLS_DB_ID", "")
 NOTION_WEEKEND_PLANNER_DB_ID = os.environ.get("NOTION_WEEKEND_PLANNER_DB_ID", "")
 NOTION_WEEKEND_EVENTS_DB_ID  = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
 NOTION_BUSINESS_BRIEF_DB_ID = os.environ.get("NOTION_BUSINESS_BRIEF_DB_ID", "")
+NOTION_MEMES_DB_ID          = os.environ.get("NOTION_MEMES_DB_ID", "")
 
 HEADERS = {
     "Authorization":  f"Bearer {NOTION_API_KEY}",
@@ -473,6 +474,44 @@ def setup_notion_databases():
             print("✓ Free Events database schema created")
         else:
             print(f"✗ Free Events schema error: {r.text[:300]}")
+
+    # Meme Corner database properties
+    if NOTION_MEMES_DB_ID:
+        meme_properties = {
+            "Name":             {"title": {}},
+            "Newsletter":       {"select": {"options": [
+                {"name": "East_Cobb_Connect", "color": "purple"},
+                {"name": "Perimeter_Post",    "color": "pink"},
+                {"name": "Lewisville_Lake_Lookout", "color": "blue"},
+            ]}},
+            "Subreddit":        {"select": {"options": [
+                {"name": "Atlanta",         "color": "orange"},
+                {"name": "memes",           "color": "yellow"},
+                {"name": "wholesomememes",  "color": "green"},
+            ]}},
+            "Image URL":        {"url": {}},
+            "Reddit Permalink": {"url": {}},
+            "Reddit Author":    {"rich_text": {}},
+            "Score":            {"number": {"format": "number"}},
+            "Caption":          {"rich_text": {}},  # the meme's title from Reddit
+            "Status":           {"select": {"options": [
+                {"name": "pending",        "color": "yellow"},
+                {"name": "approved",       "color": "green"},
+                {"name": "approved - old", "color": "gray"},
+                {"name": "rejected",       "color": "red"},
+            ]}},
+            "Date Generated":   {"date": {}},
+        }
+        r = requests.patch(
+            f"https://api.notion.com/v1/databases/{NOTION_MEMES_DB_ID}",
+            headers=HEADERS,
+            json={"properties": meme_properties},
+            timeout=30,
+        )
+        if r.ok:
+            print("✓ Meme Corner database schema created")
+        else:
+            print(f"✗ Meme Corner schema error: {r.text[:300]}")
 
     # Reader Poll database properties
     if NOTION_POLLS_DB_ID:

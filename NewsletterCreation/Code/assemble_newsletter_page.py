@@ -34,6 +34,7 @@ NOTION_POLLS_DB_ID       = os.environ.get("NOTION_POLLS_DB_ID", "")
 NOTION_WEEKEND_PLANNER_DB_ID = os.environ.get("NOTION_WEEKEND_PLANNER_DB_ID", "")
 NOTION_BUSINESS_BRIEF_DB_ID = os.environ.get("NOTION_BUSINESS_BRIEF_DB_ID", "")
 NOTION_TIPS_DB_ID        = os.environ.get("NOTION_TIPS_DB_ID", "")
+NOTION_MEMES_DB_ID       = os.environ.get("NOTION_MEMES_DB_ID", "")
 NOTION_PARENT_PAGE_ID    = os.environ["NOTION_PARENT_PAGE_ID"]
 
 HEADERS = {
@@ -1750,6 +1751,59 @@ def _build_static_placeholder(_newsletter_name: str) -> list[dict]:
     return [_placeholder("Not yet automated.")]
 
 
+def get_memes(newsletter_name: str) -> list[dict]:
+    """Fetch approved (or pending fallback) memes for this newsletter.
+    Returns up to 3, sorted by Reddit score desc."""
+    if not NOTION_MEMES_DB_ID:
+        return []
+    try:
+        pages = query_database(NOTION_MEMES_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name},
+        })
+    except Exception as e:
+        print(f"  Meme query failed: {e}")
+        return []
+    # Tier 1: rows marked 'approved'. Fall back to top-scored 'pending'
+    # so a missed approval still ships something rather than nothing.
+    approved = [p for p in pages
+                if (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
+    pool = approved or [p for p in pages
+                        if (p["properties"].get("Status", {}).get("select") or {}).get("name") == "pending"]
+    out: list[dict] = []
+    for p in pool:
+        props = p["properties"]
+        out.append({
+            "caption":   "".join(c.get("text", {}).get("content", "")
+                                 for c in (props.get("Caption", {}).get("rich_text") or [])),
+            "image_url": props.get("Image URL", {}).get("url", "") or "",
+            "permalink": props.get("Reddit Permalink", {}).get("url", "") or "",
+            "score":     props.get("Score", {}).get("number", 0) or 0,
+            "subreddit": (props.get("Subreddit", {}).get("select") or {}).get("name", ""),
+        })
+    out.sort(key=lambda r: -(r.get("score") or 0))
+    return out[:3]
+
+
+def _build_meme_corner(newsletter_name: str) -> list[dict]:
+    """Render up to 3 approved memes: image + 'r/<sub> • caption' caption
+    line under each. Falls back to the static placeholder if nothing's
+    approved yet."""
+    memes = get_memes(newsletter_name)
+    if not memes:
+        return [_placeholder("No memes selected yet. Approve a row in the Meme Corner DB.")]
+    out: list[dict] = []
+    for m in memes:
+        if m.get("image_url"):
+            out.append(image_block(m["image_url"]))
+        sub = m.get("subreddit") or ""
+        cap = m.get("caption") or ""
+        line = f"r/{sub} • {cap}" if sub else cap
+        if line:
+            out.append(paragraph_block(line))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # SECTION REGISTRY — order matters for the full rebuild path
 # ---------------------------------------------------------------------------
@@ -1768,7 +1822,7 @@ SECTIONS = {
     "free_events":    {"heading": "🆓 Free Event of the Week", "builder": _build_free_events},
     "tip":            {"heading": "🛡️ Insurance Tip",          "builder": _build_tip},
     "in_search_of":   {"heading": "🔍 In Search Of",           "builder": _build_static_placeholder},
-    "meme":           {"heading": "😂 Meme Corner",            "builder": _build_static_placeholder},
+    "meme":           {"heading": "😂 Meme Corner",            "builder": _build_meme_corner},
 }
 
 SECTION_ORDER = [

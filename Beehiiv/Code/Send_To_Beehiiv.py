@@ -45,6 +45,7 @@ from assemble_newsletter_page import (
     get_weekend_events,
     get_business_brief,
     get_latest_tip,
+    get_memes,
     display_domain,
     sync_edits_back,
     notion_search_page,
@@ -510,7 +511,8 @@ _CARD_BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "div", "li"}
 
 
 def _expand_one_slot(soup, slot_key: str, items: list[dict],
-                     item_to_fields) -> tuple[int, int]:
+                     item_to_fields,
+                     item_dom_mutator=None) -> tuple[int, int]:
     """Generic slot expansion. Finds the {<slot>_title} placeholder in
     `soup`, walks up to its enclosing block element, then collects
     consecutive sibling block elements that contain THIS slot's
@@ -623,6 +625,15 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
             if k.endswith("_link"):
                 for scheme in ("http://", "https://"):
                     copy = copy.replace(scheme + token, v)
+        if item_dom_mutator is not None:
+            # Parse this clone, hand it to the mutator (e.g. to swap the
+            # <img src> for per-card images), then serialize back.
+            clone_soup = BeautifulSoup(copy, "html.parser")
+            try:
+                item_dom_mutator(clone_soup, item)
+            except Exception as e:
+                print(f"    ⚠ slot '{slot_key}' DOM mutator error: {e}")
+            copy = str(clone_soup)
         new_chunks.append(copy)
 
     new_fragment = BeautifulSoup("".join(new_chunks), "html.parser")
@@ -681,6 +692,62 @@ def _lowdown_story_to_card(story: dict, slot_key: str) -> dict[str, str]:
     }
 
 
+def _meme_to_card(meme: dict, slot_key: str) -> dict[str, str]:
+    """Map a meme dict to title/message/link placeholders. The "title"
+    is just the caption (the meme's Reddit post title); message is the
+    subreddit tag; link is the Reddit permalink (so the More Info button
+    sends curious readers back to the original post)."""
+    cap = (meme.get("caption") or "").strip()
+    sub = (meme.get("subreddit") or "").strip()
+    return {
+        f"{slot_key}_title":   cap,
+        f"{slot_key}_message": f"r/{sub}" if sub else "",
+        f"{slot_key}_link":    meme.get("permalink") or "",
+    }
+
+
+def _meme_image_mutator(clone_soup, meme: dict) -> None:
+    """Per-card hook: swap the FIRST <img src> in the cloned card to
+    this meme's Reddit-hosted image URL. The template card contains one
+    placeholder image (any filename works — only the first <img> tag is
+    targeted), and each clone gets pointed at its specific meme."""
+    img_url = meme.get("image_url")
+    if not img_url:
+        return
+    img = clone_soup.find("img")
+    if img is not None:
+        img["src"] = img_url
+        img["alt"] = (meme.get("caption") or "meme")[:120]
+
+
+def expand_meme_slots(html: str, memes: list[dict]) -> str:
+    """Duplicate the Meme Corner template card once per approved meme.
+    Slot key: `meme`. Template card uses {meme_title} / {meme_message}
+    / {meme_link} placeholders (mirrors Local Lowdown). One placeholder
+    image inside the card gets per-clone src swapped to the matching
+    meme's actual image URL via _meme_image_mutator."""
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        print("  ⚠ beautifulsoup4 not installed; skipping Meme Corner expansion")
+        return html
+
+    soup = BeautifulSoup(html, "html.parser")
+    n, width = _expand_one_slot(
+        soup, "meme", memes, _meme_to_card,
+        item_dom_mutator=_meme_image_mutator,
+    )
+    if n == -1:
+        print(f"    · meme — no {{meme_title}} in template, skipping "
+              f"({len(memes)} memes will not render)")
+    elif n == 0:
+        print(f"    · meme — 0 approved memes, placeholder card removed")
+    else:
+        warn = "  ⚠ card width=1 (only title)" if width == 1 else ""
+        print(f"    ✓ meme — expanded into {n} card(s) [card width: {width} block(s) each]{warn}")
+    return str(soup)
+
+
 def expand_lowdown_slots(html: str, stories: list[dict]) -> str:
     """Duplicate the Local Lowdown template card once per parsed story.
     Slot key: `local_lowdown`. The template should contain ONE card with
@@ -709,11 +776,11 @@ def expand_lowdown_slots(html: str, stories: list[dict]) -> str:
 # 4. SECTION DATA → REPLACEMENT MAP
 # ---------------------------------------------------------------------------
 def build_replacements(client: BeehiivClient, publication_id: str,
-                      newsletter_name: str) -> tuple[dict, dict, dict, int, list, list, dict]:
+                      newsletter_name: str) -> tuple[dict, dict, dict, int, list, list, dict, list]:
     """Pull section data, upload images, return:
       (text_replacements, image_url_swaps, alt_image_swaps,
        lowdown_story_count, weekend_events, lowdown_stories,
-       paragraph_prose)
+       paragraph_prose, memes)
 
     text_replacements: {placeholder_key: string_value}
     image_url_swaps:   {original_url: beehiiv_hosted_url}  — used as fallback string-find
@@ -929,6 +996,12 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["business_brief_link"]    = bb_url  # alias for templates wired as `_link`
         repl["business_brief_domain"]  = display_domain(bb_url) if bb_url else ""
 
+    # ---- Meme Corner ----
+    # Expanded later by expand_meme_slots once we have the live HTML;
+    # here we just fetch + return the list. Image URLs are Reddit-hosted
+    # so no upload to Beehiiv is needed (Reddit's CDN allows hotlinking).
+    memes = get_memes(newsletter_name)
+
     # ---- Insurance Tip ----
     tip = get_latest_tip(newsletter_name)
     if tip and tip.get("blurb"):
@@ -1060,7 +1133,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     for day, friendly in weekend_dates_seen.items():
         repl[f"{day.lower()}_date"] = friendly
 
-    return repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose
+    return repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose, memes
 
 
 def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
@@ -1276,7 +1349,7 @@ def main():
 
     # Gather all section data + upload images
     print("\n  Gathering section data + uploading images…")
-    repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose_fields = build_replacements(
+    repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose_fields, memes = build_replacements(
         client, cfg["publication_id"], NEWSLETTER,
     )
 
@@ -1289,6 +1362,8 @@ def main():
     body_html = expand_weekend_slots(body_html, weekend_events)
     print("\n  Expanding Local Lowdown slots…")
     body_html = expand_lowdown_slots(body_html, lowdown_stories)
+    print("\n  Expanding Meme Corner slots…")
+    body_html = expand_meme_slots(body_html, memes)
 
     # Long-form prose fields: split each into real sibling <p> blocks via
     # DOM ops so Beehiiv renders paragraph spacing. Done here (vs. inside
