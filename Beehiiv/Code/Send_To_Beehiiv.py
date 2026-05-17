@@ -43,6 +43,8 @@ from assemble_newsletter_page import (
     get_latest_free_event_image,
     get_latest_poll,
     get_weekend_events,
+    get_business_brief,
+    display_domain,
     sync_edits_back,
     notion_search_page,
 )
@@ -208,6 +210,8 @@ URL_TYPED_KEYS = {
     "real_estate_sweetspot_link",
     "real_estate_showcase_link",
     "local_lowdown_link",
+    "business_brief_url",
+    "business_brief_link",
     # (Poll URLs intentionally NOT here — we use `{poll_option_N_slug}`
     # embedded in the template URL field, e.g.
     # `https://www.eastcobbconnect.com/?vote={poll_option_1_slug}`. Beehiiv
@@ -257,6 +261,10 @@ PRUNEABLE_SLOTS = [
     ("event_of_the_week_headline", "event_of_the_week_headline"),
     # Pet
     ("PET_NAME",                   "PET_NAME"),
+    # Business Brief — if no business approved, drop the whole card.
+    ("business_brief_name",        "business_brief_name"),
+    ("business_brief_name",        "business_brief_blurb"),
+    ("business_brief_name",        "business_brief_url"),
     # Real Estate — three tiers (Starter / Sweet Spot / Showcase). Each tier's
     # data is the listing URL; if a tier has no listing, the URL is empty and
     # the whole tier card gets pruned.
@@ -771,6 +779,20 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         # so the subject-line context that reads `local_lowdown1_title`
         # keeps working without a downstream change.
         repl["local_lowdown1_title"] = lowdown_stories[0].get("heading", "")
+
+    # ---- Business Brief ----
+    business = get_business_brief(newsletter_name)
+    if business and business.get("blurb"):
+        repl["business_brief_name"]    = business.get("name", "")
+        repl["business_brief_blurb"]   = business.get("blurb", "")
+        repl["business_brief_city"]    = business.get("city", "")
+        repl["business_brief_price"]   = business.get("price_level", "")
+        repl["business_brief_hours"]   = business.get("hours", "")
+        repl["business_brief_address"] = business.get("address", "")
+        bb_url = business.get("source_url", "") or ""
+        repl["business_brief_url"]     = bb_url
+        repl["business_brief_link"]    = bb_url  # alias for templates wired as `_link`
+        repl["business_brief_domain"]  = display_domain(bb_url) if bb_url else ""
 
     # ---- Pet ----
     pet = get_approved_pet(newsletter_name)
