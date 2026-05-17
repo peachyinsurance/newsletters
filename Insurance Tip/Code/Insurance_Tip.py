@@ -30,15 +30,27 @@ TOPICS_PER_RUN = 5
 TARGET_TIPS    = 3
 
 TRUSTED_DOMAINS = {
-    "iii.org",
-    "naic.org",
-    "consumerreports.org",
-    "nerdwallet.com",
-    "forbes.com",
-    "policygenius.com",
-    "oid.ga.gov",
+    # Industry / regulator
+    "iii.org",             # Insurance Information Institute
+    "naic.org",            # National Association of Insurance Commissioners
+    "oid.ga.gov",          # Georgia Office of Insurance Commissioner
+    # Government / emergency
     "ready.gov",
     "fema.gov",
+    # Independent consumer / personal-finance editors
+    "consumerreports.org",
+    "nerdwallet.com",
+    "policygenius.com",
+    "forbes.com",
+    "bankrate.com",        # added — strong insurance vertical, edited content
+    "investopedia.com",    # added — Dotdash Meredith, deep insurance glossary + guides
+    "valuepenguin.com",    # added — LendingTree, research-driven insurance content
+    "thezebra.com",        # added — Red Ventures, insurance education hub
+    "moneygeek.com",       # added — independent research, frequently cited
+    "insurance.com",       # added — generic but well-edited consumer guides
+    "usnews.com",          # added — Money / Insurance section
+    "thebalancemoney.com", # added — Dotdash Meredith, personal-finance education
+    "aarp.org",            # added — insurance content for older readers
 }
 
 # Topic pool — (query_text, category, seasonal_months)
@@ -266,6 +278,9 @@ if __name__ == "__main__":
         query_specs=query_specs,
         api_key=BRAVE_NEWS_API_KEY,
         trusted_domains=TRUSTED_DOMAINS,
+        # Bump from default 10 → 20 (Brave's max). Doubles the funnel
+        # so the allowlist filter has more candidates to keep.
+        max_per_query=20,
     )
     print(f"  {len(candidates)} trusted candidates collected")
 
