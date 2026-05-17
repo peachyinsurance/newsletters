@@ -816,6 +816,22 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             paragraph_prose["in_todays_connect"] = teaser
             repl["in_todays_connect"] = md_to_html(teaser)
 
+        # Top-of-issue summary placeholders. These mirror the three Intro
+        # DB fields already populated by the chained welcome_intro →
+        # subject_line → in_todays_connect pipeline, exposed under
+        # editorial-friendly names so the template can render them
+        # together as a "What's inside" preamble.
+        headline = (intro.get("subject_line") or "").strip()
+        if headline:
+            repl["headline"] = headline
+        blurb = (intro.get("blurb") or "").strip()
+        if blurb:
+            paragraph_prose["summary_text"] = blurb
+            repl["summary_text"] = md_to_html(blurb)
+        if teaser:
+            paragraph_prose["summary_outline"] = teaser
+            repl["summary_outline"] = md_to_html(teaser)
+
     # ---- Featured Event ----
     event = get_featured_event(newsletter_name)
     if event and event.get("blurb"):
