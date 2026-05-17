@@ -378,12 +378,16 @@ def md_to_html(text: str) -> str:
 
       `**bold**`           → <strong>bold</strong>
       `[label](url)`       → <a href="url" target="_blank" ...>label</a>
-      blank-line breaks    → <br><br>   (avoids nested <p> in Beehiiv's
-                                          paragraph-wrapped placeholders)
+      blank-line breaks    → </p><p> (splits the wrapping placeholder
+                                       paragraph into separate <p> blocks
+                                       so Beehiiv's email CSS gives them
+                                       real paragraph spacing)
       lone newlines        → single space
 
-    Skip the assembled-Notion-page rich_text path; that's Notion-only.
-    For Beehiiv we have to ship actual HTML inside the body string."""
+    Beehiiv strips or visually collapses <br><br>, so blank-line breaks
+    must split the wrapping <p>. The placeholder is almost always inside
+    a <p> in the template; if it isn't, browsers/email clients tolerate
+    the orphan close/open tags by auto-closing."""
     if not text:
         return ""
     out = text
@@ -395,10 +399,7 @@ def md_to_html(text: str) -> str:
         out,
     )
     out = re.sub(r"\*\*([^*]+?)\*\*", r"<strong>\1</strong>", out)
-    # Paragraph break = blank line. Use <br><br> instead of </p><p> because
-    # the placeholder is usually already inside a <p> in the template, and
-    # nested <p>s render unpredictably across email clients.
-    out = re.sub(r"\n\s*\n+", "<br><br>", out)
+    out = re.sub(r"\n\s*\n+", "</p><p>", out)
     out = out.replace("\n", " ")
     return out
 
