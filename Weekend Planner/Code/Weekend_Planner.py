@@ -402,15 +402,22 @@ _NOTION_POOL_CACHE: dict[tuple[str, str], list[dict]] = {}
 def get_notion_pool(newsletter_name: str,
                     target_weekend: dict,
                     excluded_urls: set) -> list[dict]:
-    """Cached wrapper around fetch_weekend_events_from_notion. Cache key
-    is (newsletter, weekend) so a single run sharing the same weekend
-    across audiences only hits Notion once."""
+    """Cached wrapper around fetch_weekend_events_from_notion. The
+    Notion query itself only runs once per (newsletter, weekend), but
+    the `excluded_urls` filter is re-applied on every call so that when
+    Adult runs after Family has added its picked URLs to the exclusion
+    set, those Family URLs are filtered out of Adult's view of the pool."""
     key = (newsletter_name, target_weekend.get("Friday", ""))
     if key not in _NOTION_POOL_CACHE:
+        # First call: cache the full pool with no exclusions, so later
+        # callers with different exclusion sets all see the same base.
         _NOTION_POOL_CACHE[key] = fetch_weekend_events_from_notion(
-            newsletter_name, target_weekend, excluded_urls,
+            newsletter_name, target_weekend, set(),
         )
-    return list(_NOTION_POOL_CACHE[key])
+    pool = _NOTION_POOL_CACHE[key]
+    if excluded_urls:
+        return [c for c in pool if c.get("url") not in excluded_urls]
+    return list(pool)
 
 
 def fetch_and_filter_candidates(
