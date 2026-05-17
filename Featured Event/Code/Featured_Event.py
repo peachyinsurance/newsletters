@@ -875,6 +875,22 @@ if __name__ == "__main__":
 
             MAX_GALLERY = 8  # max candidate images saved per event
 
+            from urllib.parse import urljoin as _urljoin
+
+            def _absolutize(maybe_relative: str, base_url: str) -> str:
+                """Absolutize relative image URLs against the source URL.
+                Old Sandy Springs Notion rows (saved before the scraper's
+                absolutize fix) carry paths like '/imager/cmsimages/…'
+                which crash the header builder's requests.get. urljoin is
+                idempotent on already-absolute URLs."""
+                if not maybe_relative:
+                    return ""
+                if maybe_relative.startswith(("http://", "https://", "//")):
+                    return maybe_relative
+                if not base_url:
+                    return maybe_relative
+                return _urljoin(base_url, maybe_relative)
+
             for r in results:
                 if r.get("image_url") and r.get("image_candidates"):
                     continue
@@ -884,10 +900,11 @@ if __name__ == "__main__":
                 # Primary: image scraped by the Weekend Events scraper (lives
                 # on r["image_url"] from the source candidate). The reviewer
                 # sees this first; the rest of the gallery is for swapping.
-                scraped = (r.get("image_url") or "").strip()
+                scraped = _absolutize((r.get("image_url") or "").strip(), url)
 
                 # Stage 1: scrape ALL plausible images from the source page
                 page_imgs = fetch_event_images(url, max_results=MAX_GALLERY) if url else []
+                page_imgs = [_absolutize(u, url) for u in page_imgs]
                 # Drop any already used by another event in this batch
                 page_imgs = [u for u in page_imgs if _normalize_img(u) not in used_image_urls]
                 # Stage 2: Brave Image Search — pull a few extras so the
