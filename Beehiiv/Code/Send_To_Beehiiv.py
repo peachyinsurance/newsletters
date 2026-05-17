@@ -365,6 +365,37 @@ def replace_placeholders(html: str, replacements: dict[str, str]) -> str:
     return out
 
 
+def md_to_html(text: str) -> str:
+    """Convert the lightweight markdown our content sections use into HTML
+    suitable for substitution into a Beehiiv template placeholder:
+
+      `**bold**`           → <strong>bold</strong>
+      `[label](url)`       → <a href="url" target="_blank" ...>label</a>
+      blank-line breaks    → <br><br>   (avoids nested <p> in Beehiiv's
+                                          paragraph-wrapped placeholders)
+      lone newlines        → single space
+
+    Skip the assembled-Notion-page rich_text path; that's Notion-only.
+    For Beehiiv we have to ship actual HTML inside the body string."""
+    if not text:
+        return ""
+    out = text
+    # Links first so the URL in `[x](http://...)` doesn't get mangled by the
+    # bold pass if a URL happened to contain `**`.
+    out = re.sub(
+        r"\[([^\]]+)\]\((https?://[^)]+)\)",
+        r'<a href="\2" target="_blank" rel="noopener noreferrer">\1</a>',
+        out,
+    )
+    out = re.sub(r"\*\*([^*]+?)\*\*", r"<strong>\1</strong>", out)
+    # Paragraph break = blank line. Use <br><br> instead of </p><p> because
+    # the placeholder is usually already inside a <p> in the template, and
+    # nested <p>s render unpredictably across email clients.
+    out = re.sub(r"\n\s*\n+", "<br><br>", out)
+    out = out.replace("\n", " ")
+    return out
+
+
 def hide_unused_lowdown_slots(html: str, used_count: int) -> str:
     """For Local Lowdown placeholders we don't fill (e.g., we have 3 stories, slots
     4-5 are unused), wipe the remaining placeholders so they don't render literally."""
@@ -557,10 +588,12 @@ def expand_weekend_slots(html: str, events: list[dict]) -> str:
 
 
 def _lowdown_story_to_card(story: dict, slot_key: str) -> dict[str, str]:
-    """Map a parsed lowdown story to the title/message/link placeholders."""
+    """Map a parsed lowdown story to the title/message/link placeholders.
+    Message gets markdown→HTML conversion so `**bold**` and `[label](url)`
+    in the body render correctly inside Beehiiv."""
     return {
         f"{slot_key}_title":   story.get("heading", ""),
-        f"{slot_key}_message": story.get("body", ""),
+        f"{slot_key}_message": md_to_html(story.get("body", "")),
         f"{slot_key}_link":    story.get("url", ""),
     }
 
@@ -613,7 +646,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     intro = get_latest_intro(newsletter_name)
     if intro:
         intro_msg = ((intro.get("greeting") or "") + "\n\n" + (intro.get("blurb") or "")).strip()
-        repl["intro_message"] = intro_msg
+        repl["intro_message"] = md_to_html(intro_msg)
 
     # ---- Featured Event ----
     event = get_featured_event(newsletter_name)
@@ -784,7 +817,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     business = get_business_brief(newsletter_name)
     if business and business.get("blurb"):
         repl["business_brief_name"]    = business.get("name", "")
-        repl["business_brief_blurb"]   = business.get("blurb", "")
+        repl["business_brief_blurb"]   = md_to_html(business.get("blurb", ""))
         repl["business_brief_city"]    = business.get("city", "")
         repl["business_brief_price"]   = business.get("price_level", "")
         repl["business_brief_hours"]   = business.get("hours", "")
@@ -834,8 +867,8 @@ def build_replacements(client: BeehiivClient, publication_id: str,
                     link = m.group(1)
                     break
             repl["free_event_title_1"]       = title
-            repl["free_event_address_1"]     = details
-            repl["free_event_description_1"] = description
+            repl["free_event_address_1"]     = md_to_html(details)
+            repl["free_event_description_1"] = md_to_html(description)
             repl["free_event_link_1"]        = link
             # Alias: template URL fields sometimes drop the trailing `_1`
             repl["free_event_link"]          = link
