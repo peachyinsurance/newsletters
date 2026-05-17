@@ -1035,6 +1035,7 @@ def get_real_estate(newsletter_name: str) -> list[dict]:
             "template": props.get("Template Image", {}).get("url", ""),
             "url":      props.get("Listing URL", {}).get("url", ""),
             "date":     (props.get("Date Generated", {}).get("date") or {}).get("start", ""),
+            "trivia":   _rt("Trivia Options"),  # comma-separated prices for Showcase
         })
     # Only keep the most recent batch (by date)
     if results:
@@ -1484,6 +1485,32 @@ def _build_real_estate(newsletter_name: str) -> list[dict]:
             out.append(image_block(listing["photo"]))
         if listing.get("blurb"):
             out.append(paragraph_block(listing["blurb"]))
+        # Showcase tier: price-guess trivia immediately under the image/blurb.
+        # The Trivia Options field is a comma-separated list of 4 prices
+        # (one of which is the actual). Render as a-b-c-d choices, then
+        # reveal the answer on a separate line.
+        if listing["tier"] == "Showcase" and listing.get("trivia"):
+            try:
+                options = [int(p) for p in listing["trivia"].split(",")
+                           if p.strip().isdigit()]
+            except Exception:
+                options = []
+            actual = int(listing.get("price") or 0)
+            if options and actual in options:
+                labels = "ABCD"
+                choice_strs = [
+                    f"{labels[i]}) ${p:,}" for i, p in enumerate(sorted(options))
+                ]
+                out.append(paragraph_block(
+                    "🎲 Guess the price! " + "   ".join(choice_strs),
+                    bold=True,
+                ))
+                # Reveal answer on a separate line so it can be hidden in
+                # email layouts that style it (small caps / italic).
+                answer_letter = labels[sorted(options).index(actual)]
+                out.append(paragraph_block(
+                    f"Answer: {answer_letter}) ${actual:,}",
+                ))
         if listing.get("url"):
             out.append(link_block("View Listing", listing['url']))
         if listing.get("template"):

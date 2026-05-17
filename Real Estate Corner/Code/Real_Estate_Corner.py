@@ -9,6 +9,8 @@ import sys
 import json
 import time
 import re
+import re as _re   # alias used in the Showcase blurb price-stripper
+import random
 from datetime import datetime
 from pathlib import Path
 
@@ -446,6 +448,36 @@ def cleanup_old_re_listings() -> None:
         print(f"  Archived {count} real estate listings older than 8 weeks")
 
 
+def _generate_price_trivia(actual_price: int, seed: int | None = None) -> list[int]:
+    """Generate 4 candidate prices for the Showcase price-guess trivia.
+    One is the actual price; the other 3 are distractors within ±15% of
+    actual. All pairs are at least 5% (of actual) apart, each rounded to
+    nearest $1,000. Returns the 4 prices sorted ascending."""
+    rng = random.Random(seed)
+    # Offsets (percent) excluding ±0..4 to guarantee 5% gap from actual.
+    valid_offsets = [i for i in range(-15, 16) if abs(i) >= 5]
+    # Sample 3 distractors with pairwise gap >= 5% AND gap >= 5% from 0.
+    sample: list[int] = []
+    for _ in range(50):
+        trial = sorted(rng.sample(valid_offsets, 3))
+        all_with_actual = sorted(trial + [0])
+        gaps = [all_with_actual[i + 1] - all_with_actual[i]
+                for i in range(len(all_with_actual) - 1)]
+        if all(g >= 5 for g in gaps):
+            sample = trial
+            break
+    if not sample:
+        # Deterministic fallback (12%-7%-14% — all 5%+ apart from each
+        # other AND from 0%). Used only if random sampling fails for 50
+        # attempts, which is statistically near-impossible.
+        sample = [-12, 7, 14]
+    prices = [actual_price] + [
+        round(actual_price * (1 + off / 100) / 1000) * 1000
+        for off in sample
+    ]
+    return sorted(set(prices))
+
+
 def save_real_estate_to_notion(results: list[dict], newsletter_name: str) -> None:
     """Save real estate listings to Notion database. Replaces existing entries for this newsletter.
     Manually edited rows (Manually Edited = True) are preserved and skipped."""
@@ -506,6 +538,7 @@ def save_real_estate_to_notion(results: list[dict], newsletter_name: str) -> Non
             "GIF URL":        {"url": listing.get("gif_url") or None},
             "Template Image": {"url": listing.get("template_image_url") or None},
             "Listing URL":    {"url": listing.get("listing_url") or None},
+            "Trivia Options": {"rich_text": [{"text": {"content": safe_str(listing.get("trivia_options", ""))[:200]}}]},
             "Newsletter":     {"select": {"name": newsletter_name}},
             "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
             "Status":         {"select": {"name": "approved"}},
@@ -792,6 +825,30 @@ if __name__ == "__main__":
                         break
         except Exception as e:
             print(f"  ✗ Image generation failed: {e}")
+
+        # Showcase price-guess trivia. Generate 4 candidate prices for the
+        # Showcase listing — one is the actual, three are distractors within
+        # ±15% of the real price, all pairs ≥5% apart (of actual), each
+        # rounded to nearest $1,000. Saved as comma-separated string to the
+        # Notion "Trivia Options" field; the assemble script renders the
+        # row underneath the Showcase tier.
+        # Also strip $-amounts from the Showcase blurb so the reveal doesn't
+        # leak in the body text.
+        for r in results:
+            if r.get("tier") != "Showcase":
+                continue
+            actual = int(r.get("price") or 0)
+            if actual <= 0:
+                continue
+            options = _generate_price_trivia(actual)
+            r["trivia_options"] = ",".join(str(p) for p in options)
+            print(f"  ↳ Showcase trivia options: {options} (actual={actual})")
+            blurb = r.get("blurb") or ""
+            # Strip "$1,234,567" / "$1.25M" / "$1.2 million" patterns
+            cleaned = _re.sub(r"\$\s*\d[\d,]*(?:\.\d+)?\s*[Mm]?(?:illion)?", "[price hidden]", blurb)
+            if cleaned != blurb:
+                print(f"  ↳ Stripped {blurb.count('$')} price reference(s) from Showcase blurb")
+                r["blurb"] = cleaned
 
         # Save to Notion
         save_real_estate_to_notion(results, newsletter["name"])

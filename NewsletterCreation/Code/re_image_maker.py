@@ -195,8 +195,13 @@ def _format_lot(lot_info: str, sqft: int) -> str | None:
 
 
 def _draw_listing_overlay(base: Image.Image, cfg: dict, price: int, beds: int,
-                          baths: int, sqft: int, address: str, lot_info: str) -> None:
-    """Mutate `base` in place: white-out baked labels and draw listing data."""
+                          baths: int, sqft: int, address: str, lot_info: str,
+                          mystery_price: bool = False) -> None:
+    """Mutate `base` in place: white-out baked labels and draw listing data.
+
+    `mystery_price` — when True, the price area renders as `$????` instead
+    of the real number. Used for the Showcase tier so the assemble script
+    can add a price-guess trivia underneath the image."""
     draw = ImageDraw.Draw(base)
 
     # --- 1. White-out the bullet area and redraw "• 4 Beds" lines ---
@@ -219,7 +224,10 @@ def _draw_listing_overlay(base: Image.Image, cfg: dict, price: int, beds: int,
     # --- 2. White-out the $ area and redraw the full price ---
     draw.rectangle(cfg["price_cover"], fill=(255, 255, 255))
     price_font = _load_font(56, bold=True)
-    price_str = f"${price:,.0f}" if price else "$--"
+    if mystery_price:
+        price_str = "$????"
+    else:
+        price_str = f"${price:,.0f}" if price else "$--"
     draw.text(cfg["price_xy"], price_str, fill=(224, 30, 34), font=price_font)  # red
 
     # --- 3. Address below the photo box ---
@@ -237,7 +245,8 @@ def _draw_listing_overlay(base: Image.Image, cfg: dict, price: int, beds: int,
 # ---------------------------------------------------------------------------
 def _render_single(template: Image.Image, photo: Image.Image, cfg: dict,
                    price: int, beds: int, baths: int, sqft: int,
-                   address: str, lot_info: str) -> bytes:
+                   address: str, lot_info: str,
+                   mystery_price: bool = False) -> bytes:
     """Render a static PNG with the photo and data composited onto the template."""
     base = template.copy().convert("RGBA")
     fitted = _fit_into_box(photo, cfg["photo_box"])
@@ -245,7 +254,8 @@ def _render_single(template: Image.Image, photo: Image.Image, cfg: dict,
     base.paste(rounded, (cfg["photo_box"][0], cfg["photo_box"][1]), rounded)
     base = base.convert("RGB")
     _draw_photo_border(base, cfg["photo_box"])
-    _draw_listing_overlay(base, cfg, price, beds, baths, sqft, address, lot_info)
+    _draw_listing_overlay(base, cfg, price, beds, baths, sqft, address, lot_info,
+                          mystery_price=mystery_price)
     # Downscale the final composite by 20% so the email renders at a friendlier size
     base = base.resize((int(base.width * 0.8), int(base.height * 0.8)), Image.LANCZOS)
     buf = io.BytesIO()
@@ -256,7 +266,8 @@ def _render_single(template: Image.Image, photo: Image.Image, cfg: dict,
 def _render_animated(template: Image.Image, photos: list[Image.Image], cfg: dict,
                      price: int, beds: int, baths: int, sqft: int,
                      address: str, lot_info: str,
-                     frame_ms: int = 2000) -> bytes:
+                     frame_ms: int = 2000,
+                     mystery_price: bool = False) -> bytes:
     """Render an animated WebP that cycles the photo inside the static template.
     WebP preserves photo quality without the palette limits of GIF, and encodes fast."""
     template_rgba = template.convert("RGBA")
@@ -268,7 +279,8 @@ def _render_animated(template: Image.Image, photos: list[Image.Image], cfg: dict
         base.paste(rounded, (cfg["photo_box"][0], cfg["photo_box"][1]), rounded)
         base = base.convert("RGB")
         _draw_photo_border(base, cfg["photo_box"])
-        _draw_listing_overlay(base, cfg, price, beds, baths, sqft, address, lot_info)
+        _draw_listing_overlay(base, cfg, price, beds, baths, sqft, address, lot_info,
+                              mystery_price=mystery_price)
         # Downscale 20% to match email-friendly target size
         base = base.resize((int(base.width * 0.8), int(base.height * 0.8)), Image.LANCZOS)
         frames.append(base)
@@ -330,19 +342,26 @@ def create_listing_image(
         if img:
             photos.append(img)
 
+    # Showcase tier hides the price ($????) so the assemble step can add a
+    # price-guess trivia underneath. Other tiers render the real price.
+    mystery_price = (tier == "Showcase")
+
     if not photos:
         # Still produce an image with no photo — just template + text overlay
         base = template.copy().convert("RGB")
-        _draw_listing_overlay(base, cfg, price, beds, baths, sqft, address, lot_info)
+        _draw_listing_overlay(base, cfg, price, beds, baths, sqft, address, lot_info,
+                              mystery_price=mystery_price)
         buf = io.BytesIO()
         base.save(buf, format="PNG", optimize=True)
         return buf.getvalue()
 
     if len(photos) == 1:
         return _render_single(template, photos[0], cfg, price, beds, baths,
-                              sqft, address, lot_info)
+                              sqft, address, lot_info,
+                              mystery_price=mystery_price)
     return _render_animated(template, photos, cfg, price, beds, baths,
-                            sqft, address, lot_info)
+                            sqft, address, lot_info,
+                            mystery_price=mystery_price)
 
 
 # ---------------------------------------------------------------------------

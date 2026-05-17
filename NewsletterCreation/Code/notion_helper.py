@@ -331,6 +331,11 @@ def setup_notion_databases():
             "GIF URL":        {"url": {}},
             "Template Image": {"url": {}},
             "Listing URL":    {"url": {}},
+            # Showcase-tier price-guess trivia: comma-separated string of
+            # 4 prices (one is the actual). Generated server-side from
+            # the actual price; reader picks which is real. Empty for
+            # Starter / Sweet Spot tiers.
+            "Trivia Options": {"rich_text": {}},
             "Newsletter":     {"select": {"options": [
                 {"name": "East_Cobb_Connect"},
                 {"name": "Perimeter_Post"}
