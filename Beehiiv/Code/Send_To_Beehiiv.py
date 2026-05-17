@@ -44,6 +44,7 @@ from assemble_newsletter_page import (
     get_latest_poll,
     get_weekend_events,
     get_business_brief,
+    get_latest_tip,
     display_domain,
     sync_edits_back,
     notion_search_page,
@@ -212,6 +213,8 @@ URL_TYPED_KEYS = {
     "local_lowdown_link",
     "business_brief_url",
     "business_brief_link",
+    "insurance_tip_url",
+    "insurance_tip_link",
     # (Poll URLs intentionally NOT here — we use `{poll_option_N_slug}`
     # embedded in the template URL field, e.g.
     # `https://www.eastcobbconnect.com/?vote={poll_option_1_slug}`. Beehiiv
@@ -265,6 +268,10 @@ PRUNEABLE_SLOTS = [
     ("business_brief_name",        "business_brief_name"),
     ("business_brief_name",        "business_brief_blurb"),
     ("business_brief_name",        "business_brief_url"),
+    # Insurance Tip — if no tip picked, drop the whole card.
+    ("insurance_tip_title",        "insurance_tip_title"),
+    ("insurance_tip_title",        "insurance_tip_blurb"),
+    ("insurance_tip_title",        "insurance_tip_url"),
     # Real Estate — three tiers (Starter / Sweet Spot / Showcase). Each tier's
     # data is the listing URL; if a tier has no listing, the URL is empty and
     # the whole tier card gets pruned.
@@ -840,6 +847,17 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["business_brief_url"]     = bb_url
         repl["business_brief_link"]    = bb_url  # alias for templates wired as `_link`
         repl["business_brief_domain"]  = display_domain(bb_url) if bb_url else ""
+
+    # ---- Insurance Tip ----
+    tip = get_latest_tip(newsletter_name)
+    if tip and tip.get("blurb"):
+        repl["insurance_tip_title"]  = tip.get("tip_title", "")
+        repl["insurance_tip_blurb"]  = md_to_html(tip.get("blurb", ""))
+        tip_url = tip.get("source_url", "") or ""
+        repl["insurance_tip_url"]    = tip_url
+        repl["insurance_tip_link"]   = tip_url  # alias
+        repl["insurance_tip_source"] = tip.get("source_name", "")
+        repl["insurance_tip_domain"] = display_domain(tip_url) if tip_url else ""
 
     # ---- Pet ----
     pet = get_approved_pet(newsletter_name)
