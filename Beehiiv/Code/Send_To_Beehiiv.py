@@ -836,8 +836,18 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             paragraph_prose["summary_text"] = blurb
             repl["summary_text"] = md_to_html(blurb)
         if teaser:
-            paragraph_prose["summary_outline"] = teaser
-            repl["summary_outline"] = md_to_html(teaser)
+            # summary_outline = the emoji-led teaser lines only, WITHOUT
+            # the bold "**In Today's Connect:**" header line that the
+            # skill emits. The header is fine on the Notion landing page
+            # and inside {in_todays_connect}, but the template uses
+            # {summary_outline} in a context that already has its own
+            # heading above it.
+            outline_lines = [ln for ln in teaser.splitlines()
+                             if not (ln.strip().startswith("**")
+                                     and ln.strip().endswith("**"))]
+            outline_only = "\n".join(outline_lines).strip()
+            paragraph_prose["summary_outline"] = outline_only
+            repl["summary_outline"] = md_to_html(outline_only)
 
     # ---- Featured Event ----
     event = get_featured_event(newsletter_name)
