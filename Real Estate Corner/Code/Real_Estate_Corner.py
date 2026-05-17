@@ -304,9 +304,20 @@ def generate_blurbs(listings: list[dict], skill_prompt: str, newsletter_display:
 
     listings_text = ""
     for listing in listings:
+        # For Showcase, hide the actual price in the Claude prompt so it
+        # can't accidentally reference the dollar amount in the blurb.
+        # The price-guess trivia rendered underneath the image makes the
+        # price the reveal — the blurb shouldn't spoil it.
+        is_showcase = listing["tier"] == "Showcase"
+        price_line = ("Price: ???? (HIDDEN — readers play a price-guess trivia "
+                      "after the image. Do NOT reference the price, range, or "
+                      "any dollar amount in the blurb. Focus on the property's "
+                      "features, location, and lifestyle fit.)"
+                      if is_showcase
+                      else f"Price: ${listing['price']:,}")
         listings_text += f"""
 --- {listing['tier']} ---
-Price: ${listing['price']:,}
+{price_line}
 Address: {listing['address']}
 Beds: {listing['beds']} | Baths: {listing['baths']} | Sqft: {listing['sqft']:,} | Type: {listing['type']}
 Year Built: {listing['year_built']}
@@ -328,6 +339,15 @@ Photo: {listing['photo_url']}
                     "content": f"""
 Write a Real Estate Corner section for the {newsletter_display} area newsletter.
 There are {listing_count} listing(s) below. Write a short, neighbor-style blurb for each.
+
+IMPORTANT for the SHOWCASE tier: do NOT mention price, price range, or any
+dollar amount in the blurb. The price is intentionally hidden — readers play
+a guess-the-price trivia rendered underneath the image. Write the Showcase
+blurb about the home's features, location, lifestyle, and what makes it
+special, but say nothing about cost. Words like "expensive", "luxury price",
+"affordable for this size", "on the high end", "deal at this size", etc. are
+also off-limits — anything that hints at price. (Other tiers can mention
+price freely; this restriction is Showcase-only.)
 
 Return ONLY a JSON array with exactly {listing_count} object(s), no preamble or markdown.
 Exact format:
@@ -844,10 +864,21 @@ if __name__ == "__main__":
             r["trivia_options"] = ",".join(str(p) for p in options)
             print(f"  ↳ Showcase trivia options: {options} (actual={actual})")
             blurb = r.get("blurb") or ""
-            # Strip "$1,234,567" / "$1.25M" / "$1.2 million" patterns
-            cleaned = _re.sub(r"\$\s*\d[\d,]*(?:\.\d+)?\s*[Mm]?(?:illion)?", "[price hidden]", blurb)
+            # Belt-and-suspenders: if Claude regressed and slipped a dollar
+            # amount or our own "[price hidden]" placeholder into the blurb,
+            # strip it out cleanly. Drop the surrounding sentence rather
+            # than leaving "[price hidden]k is on the accessible end…" gunk.
+            cleaned = blurb
+            # 1. Drop sentences that contain "$amount" or "[price hidden]"
+            sentences = _re.split(r'(?<=[.!?])\s+', cleaned)
+            kept_sentences = []
+            for s in sentences:
+                if _re.search(r"\$\s*\d|\[price[\s_]*hidden\]", s, _re.IGNORECASE):
+                    continue   # drop the sentence entirely
+                kept_sentences.append(s)
+            cleaned = " ".join(kept_sentences).strip()
             if cleaned != blurb:
-                print(f"  ↳ Stripped {blurb.count('$')} price reference(s) from Showcase blurb")
+                print(f"  ↳ Cleaned price reference(s) out of Showcase blurb")
                 r["blurb"] = cleaned
 
         # Save to Notion

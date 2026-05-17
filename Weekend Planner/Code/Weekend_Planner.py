@@ -20,6 +20,8 @@ import time
 from datetime import datetime, timedelta, date
 from pathlib import Path
 
+import requests
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from brave_search import search_web, domain_of
 from claude_json import call_with_json_output
@@ -140,17 +142,16 @@ def load_skill_prompt() -> str:
 # 3. WEEKEND DATE MATH
 # ---------------------------------------------------------------------------
 def target_weekend_dates(today: datetime | None = None) -> dict:
-    """Return ISO dates for the UPCOMING Friday/Saturday/Sunday — i.e. THIS
-    week's weekend, not next-next. If today is already Sat/Sun, snaps to
-    that same weekend's Friday so the run still targets the day-of."""
+    """Return ISO dates for the UPCOMING Friday/Saturday/Sunday.
+
+    Always looks FORWARD: if today is Sat/Sun, advances to NEXT Friday rather
+    than snapping back to the in-progress weekend (which would have already
+    passed for newsletter-prep purposes)."""
     today = today or datetime.today()
     weekday = today.weekday()  # Mon=0 ... Sun=6
-    # If today is Mon-Fri, days_until_friday is forward to Friday (0 if today is Friday).
-    # If today is Sat/Sun, snap BACK to this weekend's Friday.
-    if weekday <= 4:
-        days_until_friday = 4 - weekday
-    else:  # Sat or Sun
-        days_until_friday = 4 - weekday  # negative — yields this weekend's Friday
+    # Mon-Fri → days to this Friday (0 if today is Friday).
+    # Sat/Sun → days to NEXT Friday (6 or 5).
+    days_until_friday = (4 - weekday) % 7
     friday = (today + timedelta(days=days_until_friday)).date()
     return {
         "Friday":   friday.isoformat(),
