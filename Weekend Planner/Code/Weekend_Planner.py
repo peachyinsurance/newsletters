@@ -42,7 +42,9 @@ BRAVE_NEWS_API_KEY = os.environ["BRAVE_NEWS_API_KEY"]
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-weekend-planner-skill_auto.md"
 
 TARGET_PER_AUDIENCE = 18     # upper bound Claude picks per audience (Family OR Adult); ~6/day × 3 days
-MIN_PER_AUDIENCE    = 9      # below this, we fire a retry pass with broader queries (~3/day)
+MIN_PER_AUDIENCE    = 3      # per-audience floor — at least 3 Family events and 3 Adult events
+                             # per newsletter. If Adult is short, family events get promoted
+                             # (one-way only — see _backfill_adult_from_family in main).
 MAX_RESULTS_PER_QUERY = 15
 PAUSE_BETWEEN_BRAVE = 0.5    # rate-limit buffer
 
@@ -1119,11 +1121,39 @@ if __name__ == "__main__":
             print(f"  ↳ within-run dedup: {len(all_events)} → {len(deduped)} rows")
         all_events = deduped
 
-        # Report final counts per audience to verify mins are met
+        # One-way Family → Adult backfill. If Adult has fewer than
+        # MIN_PER_AUDIENCE events for this newsletter, take the lowest-
+        # ranked Family events and re-tag them as Adult. Reverse
+        # (Adult → Family) is NOT done because adult-only events (bars,
+        # nightlife, 21+) shouldn't end up in the Family section.
         from collections import Counter
-        per_audience = Counter()
-        for ev in all_events:
-            per_audience[ev["audience"]] += 1
+        per_audience = Counter(ev["audience"] for ev in all_events)
+        adult_count  = per_audience.get("Adult",  0)
+        family_count = per_audience.get("Family", 0)
+        if adult_count < MIN_PER_AUDIENCE and family_count > MIN_PER_AUDIENCE:
+            need = MIN_PER_AUDIENCE - adult_count
+            # Use Family events that have a `total_score` if Claude
+            # ranked them; otherwise just take the last `need` Family
+            # entries (assumed to be lowest priority).
+            family_events = [e for e in all_events if e["audience"] == "Family"]
+            family_events.sort(key=lambda e: e.get("total_score", 0))
+            moved = 0
+            # Only promote events that won't break the family quota.
+            for ev in family_events:
+                if moved >= need:
+                    break
+                if family_count - 1 < MIN_PER_AUDIENCE:
+                    break
+                ev["audience"] = "Adult"
+                ev["audience_promoted_from"] = "Family"
+                family_count -= 1
+                adult_count  += 1
+                moved += 1
+                print(f"  ↳ Promoted Family → Adult: {ev.get('event_name','?')[:50]}")
+            if moved:
+                print(f"  ↳ Family→Adult backfill moved {moved} event(s)")
+
+        per_audience = Counter(ev["audience"] for ev in all_events)
         for aud in AUDIENCES:
             count = per_audience.get(aud, 0)
             mark = "✓" if count >= MIN_PER_AUDIENCE else "⚠"
@@ -1161,26 +1191,69 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"  ⚠ event image fetch skipped ({e})")
 
-        # Section banner: one Canva-style composite per newsletter for the
-        # Weekend Planner header. Uses the first event with an image as the
-        # photo source + a generic "Weekend Planner" title overlay.
+        # One photo per audience — clear image_url on everything except the
+        # top-scored event in Family and the top-scored event in Adult.
+        # Result: exactly two photos render in the Weekend Planner section
+        # (one for each audience pane).
+        for aud in AUDIENCES:
+            in_aud = [e for e in all_events if e.get("audience") == aud
+                                              and e.get("image_url")]
+            in_aud.sort(key=lambda e: e.get("total_score", 0), reverse=True)
+            for ev in in_aud[1:]:
+                ev.pop("image_url", None)
+            if in_aud:
+                kept = in_aud[0].get("event_name", "?")[:50]
+                print(f"  ↳ {aud}: keeping image on '{kept}', cleared "
+                      f"{len(in_aud) - 1} other(s)")
+
+        # Half-size each surviving image. Notion's image_block API has no
+        # width control — display size is the file's pixel size, capped at
+        # column width. So to render images half-size we downscale the file,
+        # save locally, and swap the URL to a stable gh-pages location.
+        # The workflow's "Publish Weekend Planner images" step commits these
+        # to gh-pages/gifs/ where Notion can fetch them.
         try:
-            from header_image_maker import build_header_image
-            banner_photo = next((e.get("image_url") for e in all_events if e.get("image_url")), "")
-            if banner_photo:
-                png = build_header_image(title="Weekend Planner", photo_url=banner_photo)
-                if png:
-                    banner_out = Path(__file__).parent.parent.parent / "Beehiiv" / "Code" / "output"
-                    banner_out.mkdir(parents=True, exist_ok=True)
-                    banner_file = banner_out / f"Weekend_Planner_Banner_{newsletter['name']}.png"
-                    banner_file.write_bytes(png)
-                    print(f"  ✓ Built Weekend Planner banner ({len(png):,} bytes)")
-                else:
-                    print(f"  · Weekend Planner banner returned empty bytes")
-            else:
-                print(f"  · No event image available for Weekend Planner banner")
+            import io as _io
+            from PIL import Image as _PILImage
+            img_out_dir = Path(__file__).parent.parent.parent / "Beehiiv" / "Code" / "output"
+            img_out_dir.mkdir(parents=True, exist_ok=True)
+            MAX_DIM = 600   # px — half of the typical 1200-px source
+            for ev in all_events:
+                src_url = ev.get("image_url")
+                if not src_url:
+                    continue
+                try:
+                    r = requests.get(src_url, timeout=15,
+                                     headers={"User-Agent": "Mozilla/5.0"})
+                    if r.status_code != 200 or not r.content:
+                        continue
+                    img = _PILImage.open(_io.BytesIO(r.content))
+                    if img.mode != "RGB":
+                        img = img.convert("RGB")
+                    img.thumbnail((MAX_DIM, MAX_DIM))  # in-place; preserves aspect
+                    slug = "".join(
+                        c if c.isalnum() else "_"
+                        for c in (ev.get("event_name") or "evt")
+                    )[:40] or "evt"
+                    fname = (f"wp_event_{newsletter['name']}_"
+                             f"{ev.get('audience','x')}_{slug}.jpg")
+                    out_path = img_out_dir / fname
+                    img.save(out_path, "JPEG", quality=85, optimize=True)
+                    # Cache-bust so Notion picks up the new file each run.
+                    cache_bust = int(datetime.today().timestamp())
+                    ev["image_url"] = (
+                        f"https://peachyinsurance.github.io/newsletters/gifs/"
+                        f"{fname}?v={cache_bust}"
+                    )
+                    print(f"    ✓ resized & localized: {fname} "
+                          f"({img.size[0]}x{img.size[1]}, {out_path.stat().st_size:,} bytes)")
+                except Exception as e:
+                    print(f"    · resize skipped for {ev.get('event_name','?')[:40]}: {e}")
         except Exception as e:
-            print(f"  ⚠ Weekend Planner banner skipped ({e})")
+            print(f"  ⚠ event image resize stage skipped ({e})")
+
+        # (Canva-style banner removed at user request — Weekend Planner
+        # renders as a plain section without the templated header image.)
 
         print(f"\n  Saving {len(all_events)} total events for {newsletter['name']}...")
         save_weekend_events_to_notion(all_events, newsletter["name"])

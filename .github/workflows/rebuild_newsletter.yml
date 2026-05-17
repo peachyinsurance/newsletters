@@ -1,9 +1,9 @@
 name: Rebuild Newsletter (full chain)
 
 # One-click "rebuild everything for this newsletter" — kicks off the full
-# Mon-chain (Pets → Restaurants → Featured Event → Free Events → Local
-# Lowdown → Real Estate → Weekend Planner → Business Brief → Insurance Tip
-# → Reader Poll) for a single newsletter.
+# Mon-chain (Weekend Events scrape → Pets → Restaurants → Featured Event
+# → Free Events → Local Lowdown → Real Estate → Weekend Planner →
+# Business Brief → Insurance Tip → Reader Poll) for a single newsletter.
 #
 # The chain end (Reader Poll) auto-triggers the full Notion landing-page
 # rebuild + review-app deploy, so the resulting site is fully repopulated.
@@ -33,7 +33,7 @@ jobs:
   kickoff:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Pets (chain starter)
+      - name: Trigger Weekend Events scrape (chain starter)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NL: ${{ github.event.inputs.newsletter }}
@@ -42,8 +42,8 @@ jobs:
           curl -s -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/newsletter.yml/dispatches \
-            -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"$NL\",\"chain\":\"true\"}}"
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/weekend_events.yml/dispatches \
+            -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"$NL\",\"mode\":\"both\",\"chain\":\"true\"}}"
           echo "✓ Triggered. Watch progress in the Actions tab —"
-          echo "   chain runs ~25–30 minutes through 10 sections,"
+          echo "   chain runs ~30–35 minutes through scrape + 10 sections,"
           echo "   then auto-fires the Notion rebuild + review-app deploy."

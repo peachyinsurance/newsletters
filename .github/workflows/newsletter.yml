@@ -1,8 +1,10 @@
 name: Generate Newsletter - Pet Adoption
- 
+
+# NOTE: This workflow used to start the Monday chain on its own cron.
+# That moved to weekend_events.yml (the scraper), which now triggers
+# this job at the end of its run. Keeping workflow_dispatch so ad-hoc
+# re-runs of just Pets are still possible.
 on:
-  schedule:
-    - cron: '0 13 * * 1'  # Mon 8am EST (1pm UTC) — chain starter
   workflow_dispatch:        # Allows manual trigger from GitHub UI
     inputs:
       newsletter:

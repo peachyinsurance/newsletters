@@ -1615,17 +1615,8 @@ def _build_weekend_planner(newsletter_name: str) -> list[dict]:
             return day
 
     blocks: list[dict] = []
-
-    # Section-level banner: pulled from the predicted gh-pages URL written
-    # by the Weekend Planner pipeline (Weekend_Planner.py builds + publishes
-    # Weekend_Planner_Banner_<NEWSLETTER>.png each run). Cache-bust appended
-    # so Notion picks up the latest composite.
-    import time as _t
-    banner_url = (
-        f"https://peachyinsurance.github.io/newsletters/gifs/"
-        f"Weekend_Planner_Banner_{newsletter_name}.png?v={int(_t.time())}"
-    )
-    blocks.append(image_block(banner_url))
+    # (Canva-style banner removed at user request — Weekend Planner
+    # renders as a plain section without the templated header image.)
 
     for audience_key in audiences:
         # Skip the entire pane if it has no events at all

@@ -47,20 +47,25 @@ jobs:
           NEWSLETTER:                   ${{ github.event.inputs.newsletter || 'all' }}
         run: python "Weekend Planner/Code/Weekend_Planner.py"
 
-      - name: Publish Weekend Planner banner to gh-pages
+      - name: Publish Weekend Planner images to gh-pages
         if: ${{ always() }}
         run: |
           set -e
           shopt -s nullglob
+          # Banner PNG no longer produced (Canva template removed for WP),
+          # but glob is harmless if it ever returns. Event JPGs are the
+          # resized per-event photos written by Weekend_Planner.py.
           banners=("Beehiiv/Code/output/Weekend_Planner_Banner_"*.png)
-          if [ ${#banners[@]} -eq 0 ]; then
-            echo "No Weekend Planner banners to publish"
+          events=("Beehiiv/Code/output/wp_event_"*.jpg)
+          if [ ${#banners[@]} -eq 0 ] && [ ${#events[@]} -eq 0 ]; then
+            echo "No Weekend Planner images to publish"
             exit 0
           fi
-          mkdir -p /tmp/wp_banners
-          cp "${banners[@]}" /tmp/wp_banners/
-          count=$(ls /tmp/wp_banners | wc -l)
-          echo "Staged $count banner(s) to /tmp"
+          mkdir -p /tmp/wp_images
+          [ ${#banners[@]} -gt 0 ] && cp "${banners[@]}" /tmp/wp_images/ || true
+          [ ${#events[@]}  -gt 0 ] && cp "${events[@]}"  /tmp/wp_images/ || true
+          count=$(ls /tmp/wp_images | wc -l)
+          echo "Staged $count image(s) to /tmp"
 
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -68,14 +73,14 @@ jobs:
           git fetch origin gh-pages
           git checkout gh-pages
           mkdir -p gifs
-          cp /tmp/wp_banners/*.png gifs/
+          cp /tmp/wp_images/* gifs/
           git add gifs/
           if git diff --staged --quiet; then
-            echo "No banner changes to publish"
+            echo "No image changes to publish"
           else
-            git commit -m "publish weekend planner banner [skip ci]"
+            git commit -m "publish weekend planner images [skip ci]"
             git push origin gh-pages
-            echo "✓ Published $count Weekend Planner banner(s)"
+            echo "✓ Published $count Weekend Planner image(s)"
           fi
           git checkout main
           git stash pop || true
