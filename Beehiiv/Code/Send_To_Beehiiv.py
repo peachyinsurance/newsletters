@@ -442,13 +442,32 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
         return -1
 
     # Collect consecutive sibling block elements that carry this slot's
-    # _message or _link tokens. Stop at the first non-card sibling.
+    # _message or _link tokens. Skip over decorative widget divs
+    # (Beehiiv's editor inserts "anchor indicator" widgets between
+    # placeholder blocks) and empty/whitespace siblings. Stop at the
+    # first sibling that's CONTENT but doesn't carry our placeholders.
+    def _is_decorative(node) -> bool:
+        if getattr(node, "name", None) is None:
+            return False
+        classes = node.get("class") or []
+        if isinstance(classes, str):
+            classes = [classes]
+        if any("node-indicator" in c or "ProseMirror-widget" in c for c in classes):
+            return True
+        # Visually empty element (no text, no <img>) — likely an editor artifact.
+        if not node.get_text(strip=True) and not node.find("img"):
+            return True
+        return False
+
     card_nodes = [title_node]
     sib = title_node.next_sibling
     while sib is not None:
         name = getattr(sib, "name", None)
         if name is None:
             sib = sib.next_sibling  # whitespace text node
+            continue
+        if _is_decorative(sib):
+            sib = sib.next_sibling  # skip widget / empty wrapper
             continue
         if name in _CARD_BLOCK_TAGS:
             stext = str(sib)
