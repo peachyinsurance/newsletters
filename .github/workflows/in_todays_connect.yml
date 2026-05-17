@@ -46,6 +46,7 @@ jobs:
           NOTION_FREE_EVENTS_DB_ID:    ${{ secrets.NOTION_FREE_EVENTS_DB_ID }}
           NOTION_RE_DB_ID:             ${{ secrets.NOTION_RE_DB_ID }}
           NOTION_BUSINESS_BRIEF_DB_ID: ${{ secrets.NOTION_BUSINESS_BRIEF_DB_ID }}
+          NOTION_PARENT_PAGE_ID:       ${{ secrets.NOTION_PARENT_PAGE_ID }}
           NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'all' }}
         run: python "In Todays Connect/Code/In_Todays_Connect.py"
 
