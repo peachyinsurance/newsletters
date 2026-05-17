@@ -476,6 +476,26 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         if link_key:
             repl[link_key] = listing.get("url", "")
 
+        # Showcase price-guess trivia: fill {showcase_answer_1..4} with the
+        # four candidate prices (sorted ascending to match the A/B/C/D order
+        # used in the assembled newsletter page). Each answer is wired in the
+        # Beehiiv template as a hyperlink pointing to {real_estate_showcase_link}
+        # (set above), so clicking ANY answer takes the reader to the listing
+        # without revealing which one was correct.
+        if listing.get("tier") == "Showcase" and listing.get("trivia"):
+            try:
+                options = sorted(
+                    int(p) for p in listing["trivia"].split(",")
+                    if p.strip().lstrip("$").replace(",", "").isdigit()
+                )
+            except Exception:
+                options = []
+            for i in range(1, 5):
+                if i <= len(options):
+                    repl[f"showcase_answer_{i}"] = f"${options[i-1]:,}"
+                else:
+                    repl[f"showcase_answer_{i}"] = ""
+
     # ---- Local Lowdown (1–5 stories) ----
     lowdown_text = get_latest_lowdown(newsletter_name)
     story_count = 0
