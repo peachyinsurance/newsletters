@@ -22,6 +22,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterC
 from notion_helper import HEADERS as NOTION_HEADERS, save_lowdown_to_notion
 from url_validator import validate_url
 from newsletters_config import NEWSLETTERS, filter_by_env
+from event_date_filter import brave_freshness_for_issue, effective_today
 
 NOTION_API_KEY = os.environ["NOTION_API_KEY"]
 
@@ -162,18 +163,22 @@ def is_paywalled(url: str) -> bool:
 
 
 def fetch_news_brave(search_terms: list[str]) -> list[dict]:
-    """Fetch recent news articles via Brave Search News API. Returns real source URLs."""
+    """Fetch recent news articles via Brave Search News API. Returns real source URLs.
+
+    Freshness anchors to ISSUE_DATE via `brave_freshness_for_issue()` when
+    set (10-day lookback from that Thursday), otherwise 'pw' (past week)."""
     headers = {
         "Accept": "application/json",
         "Accept-Encoding": "gzip",
         "X-Subscription-Token": BRAVE_NEWS_API_KEY,
     }
+    freshness = brave_freshness_for_issue()  # honors ISSUE_DATE env
 
     all_articles = []
     seen_urls = set()
 
     for query in search_terms:
-        print(f"  Searching Brave News for: {query}")
+        print(f"  Searching Brave News for: {query} (freshness={freshness})")
         try:
             res = requests.get(
                 "https://api.search.brave.com/res/v1/news/search",
@@ -181,7 +186,7 @@ def fetch_news_brave(search_terms: list[str]) -> list[dict]:
                 params={
                     "q": query,
                     "count": MAX_ARTICLES,
-                    "freshness": "pw",  # past week
+                    "freshness": freshness,
                 },
                 timeout=30,
             )
@@ -482,7 +487,7 @@ def save_results(result: dict, newsletter_name: str) -> None:
 if __name__ == "__main__":
     print(f"Starting Local Lowdown automation — {datetime.today().strftime('%Y-%m-%d')}")
     skill_prompt = load_skill_prompt()
-    pub_date = datetime.today().strftime("%Y-%m-%d")
+    pub_date = effective_today().strftime("%Y-%m-%d")  # honors ISSUE_DATE
 
     for newsletter in filter_by_env():
         print(f"\n{'='*60}")

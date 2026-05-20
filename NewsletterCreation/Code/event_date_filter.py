@@ -23,6 +23,7 @@ Public API:
     filter_candidates_by_date(candidates, floor) -> (kept, dropped_urls)
     filter_past_events(events, floor)         -> kept events
 """
+import os
 import re
 from datetime import date, datetime, timedelta
 
@@ -31,9 +32,107 @@ from datetime import date, datetime, timedelta
 # Friday floor
 # ---------------------------------------------------------------------------
 def upcoming_friday(today: date | None = None) -> date:
-    """Next Friday on or after `today` (today if today is Friday)."""
-    today = today or date.today()
+    """Next Friday on or after `today` (today if today is Friday).
+    When `today` is None, calls `effective_today()` which transparently
+    honors the ISSUE_DATE env override. This means callers don't need
+    to thread issue_date through manually."""
+    today = today if today is not None else effective_today()
     return today + timedelta(days=(4 - today.weekday()) % 7)
+
+
+def effective_today() -> date:
+    """The 'today' that all event-section date math anchors to. When
+    ISSUE_DATE env var is set (MM/DD/YYYY), returns that date instead of
+    the real today. Lets workflows target a future or past issue."""
+    issue_date = parse_issue_date(os.environ.get("ISSUE_DATE"))
+    return issue_date or date.today()
+
+
+# ---------------------------------------------------------------------------
+# Issue-date override (workflow_dispatch input)
+# ---------------------------------------------------------------------------
+def parse_issue_date(arg: str | None) -> date | None:
+    """Parse an MM/DD/YYYY string from the ISSUE_DATE env var / workflow
+    input. Returns None for empty / missing input. Raises ValueError on a
+    bad format so the workflow fails loudly instead of silently falling
+    back to today.
+
+    Most sections shouldn't call this directly — use `effective_today()`,
+    `section_date_window()`, or `brave_freshness_for_issue()` which
+    consume ISSUE_DATE transparently."""
+    if not arg or not arg.strip():
+        return None
+    s = arg.strip()
+    try:
+        return datetime.strptime(s, "%m/%d/%Y").date()
+    except ValueError:
+        raise ValueError(
+            f"Invalid ISSUE_DATE '{s}' — expected MM/DD/YYYY (e.g. 05/21/2026)"
+        ) from None
+
+
+def section_date_window(default_days: int = 14) -> tuple[date, date | None]:
+    """Returns (floor, ceiling) for a section's date window.
+
+    With ISSUE_DATE set: (issue_date, issue_date + 6 days). That's
+    Thursday (issue date) through next Wednesday inclusive — a strict
+    7-day window targeting that issue's coverage week.
+
+    Without ISSUE_DATE: (upcoming_friday(), None). Ceiling is None so
+    sections can apply their own default upper bound (typically
+    floor + default_days for the Notion query) without enforcing it
+    as a hard post-Claude filter — preserves current 'this week-ish'
+    behavior.
+
+    Used by Featured Event and Free Events."""
+    issue_date = parse_issue_date(os.environ.get("ISSUE_DATE"))
+    if issue_date:
+        return (issue_date, issue_date + timedelta(days=6))
+    return (upcoming_friday(), None)
+
+
+def brave_freshness_for_issue(lookback_days: int = 10) -> str:
+    """Brave news API `freshness` param. With ISSUE_DATE set, returns
+    'YYYY-MM-DDtoYYYY-MM-DD' for [issue_date - lookback_days, issue_date].
+    Without ISSUE_DATE, returns 'pw' (past week, Brave preset).
+
+    Used by Local Lowdown so news lookback anchors to the issue's
+    Thursday instead of today."""
+    issue_date = parse_issue_date(os.environ.get("ISSUE_DATE"))
+    if not issue_date:
+        return "pw"
+    lookback_start = issue_date - timedelta(days=lookback_days)
+    return f"{lookback_start.isoformat()}to{issue_date.isoformat()}"
+
+
+def filter_events_to_window(events: list[dict], floor: date,
+                            ceiling: date | None = None,
+                            date_key: str = "date") -> list[dict]:
+    """Unified post-Claude date-window filter. Drops events whose
+    `date_key` parses outside [floor, ceiling]. When ceiling is None,
+    only the floor is enforced (equivalent to filter_past_events).
+    Events with unparseable dates are KEPT (same convention as the
+    other filters — pre-Claude is the primary gate).
+
+    Replaces the floor-only vs floor+ceiling branching that FE / Free
+    Events previously had inline."""
+    kept = []
+    for e in events:
+        parsed = parse_event_date(e.get(date_key, ""))
+        if parsed:
+            if parsed < floor:
+                print(f"  ✗ Dropping past-dated event: "
+                      f"{e.get('event_name', e.get('title','?'))} "
+                      f"({e.get(date_key, '?')} → {parsed})")
+                continue
+            if ceiling is not None and parsed > ceiling:
+                print(f"  ✗ Dropping out-of-range event: "
+                      f"{e.get('event_name', e.get('title','?'))} "
+                      f"({e.get(date_key, '?')} → {parsed}; "
+                      f"window {floor}..{ceiling})")
+                continue
+        kept.append(e)
+    return kept
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +373,27 @@ def filter_past_events(events: list[dict], floor: date,
             print(f"  ✗ Dropping past-dated event: "
                   f"{e.get('event_name', e.get('title','?'))} "
                   f"({e.get(date_key, '?')} → {parsed})")
+            continue
+        kept.append(e)
+    return kept
+
+
+def filter_events_in_date_range(events: list[dict], start: date, end: date,
+                                date_key: str = "date") -> list[dict]:
+    """Post-Claude filter: drop events whose `date_key` field parses to a
+    date OUTSIDE [start, end] inclusive. Events with unparseable dates are
+    KEPT (same convention as filter_past_events) — the candidate-side
+    pre-filter is the primary date gate, this is belt-and-suspenders.
+
+    Used by Featured Event + Free Events when an issue_date override pins
+    the section to a specific Thu..next-Wed window."""
+    kept = []
+    for e in events:
+        parsed = parse_event_date(e.get(date_key, ""))
+        if parsed and not (start <= parsed <= end):
+            print(f"  ✗ Dropping out-of-range event: "
+                  f"{e.get('event_name', e.get('title','?'))} "
+                  f"({e.get(date_key, '?')} → {parsed}; window {start}..{end})")
             continue
         kept.append(e)
     return kept

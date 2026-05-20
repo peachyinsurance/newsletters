@@ -41,8 +41,8 @@ from newsletters_config import NEWSLETTERS, filter_by_env
 # NewsletterCreation/Code/event_date_filter.py — used by Featured Event,
 # Free Events, and Weekend Planner.
 from event_date_filter import (
-    upcoming_friday as _upcoming_friday,
-    filter_past_events as _filter_past_events,
+    section_date_window,
+    filter_events_to_window,
 )
 
 # ---------------------------------------------------------------------------
@@ -389,8 +389,14 @@ def evaluate_and_write_events(
     display_area: str,
     newsletter_name: str,
     skill_prompt: str,
+    floor: date,
+    ceiling: date | None = None,
 ) -> list[dict]:
-    """Send candidates + demographics to Claude. Returns top events with blurbs."""
+    """Send candidates + demographics to Claude. Returns top events with blurbs.
+
+    `floor` is the earliest acceptable event date. `ceiling` is the latest
+    when an issue_date override is in effect (Thu..next-Wed); None falls
+    back to the open-ended floor-only behavior."""
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
 
     # Tag each candidate with a 1-based index for safe URL matching post-Claude.
@@ -422,14 +428,25 @@ def evaluate_and_write_events(
     )
 
     today = datetime.today()
-    earliest = _upcoming_friday(today.date())
-    pub_context = (
-        f"Today is {today.strftime('%A, %B %d, %Y')}. "
-        f"The newsletter publishes this week. "
-        f"IMPORTANT: only consider events occurring on or after "
-        f"{earliest.strftime('%A, %B %d, %Y')} "
-        f"(the upcoming Friday) — anything earlier in the week is past by send time."
-    )
+    if ceiling is not None:
+        # issue_date override — strict issue_date..next-Wed window.
+        pub_context = (
+            f"Today is {today.strftime('%A, %B %d, %Y')}. "
+            f"The newsletter is being prepared for an issue dated "
+            f"{floor.strftime('%A, %B %d, %Y')}. "
+            f"IMPORTANT: only consider events occurring between "
+            f"{floor.strftime('%A, %B %d, %Y')} and "
+            f"{ceiling.strftime('%A, %B %d, %Y')} (inclusive). "
+            f"Events earlier or later than this window are out of scope for this issue."
+        )
+    else:
+        pub_context = (
+            f"Today is {today.strftime('%A, %B %d, %Y')}. "
+            f"The newsletter publishes this week. "
+            f"IMPORTANT: only consider events occurring on or after "
+            f"{floor.strftime('%A, %B %d, %Y')} "
+            f"(the upcoming Friday) — anything earlier in the week is past by send time."
+        )
 
     response = None
     for attempt in range(3):
@@ -668,10 +685,11 @@ Candidates:
         validated.append(r)
     results = validated
 
-    # Hard floor: drop anything dated before this week's Friday (the
-    # newsletter's earliest publish date). Belt-and-suspenders against
-    # Claude leaking past events past the prompt-level instruction.
-    results = _filter_past_events(results, _upcoming_friday())
+    # Hard date window: drop anything outside [floor, ceiling]. With no
+    # ceiling, only the past-event floor is enforced (current behavior).
+    # Belt-and-suspenders against Claude leaking out-of-window picks past
+    # the prompt-level instruction.
+    results = filter_events_to_window(results, floor, ceiling)
 
     # Dedup by event_name — Claude sometimes returns the same event twice
     # when two candidate indices point at the same festival via different
@@ -720,18 +738,18 @@ if __name__ == "__main__":
     print(f"Starting Featured Event automation — {datetime.today().strftime('%Y-%m-%d')}")
     skill_prompt = load_skill_prompt()
 
+    # section_date_window() honors ISSUE_DATE transparently:
+    #   With ISSUE_DATE set: (issue_date, issue_date + 6 days)
+    #   Without:             (upcoming_friday(), None)
+    floor, ceiling = section_date_window()
+    window_end = ceiling if ceiling is not None else floor + timedelta(days=DATE_WINDOW_DAYS)
+
     for newsletter in filter_by_env():
         print(f"\n{'='*60}")
         print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
         print(f"{'='*60}")
-
-        # Date window: upcoming Friday → +DATE_WINDOW_DAYS (default 14).
-        # Anything earlier than the floor is past by the time the issue
-        # mails; anything beyond the window is too far out to interest a
-        # weekly newsletter audience.
-        floor       = _upcoming_friday()
-        window_end  = floor + timedelta(days=DATE_WINDOW_DAYS)
-        print(f"  Date window: {floor} → {window_end}  ({DATE_WINDOW_DAYS} days)")
+        print(f"  Date window: {floor} → {window_end}"
+              + ("  (strict — ISSUE_DATE override)" if ceiling else f"  ({DATE_WINDOW_DAYS} days)"))
 
         candidates = fetch_events_from_notion(
             newsletter_name = newsletter["name"],
@@ -778,6 +796,8 @@ if __name__ == "__main__":
             display_area=newsletter["display_area"],
             newsletter_name=newsletter["name"],
             skill_prompt=skill_prompt,
+            floor=floor,
+            ceiling=ceiling,
         )
 
         if not results:

@@ -21,6 +21,11 @@ on:
         options:
           - 'true'
           - 'false'
+      issue_date:
+        description: 'Issue date (MM/DD/YYYY). Empty = today + past week. Sets Brave news lookback to (issue_date - 10 days) through issue_date.'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -44,6 +49,7 @@ jobs:
           NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
           NOTION_LOWDOWN_DB_ID:     ${{ secrets.NOTION_LOWDOWN_DB_ID }}
           NEWSLETTER:               ${{ github.event.inputs.newsletter || 'all' }}
+          ISSUE_DATE:               ${{ github.event.inputs.issue_date || '' }}
         run: python "Local Lowdown/Code/Local_Lowdown.py"
       - name: Trigger newsletter page rebuild
         if: ${{ (github.event.inputs.chain || 'true') == 'false' }}
@@ -66,5 +72,5 @@ jobs:
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/real_estate.yml/dispatches \
-            -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"${{ github.event.inputs.newsletter || 'all' }}\",\"chain\":\"true\"}}"
+            -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"${{ github.event.inputs.newsletter || 'all' }}\",\"chain\":\"true\",\"issue_date\":\"${{ github.event.inputs.issue_date || '' }}\"}}"
           echo "→ Triggered Real Estate"

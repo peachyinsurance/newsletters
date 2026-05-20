@@ -9,7 +9,7 @@ import os
 import sys
 import json
 import time
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from pathlib import Path
 
 import requests
@@ -25,9 +25,11 @@ from notion_helper import (
 from url_validator import validate_url
 from newsletters_config import NEWSLETTERS, filter_by_env
 from event_date_filter import (
-    upcoming_friday as _upcoming_friday,
     filter_candidates_by_date,
-    filter_past_events,
+    filter_candidates_in_date_range,
+    filter_events_to_window,
+    section_date_window,
+    effective_today,
 )
 
 import re as _re
@@ -965,7 +967,8 @@ Return ONLY the body_markdown text — plain markdown, no JSON wrapper, no quote
 
 
 def write_free_events(candidates: list[dict], newsletter_name: str, display_area: str,
-                      skill_prompt: str, pub_date: str) -> dict:
+                      skill_prompt: str, pub_date: str,
+                      floor: date, ceiling: date | None = None) -> dict:
     """Ask Claude to score up to 5 free-event candidates on time sensitivity.
     Then combine with a deterministic source_quality score (based on
     AGGREGATOR_DOMAINS) to pick the single Free Event of the Week.
@@ -990,7 +993,7 @@ Newsletter: {newsletter_name}
 Publication date: {pub_date}
 Coverage area: {display_area}
 
-IMPORTANT date floor: the event must occur on or after {_upcoming_friday().strftime('%A, %B %d, %Y')} (the upcoming Friday). Reject anything dated earlier — by send time those will be past.
+{('IMPORTANT date window: the event must occur between ' + floor.strftime('%A, %B %d, %Y') + ' and ' + ceiling.strftime('%A, %B %d, %Y') + ' (inclusive). Reject anything outside this window — this issue is being prepared for a specific Thursday and only covers that week.') if ceiling is not None else ('IMPORTANT date floor: the event must occur on or after ' + floor.strftime('%A, %B %d, %Y') + ' (the upcoming Friday). Reject anything dated earlier — by send time those will be past.')}
 
 Each candidate may include a `full_text` field — that's the actual article body fetched from the URL. **When `full_text` is present, use it as your primary source for writing the body_markdown** (specific details, history, hours, parking, vibe). The `summary` is only a Brave snippet — much thinner than `full_text`. Fall back to `summary` only when `full_text` is empty.
 
@@ -1486,7 +1489,12 @@ def save_results(result: dict, newsletter_name: str) -> None:
 if __name__ == "__main__":
     print(f"Starting Free Events automation — {datetime.today().strftime('%Y-%m-%d')}")
     skill_prompt = load_skill_prompt()
-    pub_date = datetime.today().strftime("%Y-%m-%d")
+
+    # section_date_window() honors ISSUE_DATE transparently.
+    floor, ceiling = section_date_window()
+    pub_date = effective_today().strftime("%Y-%m-%d")
+    print(f"  Date window: {floor}"
+          + (f" → {ceiling}  (strict — ISSUE_DATE override)" if ceiling else " → +14 days (default)"))
 
     for newsletter in filter_by_env():
         print(f"\n{'='*60}")
@@ -1499,13 +1507,12 @@ if __name__ == "__main__":
         # re-pull (excluding what we rejected) until we have enough valid
         # options or run out of rounds.
         MIN_VALID_CANDIDATES = 8
-        floor = _upcoming_friday()
         candidates: list[dict] = []
 
         # First — pull free-tagged rows from the Weekend Events Notion DB.
-        # Window: this week's Friday → +14 days (matches Featured Event).
-        from datetime import timedelta as _td
-        notion_window_end = floor + _td(days=14)
+        # Window: this week's Friday → +14 days normally, or the strict
+        # issue_date..next-Wed window when an override is set.
+        notion_window_end = ceiling if ceiling is not None else (floor + timedelta(days=14))
         print(f"\n  --- Notion free-event pull ({floor} → {notion_window_end}) ---")
         notion_free = fetch_free_events_from_notion(
             newsletter["name"], floor, notion_window_end,
@@ -1527,7 +1534,10 @@ if __name__ == "__main__":
             new_pool = fetch_candidates(newsletter["search_areas"], excluded_urls=excluded)
             if not new_pool:
                 brave_dead = True
-            kept, past_urls = filter_candidates_by_date(new_pool, floor)
+            if ceiling is not None:
+                kept, past_urls = filter_candidates_in_date_range(new_pool, floor, ceiling)
+            else:
+                kept, past_urls = filter_candidates_by_date(new_pool, floor)
             excluded.update(past_urls)
             # Title-dedup Brave results against what we already have
             # (Notion pulls + earlier Brave rounds win on title collisions).
@@ -1550,11 +1560,16 @@ if __name__ == "__main__":
 
         # Re-filter post-enrichment: full_text often surfaces explicit dates
         # that weren't in the title/summary. Drop any candidate that's now
-        # clearly past-dated.
-        candidates, more_past = filter_candidates_by_date(
-            candidates, floor, text_keys=("title", "summary", "full_text"))
+        # outside the date window.
+        if ceiling is not None:
+            candidates, more_past = filter_candidates_in_date_range(
+                candidates, floor, ceiling,
+                text_keys=("title", "summary", "full_text"))
+        else:
+            candidates, more_past = filter_candidates_by_date(
+                candidates, floor, text_keys=("title", "summary", "full_text"))
         if more_past:
-            print(f"  Post-enrichment: dropped {len(more_past)} more past-dated candidates")
+            print(f"  Post-enrichment: dropped {len(more_past)} more out-of-window candidates")
         if not candidates:
             print(f"  All candidates filtered out post-enrichment for {newsletter['name']}. Skipping.")
             continue
@@ -1566,7 +1581,15 @@ if __name__ == "__main__":
             display_area=newsletter["display_area"],
             skill_prompt=skill_prompt,
             pub_date=pub_date,
+            floor=floor,
+            ceiling=ceiling,
         )
+
+        # Post-Claude defense-in-depth: drop picks whose `date` parses
+        # outside [floor, ceiling]. With no ceiling, just past-event floor.
+        if result.get("events"):
+            result["events"] = filter_events_to_window(
+                result["events"], floor, ceiling)
 
         if not result.get("events"):
             # No time-sensitive event qualified — fall back to an evergreen

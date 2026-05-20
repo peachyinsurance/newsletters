@@ -24,6 +24,11 @@ on:
           - 'East_Cobb_Connect'
           - 'Perimeter_Post'
           - 'Lewisville_Lake_Lookout'
+      issue_date:
+        description: 'Issue date (MM/DD/YYYY). Empty = current week. Targets the chain at a specific Thursday issue.'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -37,13 +42,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NL: ${{ github.event.inputs.newsletter }}
+          ISSUE_DATE: ${{ github.event.inputs.issue_date || '' }}
         run: |
-          echo "Kicking off full chain rebuild for: $NL"
+          echo "Kicking off full chain rebuild for: $NL (issue_date: ${ISSUE_DATE:-default})"
           curl -s -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/weekend_events.yml/dispatches \
-            -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"$NL\",\"mode\":\"both\",\"chain\":\"true\"}}"
+            -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"$NL\",\"mode\":\"both\",\"chain\":\"true\",\"issue_date\":\"$ISSUE_DATE\"}}"
           echo "✓ Triggered. Watch progress in the Actions tab —"
           echo "   chain runs ~30–35 minutes through scrape + 10 sections,"
           echo "   then auto-fires the Notion rebuild + review-app deploy."

@@ -29,6 +29,11 @@ on:
         options:
           - 'notion'
           - 'scrape'
+      issue_date:
+        description: 'Issue date (MM/DD/YYYY). Empty = upcoming Thursday. Targets that Thursday through next Wednesday.'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -92,6 +97,7 @@ jobs:
           NOTION_FREE_EVENTS_DB_ID:     ${{ secrets.NOTION_FREE_EVENTS_DB_ID }}
           NOTION_WEEKEND_EVENTS_DB_ID:  ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                   ${{ github.event.inputs.newsletter || 'all' }}
+          ISSUE_DATE:                   ${{ github.event.inputs.issue_date || '' }}
         run: python "Free Events/Code/Free_Events.py"
 
       - name: Trigger newsletter page rebuild
@@ -115,5 +121,5 @@ jobs:
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/local_lowdown.yml/dispatches \
-            -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"${{ github.event.inputs.newsletter || 'all' }}\",\"chain\":\"true\"}}"
+            -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"${{ github.event.inputs.newsletter || 'all' }}\",\"chain\":\"true\",\"issue_date\":\"${{ github.event.inputs.issue_date || '' }}\"}}"
           echo "→ Triggered Local Lowdown"

@@ -25,7 +25,12 @@ on:
         options:
           - 'true'
           - 'false'
- 
+      issue_date:
+        description: 'Issue date (MM/DD/YYYY). Empty = scheduled cadence. Propagates through the chain to all event-driven sections.'
+        required: false
+        default: ''
+        type: string
+
 permissions:
   contents: write
   actions: write
@@ -113,5 +118,5 @@ jobs:
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/restaurant.yml/dispatches \
-            -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"${{ github.event.inputs.newsletter || 'all' }}\",\"chain\":\"true\"}}"
+            -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"${{ github.event.inputs.newsletter || 'all' }}\",\"chain\":\"true\",\"issue_date\":\"${{ github.event.inputs.issue_date || '' }}\"}}"
           echo "→ Triggered Restaurant Pipeline"

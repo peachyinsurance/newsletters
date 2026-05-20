@@ -33,7 +33,7 @@ from notion_helper import (
     NOTION_WEEKEND_EVENTS_DB_ID,
 )
 from newsletters_config import NEWSLETTERS, filter_by_env
-from event_date_filter import upcoming_friday, filter_candidates_by_date, filter_candidates_in_date_range
+from event_date_filter import upcoming_friday, filter_candidates_by_date, filter_candidates_in_date_range, effective_today
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -146,8 +146,13 @@ def target_weekend_dates(today: datetime | None = None) -> dict:
 
     Always looks FORWARD: if today is Sat/Sun, advances to NEXT Friday rather
     than snapping back to the in-progress weekend (which would have already
-    passed for newsletter-prep purposes)."""
-    today = today or datetime.today()
+    passed for newsletter-prep purposes).
+
+    When `today` is None, anchors to `effective_today()` which honors the
+    ISSUE_DATE env override. So passing ISSUE_DATE=05/21/2026 (a Thursday)
+    automatically targets the May 22–24 weekend with no other code changes."""
+    if today is None:
+        today = datetime.combine(effective_today(), datetime.min.time())
     weekday = today.weekday()  # Mon=0 ... Sun=6
     # Mon-Fri → days to this Friday (0 if today is Friday).
     # Sat/Sun → days to NEXT Friday (6 or 5).
@@ -1077,6 +1082,8 @@ if __name__ == "__main__":
     print(f"Starting Weekend Planner automation — {datetime.today().strftime('%Y-%m-%d')}")
     skill_prompt = load_skill_prompt()
 
+    # target_weekend_dates() auto-honors the ISSUE_DATE env override via
+    # effective_today(). No explicit threading required.
     weekend = target_weekend_dates()
     print(f"Target weekend: Fri {weekend['Friday']} / Sat {weekend['Saturday']} / Sun {weekend['Sunday']}")
 
