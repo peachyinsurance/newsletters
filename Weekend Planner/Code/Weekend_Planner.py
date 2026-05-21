@@ -49,6 +49,12 @@ MIN_PER_AUDIENCE    = 20     # same as target — we want to hit 20/audience con
                              # see _backfill_adult_from_family in main). If Claude itself
                              # returns fewer than TARGET, the Python fallback re-prompts
                              # asking it to fill the gap with eased guardrails.
+MIN_PER_DAY         = 5      # HARD floor per audience per day (after row-expansion).
+                             # A multi-day event counts once per day it runs. If a day
+                             # is short, process_audience runs a targeted per-day gap-fill
+                             # call. Below this, the section visibly skips a day in the
+                             # published newsletter — which is the failure mode this
+                             # constant exists to prevent.
 MAX_RESULTS_PER_QUERY = 15
 PAUSE_BETWEEN_BRAVE = 0.5    # rate-limit buffer
 
@@ -775,6 +781,7 @@ def call_claude_for_audience(
     target_weekend: dict,
     skill_prompt: str,
     gap_fill_count: int | None = None,
+    target_day: str | None = None,
 ) -> list[dict]:
     """Ask Claude to pick the best events for one audience across the whole
     weekend. Returns validated event dicts WITHOUT day/date assignment —
@@ -789,12 +796,22 @@ def call_claude_for_audience(
     a gap from a prior pass. The prompt asks for that many additional
     picks with softened guardrails (already-relaxed criteria, allow
     weaker audience fits, allow recurring without 'special edition'
-    framing, etc.)."""
+    framing, etc.).
+
+    `target_day` — when set (along with gap_fill_count), restricts the
+    prompt to a specific day (Friday/Saturday/Sunday). Caller is expected
+    to have pre-filtered `candidates` to only events that cover that day."""
     if not candidates:
         return []
 
     indexed = [{**c, "candidate_index": i} for i, c in enumerate(candidates, 1)]
     candidates_json = json.dumps(indexed, indent=2)
+
+    # Per-day candidate availability so Claude knows the pool depth before
+    # picking. A multi-day event counts toward each of its days.
+    pool_per_day = {dy: sum(1 for c in candidates if dy in (c.get("days") or []))
+                    for dy in DAYS}
+    pool_per_day_str = ", ".join(f"{dy}={pool_per_day[dy]}" for dy in DAYS)
 
     d = newsletter["demographics"]
     demo_summary = (
@@ -846,7 +863,18 @@ Each candidate has a `days` field listing which of Fri/Sat/Sun it runs
 on — that's the source of truth. Do NOT try to figure out the date or
 day yourself. The pipeline already did it.
 
-{f'''GAP-FILL PASS: an earlier pass picked some of the candidates but came up short
+Candidate pool depth by day (multi-day events count for each day they cover):
+{pool_per_day_str}
+
+{f'''TARGETED PER-DAY GAP-FILL: an earlier pass left {target_day} short of the
+{MIN_PER_DAY}-pick minimum for this audience. The candidates below ALL cover
+{target_day} (the pipeline pre-filtered the pool). Pick exactly {gap_fill_count}
+more {audience.lower()}-appropriate events from this {target_day} pool to fill
+the gap. Soften guardrails — accept B+ events, recurring events, weak audience
+fits as long as plausibly {audience.lower()}-appropriate. Avoid the four hard-
+skip cases (cancelled, extreme wrong-audience, OUT OF RANGE, duplicate).
+
+''' if target_day else (f'''GAP-FILL PASS: an earlier pass picked some of the candidates but came up short
 of the {TARGET_PER_AUDIENCE} target for this audience. The candidates below are
 ONLY the ones the first pass DIDN'T pick. Pick up to {gap_fill_count} more events
 to fill the gap. Soften the guardrails further — accept events that are decent
@@ -856,10 +884,16 @@ plausibly {audience.lower()}-appropriate. The goal is fill the section, not
 chase perfection. Avoid duplicating events from the first pass; the candidates
 here are the ones not already taken.
 
-''' if gap_fill_count else ''}Your job is to PICK {gap_fill_count or TARGET_PER_AUDIENCE} events for the
-{audience.lower()} audience and WRITE the event description. Aim for at
-least one pick covering each of Friday, Saturday, and Sunday if the
-candidate pool supports it.
+''' if gap_fill_count else '')}Your job is to PICK {gap_fill_count or TARGET_PER_AUDIENCE} events for the
+{audience.lower()} audience and WRITE the event description.
+
+HARD PER-DAY REQUIREMENT: pick AT LEAST {MIN_PER_DAY} events for EACH of
+Friday, Saturday, Sunday (counting events whose `days` field includes that day
+— a Friday-Saturday festival counts for both days). The pool depth above
+tells you what's available; if a day has fewer than {MIN_PER_DAY} candidates,
+pick them all and the post-processing will flag the scraper gap. Do NOT
+return a Friday-heavy distribution with empty Saturday or Sunday — that
+ships a visibly broken section.
 
 DEFAULT TO INCLUDING. The candidates have already been pulled from real
 local event calendars by the pipeline. Your bar for INCLUSION is low:
@@ -943,13 +977,27 @@ def process_audience(
     """Pull the Notion Weekend Events pool for this newsletter+weekend,
     let Claude select what fits this audience. The Brave-search retry /
     gap-fill paths are gone — a single Notion query returns the entire
-    in-window pool, so re-pulling can't find anything new."""
+    in-window pool, so re-pulling can't find anything new.
+
+    Per-day enforcement: after the primary pass + standard gap-fill, any
+    day below MIN_PER_DAY rows triggers a targeted per-day Claude call
+    with only that day's candidates."""
     print(f"\n  ━━━ {audience} pool ━━━")
 
     candidates = get_notion_pool(newsletter["name"], target_weekend, existing_urls)
     if not candidates:
         print(f"    No Notion candidates for {audience}")
         return []
+
+    # Pool depth per day — surface upfront so it's obvious whether a later
+    # shortfall is a Claude problem or a scraper coverage gap.
+    pool_per_day = {d: sum(1 for c in candidates if d in (c.get("days") or []))
+                    for d in DAYS}
+    print(f"    Pool depth per day: " + ", ".join(f"{d}={pool_per_day[d]}" for d in DAYS))
+    for d in DAYS:
+        if pool_per_day[d] < MIN_PER_DAY:
+            print(f"    ⚠ {audience} {d}: pool has only {pool_per_day[d]} candidates "
+                  f"(< {MIN_PER_DAY} required) — scraper coverage gap")
 
     results = call_claude_for_audience(
         candidates, newsletter, audience, target_weekend, skill_prompt
@@ -982,26 +1030,60 @@ def process_audience(
             print(f"    Gap pass added {len(extra)} event(s) — "
                   f"{audience} total now {len(results)}")
 
-    # Day coverage report — no more gap-fill HTTP fan-out since the
-    # Notion pull already returned everything in the [Fri, Sun] window.
-    # If a day is uncovered, it's because the Notion DB genuinely has no
-    # event for that day in this newsletter's area; a re-fetch wouldn't
-    # find one. We just log it so the reviewer knows.
-    def _covered_days(events: list[dict]) -> set[str]:
-        covered = set()
+    # Per-day enforcement — count expanded rows per day (a pick tagged
+    # for multiple days contributes one row per day). For any day below
+    # MIN_PER_DAY, run a targeted gap-fill call with only that day's
+    # remaining candidates. This is the only place per-day shortfall is
+    # actually corrected; the primary + total-count gap-fill above can
+    # both legitimately leave a day empty.
+    def _per_day_row_counts(events: list[dict]) -> dict:
+        counts = {d: 0 for d in DAYS}
         for ev in events:
             cand = ev.get("_source_candidate", {})
             days = cand.get("days") or determine_event_days(cand, target_weekend)
             for d in days:
-                covered.add(d)
-        return covered
+                if d in counts:
+                    counts[d] += 1
+        return counts
 
-    covered = _covered_days(results)
-    missing = [d for d in DAYS if d not in covered]
-    if missing:
-        print(f"    ⚠ Day coverage gap: no {audience} picks for {missing} "
-              f"(Notion pool is the limit — add more scraper sources to fill)")
+    per_day = _per_day_row_counts(results)
+    print(f"    Per-day row counts after main pass: " +
+          ", ".join(f"{d}={per_day[d]}" for d in DAYS))
 
+    used_urls = {r.get("source_url") for r in results if r.get("source_url")}
+    for day in DAYS:
+        shortfall = MIN_PER_DAY - per_day[day]
+        if shortfall <= 0:
+            continue
+        # Filter candidates to ones that cover this day AND aren't already picked.
+        day_pool = [c for c in candidates
+                    if day in (c.get("days") or [])
+                    and c.get("url") not in used_urls]
+        if not day_pool:
+            print(f"    ⚠ {audience} {day}: short by {shortfall}; "
+                  f"pool exhausted (no remaining {day} candidates) — scraper gap")
+            continue
+        print(f"    Per-day gap-fill: {audience} {day} short by {shortfall}, "
+              f"trying {len(day_pool)} remaining {day} candidates")
+        extra = call_claude_for_audience(
+            day_pool, newsletter, audience, target_weekend, skill_prompt,
+            gap_fill_count=shortfall, target_day=day,
+        )
+        added = 0
+        for ev in extra:
+            if ev.get("source_url") and ev["source_url"] not in used_urls:
+                results.append(ev)
+                used_urls.add(ev["source_url"])
+                added += 1
+        per_day = _per_day_row_counts(results)
+        if added:
+            print(f"    → added {added} pick(s) for {day} (now {per_day[day]})")
+        else:
+            print(f"    ⚠ {audience} {day}: gap-fill returned nothing usable; "
+                  f"still at {per_day[day]} (< {MIN_PER_DAY})")
+
+    print(f"    Final per-day row counts: " +
+          ", ".join(f"{d}={per_day[d]}" for d in DAYS))
     print(f"    ✓ {len(results)} {audience} events accepted")
     for r in results:
         print(f"      - {r.get('emoji', '')} {r.get('event_name', '?')}")
