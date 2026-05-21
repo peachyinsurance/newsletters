@@ -329,12 +329,15 @@ _SHARED_NEWSLETTER_TAGS = {
     "Lewisville_Lake_Lookout": ["Lewisville_Lake_Lookout"],
 }
 
-# Statuses that mean "off-limits for Weekend Planner":
-#   - featured   — Featured Event already picked it
-#   - wp_used    — a previous Weekend Planner run already picked it
-#   - rejected   — human marked it rejected
-#   - archived   — past event, cleaned up
-_EXCLUDE_STATUSES = ("featured", "wp_used", "rejected", "archived")
+# Two-tier pool strategy (added 2026-05-20):
+#   Primary  — only status='approved'. Use these picks as-is.
+#   Fallback — if the approved pool has fewer than MIN_PER_DAY events
+#              for any day, expand to ALL non-archived rows (so pending /
+#              featured / wp_used / rejected all become eligible too).
+# This lets editors pre-approve picks in Notion when they're available
+# while still falling back to the raw scraper output when approval volume
+# is thin. `archived` is the only hard-excluded status (past events).
+_FALLBACK_EXCLUDE_STATUSES = ("archived",)
 
 
 def _rich_text_value(prop) -> str:
@@ -346,11 +349,16 @@ def _rich_text_value(prop) -> str:
 
 def fetch_weekend_events_from_notion(newsletter_name: str,
                                      target_weekend: dict,
-                                     excluded_urls: set) -> list[dict]:
+                                     excluded_urls: set,
+                                     status_equals: str | None = None,
+                                     status_excludes: tuple[str, ...] = (),
+                                     ) -> list[dict]:
     """Query the Weekend Events Notion DB for rows tagged with this
     newsletter (or the shared ECC_PP tag) whose Date falls in
-    [Friday, Sunday] of the target weekend, excluding rows already
-    featured/used/rejected/archived and any URLs in excluded_urls.
+    [Friday, Sunday] of the target weekend.
+
+    Pass either `status_equals` (only rows with exactly that Status) or
+    `status_excludes` (rows whose Status is none of those) — not both.
 
     Returns dicts shaped like Brave search_web output (url, title,
     description, age) so the downstream Claude eval is shape-agnostic.
@@ -368,15 +376,17 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
         ]}
     friday = target_weekend["Friday"]
     sunday = target_weekend["Sunday"]
+    status_clauses: list = []
+    if status_equals:
+        status_clauses.append({"property": "Status", "select": {"equals": status_equals}})
+    for s in status_excludes:
+        status_clauses.append({"property": "Status", "select": {"does_not_equal": s}})
     filters = {
         "and": [
             nl_clause,
             {"property": "Date", "date": {"on_or_after": friday}},
             {"property": "Date", "date": {"on_or_before": sunday}},
-        ] + [
-            {"property": "Status", "select": {"does_not_equal": s}}
-            for s in _EXCLUDE_STATUSES
-        ]
+        ] + status_clauses
     }
     pages = query_database(NOTION_WEEKEND_EVENTS_DB_ID, filters=filters) or []
     # Map the target weekend ISO dates → day labels so we can pre-fill
@@ -434,8 +444,11 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
             "_from_notion": True,
             "days":        days,
         })
+    status_label = (f"status={status_equals}" if status_equals
+                    else f"status not in {status_excludes}" if status_excludes
+                    else "any status")
     print(f"  Notion pool: {len(out)} candidate(s) in window "
-          f"({friday} → {sunday}) for {tags}")
+          f"({friday} → {sunday}) for {tags}, {status_label}")
     return out
 
 
@@ -450,14 +463,35 @@ def get_notion_pool(newsletter_name: str,
     Notion query itself only runs once per (newsletter, weekend), but
     the `excluded_urls` filter is re-applied on every call so that when
     Adult runs after Family has added its picked URLs to the exclusion
-    set, those Family URLs are filtered out of Adult's view of the pool."""
+    set, those Family URLs are filtered out of Adult's view of the pool.
+
+    Two-tier strategy (added 2026-05-20):
+      1. Query for status='approved' first.
+      2. If the approved pool covers every day with at least MIN_PER_DAY
+         candidates, use it as-is.
+      3. Otherwise fall back to ALL non-archived rows so we don't ship
+         a thin section. Editors who want strict approved-only behavior
+         should make sure ≥{MIN_PER_DAY} events per day are approved
+         before the WP run.
+    """
     key = (newsletter_name, target_weekend.get("Friday", ""))
     if key not in _NOTION_POOL_CACHE:
-        # First call: cache the full pool with no exclusions, so later
-        # callers with different exclusion sets all see the same base.
-        _NOTION_POOL_CACHE[key] = fetch_weekend_events_from_notion(
+        approved = fetch_weekend_events_from_notion(
             newsletter_name, target_weekend, set(),
+            status_equals="approved",
         )
+        per_day = {d: sum(1 for c in approved if d in (c.get("days") or [])) for d in DAYS}
+        thin_days = [d for d in DAYS if per_day[d] < MIN_PER_DAY]
+        if not thin_days:
+            print(f"  ✓ Approved pool is sufficient: per-day {per_day}")
+            _NOTION_POOL_CACHE[key] = approved
+        else:
+            print(f"  ⚠ Approved pool thin on {thin_days} (per-day {per_day}); "
+                  f"falling back to all non-archived events")
+            _NOTION_POOL_CACHE[key] = fetch_weekend_events_from_notion(
+                newsletter_name, target_weekend, set(),
+                status_excludes=_FALLBACK_EXCLUDE_STATUSES,
+            )
     pool = _NOTION_POOL_CACHE[key]
     if excluded_urls:
         return [c for c in pool if c.get("url") not in excluded_urls]
@@ -884,8 +918,8 @@ plausibly {audience.lower()}-appropriate. The goal is fill the section, not
 chase perfection. Avoid duplicating events from the first pass; the candidates
 here are the ones not already taken.
 
-''' if gap_fill_count else '')}Your job is to PICK {gap_fill_count or TARGET_PER_AUDIENCE} events for the
-{audience.lower()} audience and WRITE the event description.
+''' if gap_fill_count else '')}Your job is to INCLUDE every candidate in the pool that fits the
+{audience.lower()} audience and WRITE an event description for each one.{f' Cap this gap-fill pass at {gap_fill_count} additional picks.' if gap_fill_count else ''}
 
 HARD PER-DAY REQUIREMENT: pick AT LEAST {MIN_PER_DAY} events for EACH of
 Friday, Saturday, Sunday (counting events whose `days` field includes that day
@@ -894,6 +928,11 @@ tells you what's available; if a day has fewer than {MIN_PER_DAY} candidates,
 pick them all and the post-processing will flag the scraper gap. Do NOT
 return a Friday-heavy distribution with empty Saturday or Sunday — that
 ships a visibly broken section.
+
+NO CAP on total picks. The scraper-driven pool IS the curation — your
+job is to include every event that's a plausible {audience.lower()} fit
+and write a blurb for it, not to further trim the list. If the pool has
+40 qualifying events, return 40 picks. If 80, return 80.
 
 DEFAULT TO INCLUDING. The candidates have already been pulled from real
 local event calendars by the pipeline. Your bar for INCLUSION is low:
@@ -904,10 +943,6 @@ RANGE block, or (d) a duplicate of another candidate — INCLUDE IT.
 summary" are NOT skip reasons. Infer reasonable defaults for missing
 fields. Better to include a B+ event with a thin description than to
 leave a day empty.
-
-Return up to {gap_fill_count or TARGET_PER_AUDIENCE} picks. Only return
-fewer if the candidate pool genuinely doesn't have that many AFTER
-applying ONLY the four hard-skip cases above.
 
 CRITICAL: each event belongs to ONLY ONE audience (Family OR Adult). For
 events that could fit either, pick the better-fitting audience and leave
