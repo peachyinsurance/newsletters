@@ -215,10 +215,17 @@ def fetch_event_image(source_url: str, _allow_root_fallback: bool = True) -> str
     candidates: list[str] = []
 
     # 1. Meta tags (og:image, twitter:image, image_src)
+    # Match both `property="og:image"` (OpenGraph standard) AND the
+    # non-standard `name="og:image"` form. Cobb County's Next.js site
+    # uses the `name=` variant — without this pattern, every cobbcounty.gov
+    # event's clean canonical image gets missed and we fall back to the
+    # Next.js image-optimization proxy URL, which validates inconsistently.
     head = html[:200_000]  # meta tags live in <head> — cap for speed
     meta_patterns = [
         r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']',
         r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::secure_url)?["\']',
+        r'<meta[^>]+name=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']og:image(?::secure_url)?["\']',
         r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
         r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
         r'<link[^>]+rel=["\']image_src["\'][^>]+href=["\']([^"\']+)["\']',
