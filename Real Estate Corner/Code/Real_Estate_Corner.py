@@ -468,34 +468,78 @@ def cleanup_old_re_listings() -> None:
         print(f"  Archived {count} real estate listings older than 8 weeks")
 
 
+def _round_to_listing_increment(price: int) -> int:
+    """Round a price to a natural listing increment so the trivia
+    distractors look like real MLS listings, not random numbers:
+      under $500k → nearest $5k
+      $500k–$1M  → nearest $10k
+      over $1M   → nearest $25k
+    """
+    if price < 500_000:
+        step = 5_000
+    elif price < 1_000_000:
+        step = 10_000
+    else:
+        step = 25_000
+    return int(round(price / step) * step)
+
+
 def _generate_price_trivia(actual_price: int, seed: int | None = None) -> list[int]:
     """Generate 4 candidate prices for the Showcase price-guess trivia.
-    One is the actual price; the other 3 are distractors within ±15% of
-    actual. All pairs are at least 5% (of actual) apart, each rounded to
-    nearest $1,000. Returns the 4 prices sorted ascending."""
+
+    The actual price is randomly placed at position A, B, C, or D (each
+    ~25% likely). Distractors are sampled from ±5–15% offsets and rounded
+    to natural housing increments so they look like real listings.
+
+    Returns the 4 prices sorted ascending (the caller turns them into
+    A/B/C/D in that order). All pairs are ≥ 5% of actual apart so no
+    near-duplicate prices appear next to each other in the choices."""
     rng = random.Random(seed)
-    # Offsets (percent) excluding ±0..4 to guarantee 5% gap from actual.
-    valid_offsets = [i for i in range(-15, 16) if abs(i) >= 5]
-    # Sample 3 distractors with pairwise gap >= 5% AND gap >= 5% from 0.
-    sample: list[int] = []
-    for _ in range(50):
-        trial = sorted(rng.sample(valid_offsets, 3))
-        all_with_actual = sorted(trial + [0])
-        gaps = [all_with_actual[i + 1] - all_with_actual[i]
-                for i in range(len(all_with_actual) - 1)]
-        if all(g >= 5 for g in gaps):
-            sample = trial
-            break
-    if not sample:
-        # Deterministic fallback (12%-7%-14% — all 5%+ apart from each
-        # other AND from 0%). Used only if random sampling fails for 50
-        # attempts, which is statistically near-impossible.
-        sample = [-12, 7, 14]
-    prices = [actual_price] + [
-        round(actual_price * (1 + off / 100) / 1000) * 1000
-        for off in sample
+
+    # Decide where the actual price lands when prices are sorted ascending.
+    # Position 1 = A (lowest), 4 = D (highest). Uniform → ~25% each.
+    actual_position = rng.choice([1, 2, 3, 4])
+    n_below = actual_position - 1   # how many distractors should be BELOW actual
+    n_above = 4 - actual_position   # how many should be ABOVE actual
+
+    # Sample distractor offsets (in % points). Below = negative, above = positive.
+    # Pool spans -15..-5 and 5..15 — guarantees ≥ 5% gap from the actual.
+    below_pool = list(range(-15, -4))  # -15, -14, ..., -5
+    above_pool = list(range(5, 16))    # 5, 6, ..., 15
+
+    def _sample_with_gap(pool: list[int], n: int) -> list[int]:
+        """Pick n offsets from pool with pairwise gap ≥ 5%."""
+        if n == 0:
+            return []
+        for _ in range(50):
+            trial = sorted(rng.sample(pool, n))
+            gaps = [trial[i + 1] - trial[i] for i in range(n - 1)]
+            if all(g >= 5 for g in gaps):
+                return trial
+        # Fallback: deterministic spread
+        return sorted(pool[::max(1, len(pool) // n)][:n])
+
+    below_offsets = _sample_with_gap(below_pool, n_below)
+    above_offsets = _sample_with_gap(above_pool, n_above)
+
+    distractors = [
+        _round_to_listing_increment(int(actual_price * (1 + off / 100)))
+        for off in below_offsets + above_offsets
     ]
-    return sorted(set(prices))
+
+    # If rounding happened to collide with actual or another distractor,
+    # nudge by one increment until unique.
+    final = [actual_price]
+    for d in distractors:
+        if d in final:
+            step = 5_000 if d < 500_000 else (10_000 if d < 1_000_000 else 25_000)
+            # Move further away from actual, not toward it.
+            direction = -1 if d < actual_price else 1
+            while d in final:
+                d += direction * step
+        final.append(d)
+
+    return sorted(final)
 
 
 def save_real_estate_to_notion(results: list[dict], newsletter_name: str) -> None:
