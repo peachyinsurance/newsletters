@@ -2203,8 +2203,14 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str,
               f"(approved / featured) — dedup will skip matching keys")
 
     saved = 0
+    url_less = 0
     for data in results:
         source_url = data.get("source_url", "")
+        if not source_url:
+            url_less += 1
+            print(f"  ⚠ no source_url on save for '{data.get('event_name','?')[:60]}' "
+                  f"({data.get('audience','?')}/{data.get('day','?')}) — "
+                  f"Notion Source URL will be blank")
         key = (
             _normalize_weekend_url(source_url),
             data.get("audience", ""),

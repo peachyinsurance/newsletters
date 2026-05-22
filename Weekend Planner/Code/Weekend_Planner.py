@@ -1001,6 +1001,16 @@ Candidates:
 
     validated = list(validated_by_idx.values())
     validated = prefer_primary_source(validated)
+    # Diagnostic: if any classified row reached this point without a
+    # source_url we're about to ship URL-less rows to Notion. Log loudly
+    # so the failure mode is visible in the run output.
+    missing_url = [v for v in validated if not v.get("source_url")]
+    if missing_url:
+        print(f"    ⚠ {len(missing_url)} classified event(s) have no source_url "
+              f"after Claude pool pass — this is a bug; URLs will be blank in Notion:")
+        for v in missing_url[:5]:
+            print(f"        · {v.get('event_name','?')[:60]}  "
+                  f"(candidate had url={v.get('_source_candidate',{}).get('url','')!r})")
     return validated
 
 
