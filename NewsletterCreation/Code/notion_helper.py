@@ -2172,27 +2172,39 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str,
         else:
             filters = {"property": "Newsletter", "select": {"equals": newsletter_name}}
         pages = query_database(NOTION_WEEKEND_PLANNER_DB_ID, filters=filters)
+        # Statuses that mean "user actively curated this row — don't
+        # overwrite, and treat as a dedup collision so we don't write a
+        # second copy of the same (url, audience, day)."
+        PRESERVE_STATUSES = {"approved", "featured", "rejected"}
+        # Statuses that are stale / inert — they don't render in the
+        # newsletter (the assembler excludes them) and they don't gate
+        # new saves. Mainly `approved - old` accumulated from prior
+        # archive sweeps; `pending` is handled separately below.
         for page in pages:
             props = page["properties"]
             u      = props.get("Source URL", {}).get("url", "") or ""
             aud    = (props.get("Audience", {}).get("select") or {}).get("name", "")
             day    = (props.get("Day", {}).get("select") or {}).get("name", "")
             status = (props.get("Status",   {}).get("select") or {}).get("name", "")
-            # Archive stale pending rows from prior runs so the assembler
-            # doesn't render them alongside this run's output. Leave manual
-            # curation (approved / featured) and already-archived rows alone.
             if status == "pending" and target_weekend:
+                # Archive stale pending rows from prior runs so the
+                # assembler doesn't render them alongside this run's
+                # output. They don't go into the dedup set — this run
+                # is free to write fresh rows over them.
                 try:
                     update_page(page["id"],
                                 {"Status": {"select": {"name": "approved - old"}}})
                     archived += 1
                 except Exception:
                     pass
-            else:
-                # Non-pending rows still occupy a (url, audience, day) slot —
-                # don't overwrite them on this run.
+            elif status in PRESERVE_STATUSES:
+                # Approved / featured / rejected — preserve as-is AND
+                # add to dedup so we don't write a duplicate row.
                 existing_keys.add((_normalize_weekend_url(u), aud, day))
                 preserved += 1
+            # else: `approved - old` (or any other non-pending non-curated
+            # status) — leave the row in place but DON'T add to dedup, so
+            # this run can write fresh content for the same slot.
     except Exception:
         pass
     if archived:
@@ -2200,7 +2212,7 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str,
               f"(flipped Status → 'approved - old')")
     if preserved:
         print(f"  Preserving {preserved} manually-curated row(s) "
-              f"(approved / featured) — dedup will skip matching keys")
+              f"(approved / featured / rejected) — dedup will skip matching keys")
 
     saved = 0
     url_less = 0
