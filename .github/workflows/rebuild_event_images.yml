@@ -1,0 +1,92 @@
+name: Rebuild Featured Event Images
+
+# Useful after editing feature_event_image.png or
+# feature_event_body_template2.png — re-renders the header PNG +
+# body GIF for every active Featured Event row against the CURRENT
+# templates without re-running the picker.
+
+on:
+  workflow_dispatch:
+    inputs:
+      newsletter:
+        description: 'Which newsletter to refresh. "all" = every newsletter.'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'East_Cobb_Connect'
+          - 'Perimeter_Post'
+          - 'Lewisville_Lake_Lookout'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: |
+          pip install requests Pillow
+          sudo apt-get update -qq && sudo apt-get install -y -qq fonts-open-sans || true
+
+      - name: Rebuild header PNGs + body GIFs from current templates
+        env:
+          NOTION_API_KEY:      ${{ secrets.NOTION_API_KEY }}
+          NOTION_EVENTS_DB_ID: ${{ secrets.NOTION_EVENTS_DB_ID }}
+          NEWSLETTER:          ${{ github.event.inputs.newsletter || 'all' }}
+        run: python "Featured Event/Code/rebuild_active_event_images.py"
+
+      - name: Publish rebuilt images to gh-pages
+        if: ${{ always() }}
+        run: |
+          set -e
+          shopt -s nullglob
+          imgs=("Beehiiv/Code/output/Newsletter_Header_image_"*.png "Beehiiv/Code/output/event_gif_"*.gif)
+          if [ ${#imgs[@]} -eq 0 ]; then
+            echo "Nothing rebuilt; nothing to publish"
+            exit 0
+          fi
+          # Stage outside the working tree so the branch switch doesn't wipe them.
+          mkdir -p /tmp/rebuilt
+          cp "${imgs[@]}" /tmp/rebuilt/
+          echo "Staged $(ls /tmp/rebuilt | wc -l) file(s) to /tmp/rebuilt"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git stash --include-untracked || true
+          git fetch origin gh-pages
+          git checkout gh-pages
+          mkdir -p gifs
+          cp /tmp/rebuilt/* gifs/
+          git add gifs/
+          if git diff --staged --quiet; then
+            echo "No image changes to publish"
+          else
+            git commit -m "rebuild featured event images against current template [skip ci]"
+            git push origin gh-pages
+            echo "✓ Rebuilt images published to gh-pages/gifs/"
+          fi
+          git checkout main
+          git stash pop || true
+
+      - name: Trigger landing-page rebuild (featured_event section)
+        if: ${{ always() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
+            -d '{"ref":"main","inputs":{"section":"featured_event"}}'
+          echo "→ Triggered Assemble Newsletter Pages (featured_event)"
