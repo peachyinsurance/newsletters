@@ -695,6 +695,17 @@ def setup_notion_databases():
         else:
             print(f"✗ Business Brief schema error: {r.text[:300]}")
 
+    # Insurance Tip schema lives in its own _ensure_tips_schema() helper
+    # (further down the file). The pipeline calls it lazily on first save,
+    # but Setup needs to apply it eagerly so new columns (Sponsor Name,
+    # Sponsor URL, etc.) appear without waiting for the next tip run.
+    # Reset the module-level "already setup" flag so this call goes
+    # through even if something earlier in the process triggered it.
+    if NOTION_TIPS_DB_ID:
+        global _tips_schema_setup
+        _tips_schema_setup = False
+        _ensure_tips_schema()
+
 # ---------------------------------------------------------------------------
 # PETS HELPERS
 # ---------------------------------------------------------------------------
