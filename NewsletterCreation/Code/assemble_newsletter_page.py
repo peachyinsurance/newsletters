@@ -927,11 +927,19 @@ def get_latest_tip(newsletter_name: str) -> dict | None:
     def _rt(key: str) -> str:
         items = props.get(key, {}).get("rich_text", [])
         return "".join(c.get("text", {}).get("content", "") for c in items)
+    # Static sponsor attribution — every tip row defaults to
+    # "Brought to you by Peachy Insurance" with a link to the
+    # corporate site. Read what's on the row (allows manual override
+    # in Notion if someone edits the row to a different sponsor).
+    sponsor_name = _rt("Sponsor Name") or "Peachy Insurance"
+    sponsor_url  = (props.get("Sponsor URL", {}).get("url") or "https://peachyinsurance.com/").strip()
     return {
-        "tip_title":   _rt("Tip Title"),
-        "blurb":       _rt("Blurb"),
-        "source_url":  props.get("Source URL", {}).get("url", "") or "",
-        "source_name": _rt("Source Name"),
+        "tip_title":     _rt("Tip Title"),
+        "blurb":         _rt("Blurb"),
+        "source_url":    props.get("Source URL", {}).get("url", "") or "",
+        "source_name":   _rt("Source Name"),
+        "sponsor_name":  sponsor_name,
+        "sponsor_url":   sponsor_url,
     }
 
 
@@ -1809,6 +1817,18 @@ def _build_tip(newsletter_name: str) -> list[dict]:
         if not para:
             continue
         out.append(paragraph_block_with_markdown(para))
+    # Sponsor attribution: "Brought to you by Peachy Insurance" with the
+    # name linked to the sponsor URL. Defaults are static (Peachy +
+    # peachyinsurance.com) so the line always appears.
+    sponsor_name = (tip.get("sponsor_name") or "").strip()
+    sponsor_url  = (tip.get("sponsor_url") or "").strip()
+    if sponsor_name:
+        if sponsor_url:
+            out.append(paragraph_block_with_markdown(
+                f"Brought to you by [{sponsor_name}]({sponsor_url})"
+            ))
+        else:
+            out.append(paragraph_block(f"Brought to you by {sponsor_name}"))
     return out
 
 

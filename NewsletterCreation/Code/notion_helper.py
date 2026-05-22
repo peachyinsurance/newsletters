@@ -1603,6 +1603,8 @@ def _ensure_tips_schema():
         "Summary":              {"rich_text": {}},
         "Source URL":           {"url": {}},
         "Source Name":          {"rich_text": {}},
+        "Sponsor Name":         {"rich_text": {}},
+        "Sponsor URL":          {"url": {}},
         "Newsletter":           {"select": {"options": [
             {"name": "East_Cobb_Connect"},
             {"name": "Perimeter_Post"},
@@ -1733,6 +1735,13 @@ def save_tips_to_notion(results: list, newsletter_name: str) -> None:
             "Summary":              {"rich_text": [{"text": {"content": safe_str(data.get("summary"))[:500]}}]},
             "Source URL":           {"url": data.get("source_url") or None},
             "Source Name":          {"rich_text": [{"text": {"content": safe_str(data.get("source_name"))}}]},
+            # Static sponsor attribution — every Insurance Tip row ships
+            # "Brought to you by Peachy Insurance" below the tip body.
+            # Hardcoded defaults here so they appear without per-tip
+            # data work; can be overridden via data dict if needed
+            # (e.g. a future seasonal sponsor swap).
+            "Sponsor Name":         {"rich_text": [{"text": {"content": data.get("sponsor_name") or "Peachy Insurance"}}]},
+            "Sponsor URL":          {"url": (data.get("sponsor_url") or "https://peachyinsurance.com/")},
             "Newsletter":           {"select": {"name": newsletter_name}},
             "Date Generated":       {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
             "Status":               {"select": {"name": "pending"}},

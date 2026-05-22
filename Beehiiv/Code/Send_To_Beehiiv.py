@@ -217,6 +217,8 @@ URL_TYPED_KEYS = {
     "business_brief_link",
     "insurance_tip_url",
     "insurance_tip_link",
+    "insurance_tip_sponsor_url",
+    "insurance_tip_sponsor_link",
     "sponsor_url",
     "sponsor_link",
     # (Poll URLs intentionally NOT here — we use `{poll_option_N_slug}`
@@ -1162,6 +1164,14 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["insurance_tip_link"]   = tip_url  # alias
         repl["insurance_tip_source"] = tip.get("source_name", "")
         repl["insurance_tip_domain"] = display_domain(tip_url) if tip_url else ""
+        # Static sponsor attribution — every tip row defaults to
+        # "Peachy Insurance" / "https://peachyinsurance.com/" via
+        # save_tips_to_notion. Surface as two placeholders so the
+        # template can render "Brought to you by [sponsor]" however
+        # the editor wants (linked text, button, full line).
+        repl["insurance_tip_sponsor_name"] = (tip.get("sponsor_name") or "").strip()
+        repl["insurance_tip_sponsor_url"]  = (tip.get("sponsor_url") or "").strip()
+        repl["insurance_tip_sponsor_link"] = repl["insurance_tip_sponsor_url"]  # alias
 
     # ---- Pet ----
     pet = get_approved_pet(newsletter_name)
