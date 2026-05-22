@@ -370,18 +370,25 @@ def _draw_body_field(base: Image.Image, text: str,
 
     Wrapping: if max_lines > 1, text may wrap up to that many lines
     within `right_boundary`."""
-    if not text:
-        return
     x1, y1, x2, y2 = bbox
     box_w, box_h = x2 - x1, y2 - y1
     draw = ImageDraw.Draw(base)
 
-    # 1. Cover the chroma placeholder with the surrounding bg color.
+    # 1. ALWAYS cover the chroma placeholder with the surrounding bg
+    #    color, even when text is empty — otherwise the green/cyan/
+    #    orange chroma rectangle (which has the literal "{address}" /
+    #    "{location}" / "{date}" placeholder text drawn on it in the
+    #    Canva template) bleeds through to the rendered GIF.
     #    Slightly expand to absorb anti-aliased edges.
     pad = 4
     cover_rect = (max(0, x1 - pad), max(0, y1 - pad),
                   min(base.width, x2 + pad), min(base.height, y2 + pad))
     draw.rectangle(cover_rect, fill=cover_color)
+
+    # If there's no text for this field, we're done — leave the
+    # covered rectangle blank so the design degrades gracefully.
+    if not text:
+        return
 
     # 2. Use the pre-computed font size as-is. The caller already
     #    applied any necessary shrink-to-fit globally (so the design
