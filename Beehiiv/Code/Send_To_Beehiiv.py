@@ -818,12 +818,20 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     # ---- Welcome Intro ----
     intro = get_latest_intro(newsletter_name)
     if intro:
-        # {intro_message} = greeting only. The blurb has its own slot via
-        # {summary_text} below, so rolling it into intro_message would
-        # render the same paragraph in two places.
+        # {intro_message} = greeting only. The blurb has its own slot
+        # via {intro_blurb} (or {summary_text} when wired separately).
         intro_msg = (intro.get("greeting") or "").strip()
         paragraph_prose["intro_message"] = intro_msg
         repl["intro_message"] = md_to_html(intro_msg)  # inline fallback
+
+        # {intro_blurb} = the 2-paragraph editorial body, split into
+        # per-paragraph <p> blocks by expand_paragraph_field. Keeps the
+        # blurb in the email body in a slot the template author can
+        # style independently of greeting / summary / outline.
+        blurb_body = (intro.get("blurb") or "").strip()
+        if blurb_body:
+            paragraph_prose["intro_blurb"] = blurb_body
+            repl["intro_blurb"] = md_to_html(blurb_body)
 
         # "In Today's Connect" teaser block. The skill emits a bold
         # header line + 5-8 emoji-led lines with blank-line separators,
