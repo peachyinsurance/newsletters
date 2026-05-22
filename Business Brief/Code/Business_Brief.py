@@ -36,74 +36,73 @@ from newsletters_config import NEWSLETTERS, filter_by_env
 # 1. ENVIRONMENT & CONFIG
 # ---------------------------------------------------------------------------
 CLAUDE_API_KEY        = os.environ["CLAUDE_API_KEY"]
-BRAVE_NEWS_API_KEY    = os.environ["BRAVE_NEWS_API_KEY"]
-# Optional — when set, we look up each picked business in Google Places
-# (Text Search) and save its first usable photo URL to the row. Same
-# secret restaurants already use. If absent, photos just stay empty
-# and the existing Brief render falls back to no-image.
-GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+# Optional — kept around so old workflows that still pass it don't
+# break, but the Brave fallback path is no longer used. Set this to
+# "" or remove from the workflow once you're confident in the Places
+# migration.
+BRAVE_NEWS_API_KEY    = os.environ.get("BRAVE_NEWS_API_KEY", "")
+# REQUIRED — Google Places is now the primary candidate source.
+GOOGLE_PLACES_API_KEY = os.environ["GOOGLE_PLACES_API_KEY"]
 
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-business-brief-skill_auto.md"
 
-QUERIES_PER_NEWSLETTER = 6
-MAX_RESULTS_PER_QUERY  = 10
-PAUSE_BETWEEN_BRAVE    = 0.5
-TARGET_BRIEFS          = 1   # one business per newsletter (Claude returns 3-5 candidates ranked, we save the top)
+# Places searchNearby radius per newsletter. ~10 miles covers the whole
+# East Cobb / Perimeter / Lewisville footprints comfortably.
+SEARCH_RADIUS_METERS = 16093  # ≈ 10 miles
+# Minimum quality bar so Claude doesn't see businesses no real
+# customer has reviewed. Tuned conservatively — adjust if the pool
+# is consistently too small.
+MIN_RATING       = 4.2
+MIN_REVIEW_COUNT = 25
 
-# Aggregator/directory blocklist — irrelevant for primary-source business spotlights
-AGGREGATOR_BLOCKLIST = {
-    "yelp.com",
-    "tripadvisor.com",
-    "yellowpages.com",
-    "manta.com",
-    "facebook.com",
-    "instagram.com",
-    "tiktok.com",
-    "twitter.com",
-    "x.com",
-    "reddit.com",
-    "quora.com",
-    "linkedin.com",
-    "groupon.com",
-    "bbb.org",
-    "youtube.com",
-    "thumbtack.com",
-    "houzz.com",
-    "angi.com",
-    "homeadvisor.com",
-    "patch.com",
-    "eventbrite.com",
-}
+# Whitelist of place types eligible for Business Brief. Curated to
+# non-restaurant retail / services. The full Google Places type list
+# is here: https://developers.google.com/maps/documentation/places/web-service/place-types
+BUSINESS_INCLUDED_TYPES = [
+    # Retail
+    "clothing_store", "shoe_store", "jewelry_store", "gift_shop",
+    "book_store", "furniture_store", "home_goods_store", "florist",
+    "pet_store", "bicycle_store", "electronics_store",
+    # Beauty / wellness
+    "beauty_salon", "hair_care", "nail_salon", "spa", "massage",
+    "skin_care_clinic", "tanning_studio",
+    # Fitness
+    "gym", "fitness_center", "yoga_studio",
+    # Culture / hobby
+    "art_gallery", "art_studio",
+    # Services that read editorially well
+    "tailor", "shoe_repair_shop", "laundry",
+]
 
-# Major chain hostnames — filter out their corporate pages so Claude doesn't
-# try to spotlight a Walmart or Home Depot. Local mom-and-pop businesses
-# whose website happens to mention these chains are unaffected (we match
-# the candidate URL hostname, not the article body).
-CHAIN_HOSTS = {
-    "walmart.com", "target.com", "lowes.com", "homedepot.com",
-    "cvs.com", "walgreens.com", "riteaid.com",
-    "bestbuy.com", "costco.com", "samsclub.com", "kroger.com",
-    "publix.com", "wholefoodsmarket.com", "traderjoes.com", "aldi.us",
-    "macys.com", "kohls.com", "nordstrom.com", "tjmaxx.com", "marshalls.com",
-    "dollargeneral.com", "dollartree.com", "fivebelow.com", "familydollar.com",
-    "petsmart.com", "petco.com",
-    "ulta.com", "sephora.com",
-    "officedepot.com", "staples.com",
-    "barnesandnoble.com",
-    "michaels.com", "hobbylobby.com", "joann.com",
-    "ikea.com", "wayfair.com",
-    "att.com", "verizon.com", "t-mobile.com",
-    "fitness19.com", "planetfitness.com", "lafitness.com", "ymca.org",
-    "supercuts.com", "greatclips.com", "sportclips.com",
-}
+# Explicit excludes — Places sometimes infers a primary type one of these
+# overlaps with our included list (e.g. clothing_store + cafe combo).
+# Drop anything that looks food-service.
+BUSINESS_EXCLUDED_TYPES = [
+    "restaurant", "cafe", "bar", "fast_food_restaurant",
+    "meal_takeaway", "meal_delivery", "coffee_shop", "bakery",
+    "ice_cream_shop", "pub", "night_club", "wine_bar",
+]
 
-# Restaurant-like hostnames or words to filter — restaurants belong to a
-# separate section. We hard-filter known restaurant directories; the skill
-# also tells Claude to drop food-service candidates as a second gate.
-RESTAURANT_DOMAINS = {
-    "opentable.com", "ubereats.com", "doordash.com", "grubhub.com",
-    "seamless.com", "menupages.com", "menuism.com", "zomato.com",
-    "allmenus.com",
+# Chain detection — Places returns chain locations under their corporate
+# names. Substring match against displayName (lowercased) covers most
+# of them without maintaining a huge hostname list.
+CHAIN_NAME_TOKENS = {
+    "walmart", "target", "lowe's", "home depot",
+    "cvs", "walgreens", "rite aid",
+    "best buy", "costco", "sam's club", "kroger",
+    "publix", "whole foods", "trader joe's", "aldi",
+    "macy's", "kohl's", "nordstrom", "tj maxx", "marshalls",
+    "dollar general", "dollar tree", "five below", "family dollar",
+    "petsmart", "petco",
+    "ulta", "sephora",
+    "office depot", "staples",
+    "barnes & noble", "barnes and noble",
+    "michaels", "hobby lobby", "joann",
+    "ikea", "wayfair",
+    "at&t", "verizon", "t-mobile",
+    "planet fitness", "la fitness", "ymca", "orangetheory", "anytime fitness",
+    "supercuts", "great clips", "sport clips", "fantastic sams",
+    "massage envy", "european wax center",
 }
 
 
@@ -117,45 +116,156 @@ def load_skill_prompt() -> str:
 
 
 # ---------------------------------------------------------------------------
-# 3. SEARCH QUERY BUILDERS
+# 3. GOOGLE PLACES CANDIDATE FETCH
 # ---------------------------------------------------------------------------
-def build_queries(newsletter: dict) -> list[str]:
-    """Build Brave search queries for non-restaurant local businesses.
+def fetch_businesses_from_places(newsletter: dict, excluded_urls: set) -> list[dict]:
+    """Pull non-restaurant local businesses from Google Places searchNearby
+    using the newsletter's lat/lng. Returns candidate dicts shaped like the
+    old Brave output (`title`, `url`, `source`, `summary`) so the Claude
+    user-prompt builder doesn't need to change.
 
-    Rotates across the newsletter's `search_areas` (concrete town names) for
-    relevance, mirroring the Weekend Planner pattern. Categories targeted:
-    boutiques, retail shops, gyms, salons, spas, services."""
-    areas = newsletter["search_areas"]
+    Two rank passes (POPULARITY + DISTANCE) maximize coverage. Place IDs
+    are deduped between the two passes. Then we filter for:
+      - quality bar (rating ≥ MIN_RATING, review count ≥ MIN_REVIEW_COUNT)
+      - not a chain (displayName doesn't match any CHAIN_NAME_TOKENS)
+      - has a website (without it, source_url would be the Google Maps
+        page — not useful for an editorial spotlight)
+      - URL not already in the existing Business Brief DB (cross-newsletter
+        dedup, passed in as excluded_urls)
+    """
+    lat = newsletter.get("lat")
+    lng = newsletter.get("lng")
+    if lat is None or lng is None:
+        print(f"  ⚠ No lat/lng for {newsletter['name']} — cannot Places-search")
+        return []
 
-    def area(i: int) -> str:
-        return areas[i % len(areas)]
+    url = "https://places.googleapis.com/v1/places:searchNearby"
+    headers = {
+        "Content-Type":     "application/json",
+        "X-Goog-Api-Key":   GOOGLE_PLACES_API_KEY,
+        "X-Goog-FieldMask": (
+            "places.id,places.displayName,places.formattedAddress,"
+            "places.nationalPhoneNumber,places.websiteUri,places.googleMapsUri,"
+            "places.regularOpeningHours,places.rating,places.userRatingCount,"
+            "places.priceLevel,places.photos,places.primaryTypeDisplayName,"
+            "places.editorialSummary,places.reviews,places.types"
+        ),
+    }
 
-    return [
-        f"{area(0)} small business spotlight retail",
-        f"{area(1)} local boutique shop",
-        f"{area(2)} gym yoga pilates studio",
-        f"{area(0)} salon spa beauty",
-        f"{area(1)} local services tailor framer cobbler",
-        f"best new businesses {area(2)}",
-    ]
+    all_places: list[dict] = []
+    seen_ids: set[str] = set()
+    for rank_pref in ["POPULARITY", "DISTANCE"]:
+        payload = {
+            "includedTypes":   BUSINESS_INCLUDED_TYPES,
+            "excludedTypes":   BUSINESS_EXCLUDED_TYPES,
+            "maxResultCount":  20,
+            "locationRestriction": {
+                "circle": {
+                    "center": {"latitude": lat, "longitude": lng},
+                    "radius": SEARCH_RADIUS_METERS,
+                }
+            },
+            "rankPreference": rank_pref,
+        }
+        try:
+            r = requests.post(url, headers=headers, json=payload, timeout=30)
+            if r.status_code != 200:
+                print(f"  ⚠ Places searchNearby {rank_pref} HTTP {r.status_code}: {r.text[:200]}")
+                continue
+            for p in (r.json() or {}).get("places", []):
+                pid = p.get("id") or ""
+                if pid and pid not in seen_ids:
+                    seen_ids.add(pid)
+                    all_places.append(p)
+            time.sleep(1)
+        except Exception as e:
+            print(f"  ⚠ Places error ({rank_pref}): {e}")
+    print(f"  Places returned {len(all_places)} unique businesses (both passes)")
+
+    candidates: list[dict] = []
+    for place in all_places:
+        name    = (place.get("displayName") or {}).get("text", "") or ""
+        website = (place.get("websiteUri") or "").strip()
+        address = place.get("formattedAddress", "") or ""
+        rating  = place.get("rating", 0) or 0
+        reviews = place.get("userRatingCount", 0) or 0
+        types   = place.get("types", []) or []
+        primary = (place.get("primaryTypeDisplayName") or {}).get("text", "")
+        editorial = (place.get("editorialSummary") or {}).get("text", "")
+
+        if not name:
+            continue
+        if not website:
+            continue
+        if website in excluded_urls:
+            continue
+        # Chain filter — substring match on the business name
+        name_low = name.lower()
+        if any(tok in name_low for tok in CHAIN_NAME_TOKENS):
+            print(f"  ✗ Chain skipped: {name}")
+            continue
+        # Defensive: Places sometimes mixes a restaurant type into the
+        # types array even with excludedTypes set. Belt-and-suspenders.
+        if any(t in BUSINESS_EXCLUDED_TYPES for t in types):
+            print(f"  ✗ Restaurant-tagged skipped: {name} ({types[:3]})")
+            continue
+        # Quality bar
+        if rating < MIN_RATING or reviews < MIN_REVIEW_COUNT:
+            print(f"  ✗ Below quality bar: {name} ({rating}★, {reviews} reviews)")
+            continue
+
+        # Build a one-paragraph "summary" Claude can use to score. Pulls
+        # whatever Places gives us — editorial blurb, primary type,
+        # rating signal, address.
+        summary_parts = []
+        if editorial:
+            summary_parts.append(editorial)
+        if primary:
+            summary_parts.append(f"Type: {primary}.")
+        summary_parts.append(f"Rating: {rating}★ ({reviews} reviews).")
+        if address:
+            summary_parts.append(f"Address: {address}.")
+        # First couple of reviews as additional editorial color
+        for rev in (place.get("reviews") or [])[:2]:
+            txt = ((rev or {}).get("text") or {}).get("text", "") or ""
+            if txt:
+                summary_parts.append(f"Review: {txt[:200]}")
+
+        candidates.append({
+            "title":   name,
+            "url":     website,
+            "source":  domain_of(website),
+            "summary": " ".join(summary_parts)[:1200],
+            # extras Claude doesn't see but we keep for downstream use:
+            "_place_id":         place.get("id", ""),
+            "_address":          address,
+            "_rating":           rating,
+            "_review_count":     reviews,
+            "_primary_type":     primary,
+            "_google_maps_uri":  place.get("googleMapsUri", "") or "",
+        })
+
+    # Sort by review count desc as a soft popularity signal — Claude
+    # still scores on editorial fit, but presenting busier places first
+    # nudges the picker toward businesses readers might actually know.
+    candidates.sort(key=lambda c: -(c.get("_review_count") or 0))
+    print(f"  {len(candidates)} candidates pass filters")
+    return candidates
 
 
 # ---------------------------------------------------------------------------
-# 4. FILTERS
+# 4. FILTERS (legacy — kept for compatibility but no longer in the active path)
 # ---------------------------------------------------------------------------
 def is_aggregator(url: str) -> bool:
-    host = domain_of(url)
-    return any(host == d or host.endswith("." + d) for d in AGGREGATOR_BLOCKLIST)
+    return False
 
 
 def is_chain(url: str) -> bool:
-    host = domain_of(url)
-    return any(host == d or host.endswith("." + d) for d in CHAIN_HOSTS)
+    return False
 
 
 def is_restaurant_directory(url: str) -> bool:
-    host = domain_of(url)
-    return any(host == d or host.endswith("." + d) for d in RESTAURANT_DOMAINS)
+    return False
 
 
 def filter_candidates(candidates: list[dict]) -> list[dict]:
@@ -173,7 +283,11 @@ def filter_candidates(candidates: list[dict]) -> list[dict]:
 # 5. CLAUDE PROMPT BUILDER
 # ---------------------------------------------------------------------------
 def build_claude_user_prompt(newsletter: dict, candidates: list[dict]) -> str:
-    indexed = [{**c, "candidate_index": i} for i, c in enumerate(candidates, 1)]
+    # Strip the `_` private extras we kept for downstream use so they
+    # don't bloat the prompt and confuse Claude.
+    public = [{k: v for k, v in c.items() if not k.startswith("_")}
+              for c in candidates]
+    indexed = [{**c, "candidate_index": i} for i, c in enumerate(public, 1)]
     candidates_json = json.dumps(indexed, indent=2)
 
     today = datetime.today()
@@ -183,15 +297,16 @@ newsletter_name: {newsletter['name']}
 display_area: {newsletter['display_area']}
 search_areas: {json.dumps(newsletter['search_areas'])}
 
-Below are pre-filtered Brave Search candidates for non-restaurant local
-businesses near {newsletter['display_area']}. Aggregator, chain, and
-restaurant-directory domains are already removed. Drop any remaining
-restaurants, chain locations, or candidates without enough specifics for
-a 150-200 word recommendation.
+Below are Google Places candidates for non-restaurant local businesses
+near {newsletter['display_area']}. They are already filtered to retail /
+beauty / fitness / services types and meet a rating + review-count
+quality bar. Aggregators, chains, and restaurants are already excluded.
 
-Pick the ONE best business and write the spotlight per the skill's voice
-and structure rules. Use `candidate_index` to reference the source — do
-NOT include raw URLs in your output.
+Pick the THREE best businesses (per the skill's `businesses: [3 entries]`
+rule) and write each spotlight per the voice and structure rules. Use
+`candidate_index` to reference the source — do NOT include raw URLs in
+your output. Each `summary` field includes the Places editorial blurb +
+rating signal + sample reviews to give you editorial context.
 
 Candidates:
 {candidates_json}
@@ -304,52 +419,24 @@ if __name__ == "__main__":
         print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
         print(f"{'='*60}")
 
-        # Brave search
-        queries = build_queries(newsletter)
-        query_specs = [{"q": q} for q in queries]
-        candidates = search_web(
-            query_specs=query_specs,
-            api_key=BRAVE_NEWS_API_KEY,
-            trusted_domains=None,
-            max_per_query=MAX_RESULTS_PER_QUERY,
-            pause_between=PAUSE_BETWEEN_BRAVE,
-        )
-        if not candidates:
-            print(f"  No Brave results for {newsletter['name']}. Skipping.")
-            continue
-
-        # Filter aggregators + chains + restaurant directories
-        before = len(candidates)
-        candidates = filter_candidates(candidates)
-        print(f"  {len(candidates)} candidates after aggregator/chain/restaurant filter (dropped {before - len(candidates)})")
-        if not candidates:
-            continue
-
-        # Cross-newsletter URL dedup — don't re-feature a business already published anywhere
-        existing_urls = set()
+        # Cross-newsletter dedup set — don't re-feature a business already
+        # featured (or rejected) in any newsletter's Business Brief DB.
+        existing_urls: set[str] = set()
         for nl in NEWSLETTERS:
             existing_urls |= get_existing_business_brief_urls(nl["name"])
-        if existing_urls:
-            before = len(candidates)
-            candidates = [c for c in candidates if c["url"] not in existing_urls]
-            print(f"  Filtered {before - len(candidates)} previously-used URLs (cross-newsletter dedup)")
+
+        # Google Places searchNearby — replaces Brave + manual filter waterfall.
+        # Places guarantees active businesses with valid websiteUri, and the
+        # includedTypes / excludedTypes parameters drop restaurants + most
+        # chains before we ever see them. URL validation step is no longer
+        # needed since websiteUri is owner-verified.
+        candidates = fetch_businesses_from_places(newsletter, excluded_urls=existing_urls)
         if not candidates:
-            print(f"  All candidates were previously used. Skipping {newsletter['name']}.")
+            print(f"  No Places candidates for {newsletter['name']}. Skipping.")
             continue
 
-        # URL validation
-        candidates, rejected = filter_valid_items(
-            candidates,
-            critical_fields=["url"],
-            optional_fields=[],
-            label_field="title",
-        )
-        if rejected:
-            print(f"  Dropped {len(rejected)} candidates with dead URLs")
-        if not candidates:
-            continue
-
-        # Cap to keep prompt reasonable
+        # Cap to keep prompt reasonable. Sort is review-count desc, so the
+        # top N are the most-reviewed (busiest) qualifying businesses.
         candidates = candidates[:30]
 
         # Claude
