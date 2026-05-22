@@ -626,12 +626,20 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
         copy = template_html
         for k, v in item_to_fields(item, slot_key).items():
             token = "{" + k + "}"
-            copy = copy.replace(token, v)
-            # Beehiiv may auto-prepend a scheme to placeholders pasted
-            # into URL fields; clean both prefixed forms for the link.
+            # Handle Beehiiv's auto-prepended scheme on URL fields FIRST.
+            # When the template's URL field had a bare placeholder like
+            # `{friday_family_link}`, Beehiiv stores it as
+            # `http://{friday_family_link}` to satisfy its URL validator.
+            # If we replaced the bare token first, that turns the saved
+            # form into `http://https://www.example.com/…`, which
+            # Beehiiv then "normalizes" by stripping the second colon
+            # → `http://https//www.example.com/…` (the broken URL the
+            # user saw). Replace the prefixed forms first so the
+            # `http://` prefix gets consumed cleanly.
             if k.endswith("_link"):
                 for scheme in ("http://", "https://"):
                     copy = copy.replace(scheme + token, v)
+            copy = copy.replace(token, v)
         if item_dom_mutator is not None:
             # Parse this clone, hand it to the mutator (e.g. to swap the
             # <img src> for per-card images), then serialize back.
