@@ -255,6 +255,18 @@ def main() -> int:
     candidates = sorted(by_name.values(),
                         key=lambda e: e["start_date"] or date.max)
 
+    # Backfill: Cobb County's listing API exposes no image, so EVERY
+    # event reaches this point with image_url="". Scrape each detail
+    # page for an og:image / JSON-LD / body <img>. Concurrent so the
+    # latency cost is manageable.
+    import sys as _sys, os as _os
+    _sys.path.append(_os.path.join(_os.path.dirname(__file__), "..", "..",
+                                   "..", "NewsletterCreation", "Code"))
+    from event_image_scraper import backfill_images  # noqa: E402
+    filled = backfill_images(candidates)
+    if filled:
+        print(f"  ↳ Backfilled {filled} image(s) from event detail pages")
+
     inserted = 0
     skipped_existing = 0
     multi_date = 0

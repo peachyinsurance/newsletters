@@ -338,6 +338,18 @@ def main() -> int:
 
     candidates = sorted(by_name.values(), key=lambda e: e["start_date"])
 
+    # Backfill: Eventbrite's search API usually returns a CDN image,
+    # but a small number slip through with image=None (private/draft
+    # events, image still uploading, etc.). Scrape each detail page
+    # for an og:image fallback so we don't ship blank cards.
+    import sys as _sys, os as _os
+    _sys.path.append(_os.path.join(_os.path.dirname(__file__), "..", "..",
+                                   "..", "NewsletterCreation", "Code"))
+    from event_image_scraper import backfill_images  # noqa: E402
+    filled = backfill_images(candidates)
+    if filled:
+        print(f"  ↳ Backfilled {filled} image(s) from event detail pages")
+
     inserted = 0
     skipped_existing = 0
     multi_date = 0

@@ -288,6 +288,18 @@ def main() -> int:
 
     candidates = sorted(by_name.values(), key=lambda e: e["start_date"] or date.max)
 
+    # Backfill: Sandy Springs' Apify-rendered HTML often returns events
+    # without an `image` field. Scrape the detail page for an og:image /
+    # JSON-LD / body <img> fallback. Concurrent so adding the step
+    # doesn't blow up scrape latency.
+    import sys as _sys, os as _os
+    _sys.path.append(_os.path.join(_os.path.dirname(__file__), "..", "..",
+                                   "..", "NewsletterCreation", "Code"))
+    from event_image_scraper import backfill_images  # noqa: E402
+    filled = backfill_images(candidates)
+    if filled:
+        print(f"  ↳ Backfilled {filled} image(s) from event detail pages")
+
     inserted = 0
     skipped_existing = 0
     multi_date = 0
