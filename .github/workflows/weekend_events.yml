@@ -84,6 +84,14 @@ jobs:
           NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
         run: python "Weekend Events/Code/ECC/cobb_county_webscraper.py"
 
+      - name: Scrape The Battery Atlanta
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
+        run: python "Weekend Events/Code/ECC_PP/battery_atl_webscraper.py"
+
       - name: Archive past events
         if: ${{ (github.event.inputs.mode || 'both') != 'scrape' }}
         env:

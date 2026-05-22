@@ -35,6 +35,7 @@ var (defaults to East_Cobb_Connect — that's what ECC stands for in the
 folder name). Future per-newsletter scrapers can live alongside this
 one (e.g., Weekend Events/Code/PP/pp_event_webscraper.py).
 """
+import html
 import os
 import re
 import sys
@@ -134,18 +135,19 @@ def fetch_page_events(source_url: str, page: int = 1) -> list[dict]:
 # Normalize one JSON-LD event into our Notion row shape
 # ---------------------------------------------------------------------------
 def _clean_html(s: str) -> str:
-    """Strip HTML tags and decode common entities. Description fields on
-    travelcobb arrive HTML-escaped inside JSON-LD."""
+    """Strip HTML tags and decode HTML entities. Description and name
+    fields arrive HTML-escaped inside JSON-LD (literal `&#8217;`, `&amp;`,
+    etc.) — html.unescape handles named, decimal, and hex entities in one
+    pass. Tags are stripped after decoding.
+
+    Also strips stray `\\'` and `\\"` sequences — batteryatl.com (and a
+    few other Tribe Events sites) emit invalid JSON escapes that
+    json.loads passes through as literal backslash-quote pairs."""
     if not s:
         return ""
-    # JSON-LD double-escapes entities; decode once
-    s = s.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
-    s = s.replace("&rsquo;", "'").replace("&lsquo;", "'")
-    s = s.replace("&ldquo;", '"').replace("&rdquo;", '"')
-    s = s.replace("&nbsp;", " ").replace("&#038;", "&").replace("&#8211;", "–")
-    # Strip tags
+    s = html.unescape(s)
+    s = s.replace("\\'", "'").replace('\\"', '"')
     s = re.sub(r"<[^>]+>", " ", s)
-    # Collapse whitespace
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
