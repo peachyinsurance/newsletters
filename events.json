@@ -149,7 +149,7 @@
     ],
     "header_image_url": "https://peachyinsurance.github.io/newsletters/gifs/Newsletter_Header_image_East_Cobb_Connect_Classic_Love__Music_of_Gerald_LeVert.png?v=1779324322",
     "gif_url": "https://peachyinsurance.github.io/newsletters/gifs/event_gif_East_Cobb_Connect_Classic_Love__Music_of_Gerald_LeVert.gif?v=1779324328",
-    "default_winner": "yes"
+    "default_winner": ""
   },
   {
     "source_url": "https://www.kennesaw-ga.gov/kennesaw-event/pollinator-palooza-3/",
@@ -161,7 +161,7 @@
     "blurb": "Smith-Gilbert Gardens is celebrating the 10-year anniversary of its signature butterfly and pollinator exhibit, A Garden with Wings, with a full-day festival this Saturday.\n\nPollinator Palooza runs from 10am to 5pm and brings together gardens, education, and the kind of unhurried Saturday that's hard to manufacture. Smith-Gilbert is a genuine gem that a lot of people in this area have never been to, even though it's right up the road. This is a great reason to finally go.\n\nIt works for families with younger kids, for couples who want a beautiful day outside, and for anyone who just wants to slow down for a few hours. Ten years of this exhibit is worth celebrating. Check their website for admission details and plan to stay a while.",
     "ticket_url": "",
     "date_generated": "2026-05-17",
-    "status": "approved",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "total_score": "22",
     "demographic_fit_score": "7",
