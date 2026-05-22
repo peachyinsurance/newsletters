@@ -998,16 +998,19 @@ def get_latest_intro(newsletter_name: str) -> dict | None:
     greeting_rt = props.get("Greeting", {}).get("rich_text", [])
     blurb_rt    = props.get("Blurb",    {}).get("rich_text", [])
     subject_rt  = props.get("Subject Line",      {}).get("rich_text", [])
+    preview_rt  = props.get("Preview Text",      {}).get("rich_text", [])
     teaser_rt   = props.get("In Todays Connect", {}).get("rich_text", [])
     greeting = "".join(c.get("text", {}).get("content", "") for c in greeting_rt) if greeting_rt else ""
     blurb    = "".join(c.get("text", {}).get("content", "") for c in blurb_rt) if blurb_rt else ""
     subject  = "".join(c.get("text", {}).get("content", "") for c in subject_rt) if subject_rt else ""
+    preview  = "".join(c.get("text", {}).get("content", "") for c in preview_rt) if preview_rt else ""
     teaser   = "".join(c.get("text", {}).get("content", "") for c in teaser_rt) if teaser_rt else ""
     if blurb:
         return {
             "greeting":          greeting,
             "blurb":             blurb,
             "subject_line":      subject,
+            "preview_text":      preview,
             "in_todays_connect": teaser,
         }
     return None

@@ -1,14 +1,18 @@
 """
-Subject Line generator. Runs after the Welcome Intro step in the weekly
-newsletter chain. Pulls all the section data from Notion (intro,
-featured event, tier-1 restaurant, top lowdown headline, pet, free
-event), assembles the same context shape the subject-line skill expects,
-calls Claude with `newsletter-subject-line_auto.md`, and writes the
-result back to the latest Intro DB row's "Subject Line" field.
+Subject Line + Preview Text generator. Runs after the Welcome Intro
+step in the weekly newsletter chain.
 
-Send_To_Beehiiv still generates its own subject at send time per the
-configured override rule — this step's job is to produce the subject
-EARLY so it's visible in Notion alongside the intro for review/editing.
+Pulls all the section data from Notion (intro, featured event, tier-1
+restaurant, top lowdown headline, pet, free event), assembles the
+context the subject-preview-text skill expects, calls Claude with
+`newsletter-subject-preview-text_auto.md`, and writes the parsed
+results back to the latest Intro DB row:
+
+  - "Subject Line"  ← subject from the first option Claude returns
+  - "Preview Text"  ← preview text from the same option
+
+Send_To_Beehiiv reads the Subject Line for the email subject and
+exposes Preview Text via {summary_text} for the in-body summary line.
 
 Env vars consumed (mirrors what Send_To_Beehiiv reads):
   CLAUDE_API_KEY
@@ -23,6 +27,7 @@ Env vars consumed (mirrors what Send_To_Beehiiv reads):
 """
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -50,13 +55,13 @@ CLAUDE_API_KEY    = os.environ.get("CLAUDE_API_KEY", "")
 NEWSLETTER        = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
 SUBJECT_SKILL_PATH = (Path(__file__).parent.parent.parent
                        / "Skills"
-                       / "newsletter-subject-line_auto.md")
+                       / "newsletter-subject-preview-text_auto.md")
 
 
 def load_skill_prompt() -> str:
     if SUBJECT_SKILL_PATH.exists():
         return SUBJECT_SKILL_PATH.read_text(encoding="utf-8")
-    raise FileNotFoundError(f"Subject-line skill not found at {SUBJECT_SKILL_PATH}")
+    raise FileNotFoundError(f"Subject-preview-text skill not found at {SUBJECT_SKILL_PATH}")
 
 
 def first_lowdown_headline(newsletter_name: str) -> str:
@@ -115,14 +120,30 @@ def build_context(newsletter_name: str) -> dict:
     return ctx
 
 
-def call_claude(context: dict) -> str:
-    """Single Claude call with the subject-line skill as system prompt.
-    Strips quotes / leading whitespace; caps to one line."""
+def call_claude(context: dict) -> tuple[str, str]:
+    """Single Claude call with the subject+preview skill. Returns the
+    (subject, preview) pair parsed from the FIRST option Claude emits.
+
+    The skill outputs in this shape:
+        ## Subject Line Options
+
+        **Option 1 — Style B**
+        Subject: Some Subject Line (38 chars)
+        Preview: Preview text goes here
+
+        **Option 2 — Style D**
+        Subject: ...
+        Preview: ...
+
+    We pick option 1 by default (the first/recommended one). If the
+    user wants A/B testing later, the saved subject can still be edited
+    manually in Notion."""
     skill = load_skill_prompt()
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
     user_msg = (
-        "Write the subject line for this issue. Output ONLY the subject "
-        "string, no quotes, no preamble.\n\n"
+        "Generate subject line options for this newsletter edition, "
+        "following the skill's output format exactly. We will use the "
+        "first option's Subject + Preview as the published headline.\n\n"
         + json.dumps(context, indent=2)
     )
     response = None
@@ -130,7 +151,7 @@ def call_claude(context: dict) -> str:
         try:
             response = client.messages.create(
                 model="claude-sonnet-4-6",
-                max_tokens=200,
+                max_tokens=1200,
                 system=skill,
                 messages=[{"role": "user", "content": user_msg}],
             )
@@ -142,15 +163,34 @@ def call_claude(context: dict) -> str:
             else:
                 raise
     raw = next((b.text for b in response.content if b.type == "text"), "").strip()
-    raw = raw.strip('"\'')
-    raw = raw.split("\n")[0].strip()
-    return raw
+    return parse_first_option(raw)
+
+
+def parse_first_option(raw: str) -> tuple[str, str]:
+    """Extract (subject, preview) from the first option in the skill's
+    output. Tolerates minor formatting drift — looks for the first
+    `Subject:` and the first `Preview:` line in the text."""
+    if not raw:
+        return "", ""
+    subject = ""
+    preview = ""
+    m = re.search(r"^\s*Subject:\s*(.+?)\s*$", raw, re.IGNORECASE | re.MULTILINE)
+    if m:
+        subject = m.group(1).strip()
+        # Strip a trailing "(NN chars)" / "(NN characters)" hint if Claude added one.
+        subject = re.sub(r"\s*\(\d+\s*(?:chars?|characters?)\)\s*$", "", subject, flags=re.IGNORECASE)
+        subject = subject.strip('"\'').strip()
+    m = re.search(r"^\s*Preview:\s*(.+?)\s*$", raw, re.IGNORECASE | re.MULTILINE)
+    if m:
+        preview = m.group(1).strip().strip('"\'').strip()
+    return subject, preview
 
 
 def latest_intro_page_id(newsletter_name: str) -> str | None:
     """Find the most recent Intro DB row for this newsletter. We patch
-    its Subject Line field. If there isn't one yet, return None — the
-    caller can decide whether to fall back (e.g. log and exit cleanly)."""
+    its Subject Line + Preview Text fields. If there isn't one yet,
+    return None — the caller can decide whether to fall back (e.g. log
+    and exit cleanly)."""
     if not NOTION_INTRO_DB_ID:
         return None
     pages = query_database(NOTION_INTRO_DB_ID, filters={
@@ -166,42 +206,49 @@ def latest_intro_page_id(newsletter_name: str) -> str | None:
     return pages[0].get("id")
 
 
-def save_subject_to_intro_row(page_id: str, subject: str) -> bool:
-    """PATCH the Intro DB row's Subject Line rich_text field. Returns
-    True on success. Auto-heal in update_page silently drops the field
-    if the schema doesn't have a 'Subject Line' column yet, so caller
-    should run the Setup Notion Databases workflow once to add it."""
-    return update_page(page_id, {
-        "Subject Line": {
-            "rich_text": [{"type": "text", "text": {"content": subject}}],
-        },
-    })
+def save_to_intro_row(page_id: str, subject: str, preview: str) -> bool:
+    """PATCH both Subject Line + Preview Text rich_text fields. Auto-heal
+    in update_page silently drops fields whose columns don't exist in the
+    Notion DB, so run Setup Notion Databases once before relying on Preview Text."""
+    props: dict = {}
+    if subject:
+        props["Subject Line"] = {
+            "rich_text": [{"type": "text", "text": {"content": subject[:1900]}}],
+        }
+    if preview:
+        props["Preview Text"] = {
+            "rich_text": [{"type": "text", "text": {"content": preview[:1900]}}],
+        }
+    if not props:
+        return False
+    return update_page(page_id, props)
 
 
 def run_one(newsletter_name: str) -> int:
     print(f"\n{'=' * 60}")
-    print(f"  Generating subject line for {newsletter_name}")
+    print(f"  Generating subject + preview for {newsletter_name}")
     print(f"{'=' * 60}")
     ctx = build_context(newsletter_name)
     available = [k for k, v in ctx.items() if v and k not in ("newsletter_name", "publication_date")]
     print(f"  Context available: {available}")
     if not available:
-        print(f"  ⚠ No section data available — skipping subject for {newsletter_name}")
+        print(f"  ⚠ No section data available — skipping for {newsletter_name}")
         return 0
 
-    subject = call_claude(ctx)
-    if not subject:
-        print(f"  ✗ Claude returned empty subject for {newsletter_name}")
+    subject, preview = call_claude(ctx)
+    if not subject and not preview:
+        print(f"  ✗ Claude returned no usable output for {newsletter_name}")
         return 1
-    print(f"  📧 Subject: {subject}")
+    print(f"  📧 Subject: {subject!r}  ({len(subject)} chars)")
+    print(f"  🔍 Preview: {preview!r}  ({len(preview)} chars)")
 
     page_id = latest_intro_page_id(newsletter_name)
     if not page_id:
-        print(f"  ⚠ No Intro DB row found for {newsletter_name} — subject generated but not saved")
+        print(f"  ⚠ No Intro DB row found for {newsletter_name} — generated but not saved")
         return 0
 
-    if save_subject_to_intro_row(page_id, subject):
-        print(f"  ✓ Saved to Intro row {page_id[:8]}…")
+    if save_to_intro_row(page_id, subject, preview):
+        print(f"  ✓ Saved subject + preview to Intro row {page_id[:8]}…")
         return 0
     print(f"  ✗ Failed to save to Intro row {page_id[:8]}…")
     return 1
