@@ -368,6 +368,15 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
         ]}
     friday = target_weekend["Friday"]
     sunday = target_weekend["Sunday"]
+    # Notion query lower bound is pushed back 14 days from the target
+    # Friday to catch recurring events (Cobb County daily exhibits,
+    # weekly farmers markets, etc.) whose primary Date is the earliest
+    # in-scraper-window occurrence — which is often before the target
+    # weekend. The Python filter below then keeps only rows that
+    # actually cover at least one target-weekend day, using the ISO
+    # date list saved to the `Dates` field by the scraper.
+    from datetime import date as _date, timedelta as _td
+    fetch_floor = (_date.fromisoformat(friday) - _td(days=14)).isoformat()
     status_clauses: list = []
     if status_equals:
         status_clauses.append({"property": "Status", "select": {"equals": status_equals}})
@@ -376,7 +385,7 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
     filters = {
         "and": [
             nl_clause,
-            {"property": "Date", "date": {"on_or_after": friday}},
+            {"property": "Date", "date": {"on_or_after": fetch_floor}},
             {"property": "Date", "date": {"on_or_before": sunday}},
         ] + status_clauses
     }
@@ -433,6 +442,14 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
         if days:
             order = ["Friday", "Saturday", "Sunday"]
             days = sorted(days, key=order.index)
+        else:
+            # Row was pulled in by the broader Date query (lower bound =
+            # friday - 14 days) but neither its primary Date nor any ISO
+            # date in its `Dates` field falls in the target weekend. Skip.
+            # In practice this filters out recurring rows whose `Dates`
+            # was saved in the legacy human format ("May 22, 23, ...") —
+            # those will get rewritten with ISO dates on the next scrape.
+            continue
         out.append({
             "title":       title,
             "url":         url,

@@ -374,22 +374,23 @@ def main() -> int:
         print(f"  ↳ Backfilled {filled} image(s) from event detail pages")
 
     inserted = 0
-    skipped_existing = 0
+    updated = 0
     multi_date = 0
     print(f"━━ Saving {len(candidates)} unique event(s) ━━")
     for ev in candidates:
         if len(ev.get("all_dates") or {}) > 1:
             multi_date += 1
-        if ev["source_url"] in existing:
-            skipped_existing += 1
-            continue
-        if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER):
-            inserted += 1
+        page_id = existing.get(ev["source_url"])
+        if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER, page_id=page_id):
             dates_disp = format_dates_human(ev.get("all_dates") or [])
-            print(f"  ✓ {dates_disp or ev['start_date']}  {ev['event_name'][:60]}  ({ev.get('city','?')})")
+            label = "↻" if page_id else "✓"
+            if page_id:
+                updated += 1
+            else:
+                inserted += 1
+            print(f"  {label} {dates_disp or ev['start_date']}  {ev['event_name'][:60]}  ({ev.get('city','?')})")
     print()
-    print(f"✓ Done. Inserted {inserted}, "
-          f"skipped {skipped_existing} existing, "
+    print(f"✓ Done. Inserted {inserted}, refreshed {updated}, "
           f"{skipped_city} wrong city, "
           f"{skipped_cancelled} cancelled, "
           f"{skipped_no_data} unparseable  "

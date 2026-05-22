@@ -260,71 +260,109 @@ def normalize_event(ev: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Notion save
 # ---------------------------------------------------------------------------
-def existing_source_urls(db_id: str) -> set[str]:
-    """Return the set of Source URLs already in the DB (for dedup)."""
+def existing_source_urls(db_id: str) -> dict[str, str]:
+    """Return mapping of Source URL → Notion page_id for every row in the
+    DB. Callers can still use `url in dict` for membership tests, and
+    now also have the page_id for upserting recurring-event content
+    (Dates field, refreshed Description / Image URL, etc.) on re-scrape."""
     pages = query_database(db_id) or []
-    urls: set[str] = set()
+    out: dict[str, str] = {}
     for p in pages:
         url = (p.get("properties", {}).get("Source URL", {}).get("url") or "").strip()
         if url:
-            urls.add(url)
-    return urls
+            out[url] = p.get("id", "")
+    return out
 
 
-def save_event(db_id: str, ev: dict, newsletter: str) -> bool:
+def save_event(db_id: str, ev: dict, newsletter: str,
+               page_id: str | None = None) -> bool:
+    """Create a new event row, OR update an existing row when `page_id`
+    is provided.
+
+    Update mode refreshes content fields (Event Name, Description, Image
+    URL, Location, Address, Time, **Dates**, Date, Date Generated) while
+    leaving Newsletter, Status, Source URL, and Manually Edited intact
+    so manual curation isn't clobbered on re-scrape.
+
+    The `Dates` field is written in ISO comma-separated format
+    (`2026-05-22, 2026-05-23, ...`) — Weekend_Planner.fetch parses ISO
+    matches out of it to determine which target-weekend days a recurring
+    event covers. Without ISO format the recurring rows whose primary
+    Date is before the target weekend get filtered out entirely."""
     if not ev.get("source_url"):
         return False
-    # `dates_display` is the human-readable multi-occurrence string for
-    # recurring events ("May 22nd, 29th, June 5th"). If the caller didn't
-    # populate it but did populate `all_dates`, format on the fly.
+
     dates_display = ev.get("dates_display") or ""
     if not dates_display and ev.get("all_dates"):
-        dates_display = format_dates_human(ev["all_dates"])
-    body = {
-        "parent": {"database_id": db_id},
-        "properties": {
-            "Name":         {"title": [{"text": {"content": ev["event_name"][:200] or "(unnamed event)"}}]},
-            "Event Name":   {"rich_text": [{"text": {"content": ev["event_name"][:200]}}]},
-            "Description":  {"rich_text": [{"text": {"content": ev["description"][:2000]}}]},
-            "Source URL":   {"url": ev["source_url"]},
-            "Image URL":    {"url": ev["image_url"] or None},
-            "Location":     {"rich_text": [{"text": {"content": ev["location"][:200]}}]},
-            "Address":      {"rich_text": [{"text": {"content": ev["address"][:200]}}]},
-            "Time":         {"rich_text": [{"text": {"content": ev["time"][:80]}}]},
-            "Dates":        {"rich_text": [{"text": {"content": dates_display[:500]}}]},
-            "Newsletter":   {"select": {"name": newsletter}},
-            "Status":       {"select": {"name": "pending"}},
-            "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
-        },
+        # ISO comma-separated — machine-parsable by Weekend Planner's
+        # fetch_weekend_events_from_notion (regex `\d{4}-\d{2}-\d{2}`).
+        dates_display = ", ".join(d.isoformat() for d in sorted(ev["all_dates"]))
+
+    # Content properties — refreshed in both create and update modes.
+    content = {
+        "Event Name":     {"rich_text": [{"text": {"content": ev["event_name"][:200]}}]},
+        "Description":    {"rich_text": [{"text": {"content": ev["description"][:2000]}}]},
+        "Image URL":      {"url": ev["image_url"] or None},
+        "Location":       {"rich_text": [{"text": {"content": ev["location"][:200]}}]},
+        "Address":        {"rich_text": [{"text": {"content": ev["address"][:200]}}]},
+        "Time":           {"rich_text": [{"text": {"content": ev["time"][:80]}}]},
+        "Dates":          {"rich_text": [{"text": {"content": dates_display[:500]}}]},
+        "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
     }
     if ev["start_date"]:
         date_prop = {"start": ev["start_date"].isoformat()}
         if ev["end_date"] and ev["end_date"] != ev["start_date"]:
             date_prop["end"] = ev["end_date"].isoformat()
-        body["properties"]["Date"] = {"date": date_prop}
+        content["Date"] = {"date": date_prop}
 
-    r = requests.post("https://api.notion.com/v1/pages",
-                      headers=NOTION_HEADERS, json=body, timeout=30)
-    # Schema-mismatch self-heal: when a column we're trying to write doesn't
-    # exist in this DB yet, Notion returns 400 with a message naming the
-    # property. Drop it and retry. Loop because Notion only reports one
-    # missing property per response, so multiple missing props need multiple
-    # rounds. Hard cap on attempts so a real failure doesn't spin forever.
-    attempts = 0
-    while not r.ok and r.status_code == 400 and "is not a property that exists" in r.text and attempts < 5:
-        attempts += 1
-        # Try backticked form first (older Notion responses), then plain.
-        m = (re.search(r"`([^`]+)` is not a property", r.text)
-             or re.search(r'"message":"([^"]+?) is not a property', r.text))
-        if not m:
-            break
-        bad_prop = m.group(1)
-        if bad_prop not in body["properties"]:
-            break   # already removed; can't recover
-        print(f"    ⚠ dropping unknown Notion property '{bad_prop}' and retrying")
-        body["properties"].pop(bad_prop, None)
-        r = requests.post("https://api.notion.com/v1/pages",
-                          headers=NOTION_HEADERS, json=body, timeout=30)
+    def _send_with_heal(method: str, url: str, props: dict) -> requests.Response:
+        """POST/PATCH with Notion's missing-property self-heal: if Notion
+        rejects a property we sent, drop it and retry. Loops because
+        Notion only reports one missing prop per response."""
+        if method == "POST":
+            body = {"parent": {"database_id": db_id}, "properties": props}
+        else:
+            body = {"properties": props}
+        r = requests.request(method, url, headers=NOTION_HEADERS,
+                             json=body, timeout=30)
+        attempts = 0
+        while (not r.ok and r.status_code == 400
+               and "is not a property that exists" in r.text
+               and attempts < 5):
+            attempts += 1
+            m = (re.search(r"`([^`]+)` is not a property", r.text)
+                 or re.search(r'"message":"([^"]+?) is not a property', r.text))
+            if not m:
+                break
+            bad_prop = m.group(1)
+            if bad_prop not in props:
+                break
+            print(f"    ⚠ dropping unknown Notion property '{bad_prop}' and retrying")
+            props.pop(bad_prop, None)
+            body["properties"] = props
+            r = requests.request(method, url, headers=NOTION_HEADERS,
+                                 json=body, timeout=30)
+        return r
+
+    if page_id:
+        # Update existing row — preserve Source URL, Newsletter, Status,
+        # Manually Edited (they're not in `content`).
+        r = _send_with_heal(
+            "PATCH", f"https://api.notion.com/v1/pages/{page_id}",
+            dict(content),
+        )
+        if not r.ok:
+            print(f"    ✗ update failed: {r.status_code} {r.text[:200]}")
+            return False
+        return True
+
+    # Create new row — add the fixed properties on top of the content set.
+    create_props = dict(content)
+    create_props["Name"]        = {"title": [{"text": {"content": ev["event_name"][:200] or "(unnamed event)"}}]}
+    create_props["Source URL"]  = {"url": ev["source_url"]}
+    create_props["Newsletter"]  = {"select": {"name": newsletter}}
+    create_props["Status"]      = {"select": {"name": "pending"}}
+    r = _send_with_heal("POST", "https://api.notion.com/v1/pages", create_props)
     if not r.ok:
         print(f"    ✗ save failed: {r.status_code} {r.text[:200]}")
         return False
@@ -454,23 +492,24 @@ def main() -> int:
         print(f"  ↳ Backfilled {filled} image(s) from source pages")
 
     inserted = 0
-    skipped_existing = 0
+    updated = 0
     multi_date = 0
     print(f"━━ Saving {len(candidates)} unique event(s) ━━")
     for ev in candidates:
         if len(ev.get("all_dates") or {}) > 1:
             multi_date += 1
         url = ev["source_url"]
-        if url in existing:
-            skipped_existing += 1
-            continue
-        if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER):
-            inserted += 1
+        page_id = existing.get(url)
+        if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER, page_id=page_id):
             dates_disp = format_dates_human(ev.get("all_dates") or [])
-            print(f"  ✓ {dates_disp or ev['start_date']}  {ev['event_name'][:60]}")
+            if page_id:
+                updated += 1
+                print(f"  ↻ {dates_disp or ev['start_date']}  {ev['event_name'][:60]}")
+            else:
+                inserted += 1
+                print(f"  ✓ {dates_disp or ev['start_date']}  {ev['event_name'][:60]}")
     print()
-    print(f"✓ Done. Inserted {inserted}, "
-          f"skipped {skipped_existing} existing, "
+    print(f"✓ Done. Inserted {inserted}, refreshed {updated}, "
           f"{skipped_past} past, "
           f"{skipped_future} beyond {window_end}  "
           f"({multi_date} multi-date event(s))")
