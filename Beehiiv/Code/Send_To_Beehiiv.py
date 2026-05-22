@@ -1496,13 +1496,23 @@ def main():
     # placeholder's wrapping <p>.
     print("\n  Expanding paragraph prose fields…")
     for key, raw_text in (paragraph_prose_fields or {}).items():
-        if raw_text:
-            body_html = expand_paragraph_field(body_html, key, raw_text)
-            # Once expanded into real <p> blocks the placeholder is gone,
-            # so drop it from repl to avoid the later string-replace pass
-            # writing the already-expanded value into other parts of the
-            # template that happen to contain the same token.
+        if not raw_text:
+            print(f"    · {key}: skipped (empty value)")
+            continue
+        token = "{" + key + "}"
+        was_in_template = token in body_html
+        body_html = expand_paragraph_field(body_html, key, raw_text)
+        still_present = token in body_html
+        if was_in_template and not still_present:
+            print(f"    ✓ {key}: DOM-expanded ({raw_text.count(chr(10) + chr(10)) + 1} para(s))")
+            # Placeholder is gone now — drop from repl so the later
+            # string-replace doesn't overwrite anywhere else.
             repl.pop(key, None)
+        elif was_in_template:
+            print(f"    · {key}: token present but DOM expansion couldn't find wrapping <p> "
+                  f"— will fall through to plain string substitution")
+        else:
+            print(f"    · {key}: {{{key}}} not in template, skipping")
 
     # Apply text placeholder replacements
     # Prune unused repeating slots (restaurants 4-5, lowdown 4-5, etc.)
