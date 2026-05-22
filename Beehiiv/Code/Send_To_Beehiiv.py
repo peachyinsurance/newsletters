@@ -810,7 +810,10 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     # ---- Welcome Intro ----
     intro = get_latest_intro(newsletter_name)
     if intro:
-        intro_msg = ((intro.get("greeting") or "") + "\n\n" + (intro.get("blurb") or "")).strip()
+        # {intro_message} = greeting only. The blurb has its own slot via
+        # {summary_text} below, so rolling it into intro_message would
+        # render the same paragraph in two places.
+        intro_msg = (intro.get("greeting") or "").strip()
         paragraph_prose["intro_message"] = intro_msg
         repl["intro_message"] = md_to_html(intro_msg)  # inline fallback
 
