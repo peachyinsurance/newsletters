@@ -1233,8 +1233,8 @@ def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
         "PET_IMAGE":                   "pet-photo",
         "PET_PHOTO":                   "pet-photo",
         "free_event_image_1":          "free-event",
-        "sponsor_logo":                "sponsor-logo",
-        "sponsor_image":               "sponsor-image",
+        "sponsor_logo":                "sponsor_logo",
+        "sponsor_image":               "sponsor_image",
         "friday_family_image":         "family_event_friday",
         "friday_adult_image":          "adult_event_friday",
         "saturday_family_image":       "family_event_saturday",
@@ -1342,8 +1342,8 @@ def prune_unused_image_slots(html: str, alt_swaps: dict[str, str]) -> tuple[str,
         "PET_IMAGE":                   "pet-photo",
         "PET_PHOTO":                   "pet-photo",
         "free_event_image_1":          "free-event",
-        "sponsor_logo":                "sponsor-logo",
-        "sponsor_image":               "sponsor-image",
+        "sponsor_logo":                "sponsor_logo",
+        "sponsor_image":               "sponsor_image",
         "friday_family_image":         "family_event_friday",
         "friday_adult_image":          "adult_event_friday",
         "saturday_family_image":       "family_event_saturday",
@@ -1534,8 +1534,8 @@ def main():
     if sponsor_click:
         print("\n  Auto-wrapping sponsor images in clickable <a>…")
         new_body, link_wraps = wrap_images_with_links(new_body, {
-            "sponsor-logo":  sponsor_click,
-            "sponsor-image": sponsor_click,
+            "sponsor_logo":  sponsor_click,
+            "sponsor_image": sponsor_click,
         })
         print(f"  Sponsor image wraps: {link_wraps}")
 
