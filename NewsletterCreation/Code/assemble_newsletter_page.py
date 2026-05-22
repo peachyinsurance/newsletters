@@ -1383,6 +1383,16 @@ def _build_intro(newsletter_name: str) -> list[dict]:
     intro = get_latest_intro(newsletter_name)
     if not intro:
         return [_placeholder("Not yet automated.")]
+    # Trace what the Intro DB row actually returned so we can see at a
+    # glance whether preview_text and in_todays_connect are populated.
+    print(f"  Intro fields loaded: "
+          f"greeting={'✓' if intro.get('greeting') else '✗'}, "
+          f"blurb={'✓' if intro.get('blurb') else '✗'}, "
+          f"subject_line={'✓' if intro.get('subject_line') else '✗'}, "
+          f"preview_text={'✓' if intro.get('preview_text') else '✗'} "
+          f"({len(intro.get('preview_text') or '')} chars), "
+          f"in_todays_connect={'✓' if intro.get('in_todays_connect') else '✗'} "
+          f"({len((intro.get('in_todays_connect') or '').splitlines())} lines)")
     out = []
     if intro.get("greeting"):
         out.append(paragraph_block(intro["greeting"], bold=True))
