@@ -1105,6 +1105,39 @@ def build_replacements(client: BeehiivClient, publication_id: str,
                 if (title_low in first_clean.lower()
                         and len(first_clean) <= len(title) + 60):
                     blurb = "\n\n".join(paragraphs[1:]).strip()
+
+        # Strip trailing "📖 Learn more from <Source>" / markdown-link
+        # attribution paragraphs from the blurb. The template has a
+        # dedicated {insurance_tip_url} button (CTA) that points at the
+        # same source, so keeping the inline link in the body shows
+        # the same URL twice. The Notion landing page keeps the line
+        # because it has no button equivalent there.
+        paragraphs = blurb.split("\n\n")
+        while paragraphs:
+            last = paragraphs[-1].strip()
+            last_low = last.lower()
+            # Match short attribution-style closers:
+            #   "📖 Learn more from FEMA"
+            #   "Learn more at https://…"
+            #   "[FEMA](https://…)"   (markdown-link only line)
+            looks_attribution = (
+                "learn more from" in last_low or
+                "learn more at"   in last_low or
+                last.startswith("📖") or
+                last.startswith("🔗") or
+                last.startswith("📰") or
+                # Bare markdown link line (entire paragraph is one link)
+                (re.match(r"^\s*\[[^\]]+\]\(https?://[^)]+\)\s*$", last) is not None)
+            )
+            # Only strip if the paragraph is short enough to be an
+            # attribution (≤ 200 chars) — don't accidentally clip a
+            # long body paragraph that happens to mention the source.
+            if looks_attribution and len(last) <= 200:
+                paragraphs.pop()
+            else:
+                break
+        blurb = "\n\n".join(paragraphs).strip()
+
         repl["insurance_tip_title"]  = title
         paragraph_prose["insurance_tip_blurb"] = blurb
         repl["insurance_tip_blurb"]  = md_to_html(blurb)
