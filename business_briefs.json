@@ -33,7 +33,7 @@
     "hours": "Hours vary, see website",
     "address": "1275 Powers Ferry Rd #50, Marietta, GA 30067",
     "source_domain": "microcenter.com",
-    "image_url": "https://peachyinsurance.github.io/newsletters/gifs/business_brief_gif_East_Cobb_Connect_Micro_Center.gif?v=1779474284",
+    "image_url": "https://peachyinsurance.github.io/newsletters/gifs/business_brief_gif_East_Cobb_Connect_Micro_Center.gif?v=1779474702",
     "image_candidates": [
       "https://lh3.googleusercontent.com/places/ANXAkqGH3g7ORAGV4QvdNMOdq-4TVCuIHWhtBmXcNlpdVqhRd6VzEGL9DTu-qMNDbIP97SfmOwPbUlXr3Vy4wnaa_Bff9Yb6v5hNGkw=s4800-h800",
       "https://lh3.googleusercontent.com/places/ANXAkqHD6XhtsHyBpfXy8B-60fGQTFn2vV9mDDY2lFvZv4iPMtoAFEnFmz1WbLAKItsrLNbsDgsOGDqs2tuLwL1Hvh2GR4Y7oJzTLsM=s4800-h720",
@@ -72,6 +72,6 @@
     "date_generated": "2026-05-22",
     "status": "rejected",
     "newsletter_name": "East_Cobb_Connect",
-    "default_winner": ""
+    "default_winner": "yes"
   }
 ]
