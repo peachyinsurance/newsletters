@@ -670,6 +670,7 @@ def setup_notion_databases():
             "Address":          {"rich_text": {}},
             "Source URL":       {"url": {}},
             "Source Domain":    {"rich_text": {}},
+            "Photo URL":        {"url": {}},
             "Date Generated":   {"date": {}},
             "Status":           {"select": {"options": [
                 {"name": "pending",        "color": "yellow"},
@@ -2219,6 +2220,7 @@ def save_business_briefs_to_notion(results: list, newsletter_name: str) -> None:
             "Address":          {"rich_text": [{"text": {"content": safe_str(data.get("address"))}}]},
             "Source URL":       {"url":       data.get("source_url") or None},
             "Source Domain":    {"rich_text": [{"text": {"content": safe_str(data.get("source"))}}]},
+            "Photo URL":        {"url":       data.get("photo_url") or None},
             "Date Generated":   {"date":      {"start": datetime.today().strftime("%Y-%m-%d")}},
             "Status":           {"select":    {"name": "pending"}},
             "Relevance Score":  {"number":    int(data.get("relevance_score", 0) or 0)},

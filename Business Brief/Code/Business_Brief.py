@@ -20,6 +20,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import requests
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from brave_search import search_web, domain_of
 from claude_json import call_with_json_output
@@ -33,8 +35,13 @@ from newsletters_config import NEWSLETTERS, filter_by_env
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
 # ---------------------------------------------------------------------------
-CLAUDE_API_KEY     = os.environ["CLAUDE_API_KEY"]
-BRAVE_NEWS_API_KEY = os.environ["BRAVE_NEWS_API_KEY"]
+CLAUDE_API_KEY        = os.environ["CLAUDE_API_KEY"]
+BRAVE_NEWS_API_KEY    = os.environ["BRAVE_NEWS_API_KEY"]
+# Optional — when set, we look up each picked business in Google Places
+# (Text Search) and save its first usable photo URL to the row. Same
+# secret restaurants already use. If absent, photos just stay empty
+# and the existing Brief render falls back to no-image.
+GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-business-brief-skill_auto.md"
 
@@ -205,6 +212,76 @@ def flag_default_winner(results: list[dict]) -> list[dict]:
     return results
 
 
+def fetch_google_places_photo(business_name: str, city: str = "",
+                              address: str = "") -> str:
+    """Look up `business_name` in Google Places (Text Search) and return
+    a direct CDN URL for its first photo. Returns "" on any miss / error.
+
+    Owner-uploaded business photos are far more reliable than Brave
+    image-search results: they're almost always the actual storefront
+    or interior rather than stock / news / social images. Same API +
+    key the Restaurants pipeline uses.
+
+    Query strategy: name + city (or first 4 words of address as fallback
+    locator) so we don't accidentally match a chain location somewhere
+    else in the country. Empty city/address still works — Places is
+    pretty good at disambiguating local businesses by name alone."""
+    if not GOOGLE_PLACES_API_KEY:
+        return ""
+    if not business_name:
+        return ""
+
+    locator = city or " ".join((address or "").split()[:4])
+    query = f"{business_name} {locator}".strip()
+
+    try:
+        # 1. Text Search — get the first place candidate.
+        resp = requests.post(
+            "https://places.googleapis.com/v1/places:searchText",
+            headers={
+                "Content-Type":     "application/json",
+                "X-Goog-Api-Key":   GOOGLE_PLACES_API_KEY,
+                "X-Goog-FieldMask": "places.id,places.displayName,places.photos",
+            },
+            json={"textQuery": query, "maxResultCount": 3},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            print(f"    · Places text search HTTP {resp.status_code} for {business_name!r}")
+            return ""
+        places = (resp.json() or {}).get("places") or []
+        if not places:
+            print(f"    · Places: no match for {query!r}")
+            return ""
+        photos = places[0].get("photos") or []
+        if not photos:
+            print(f"    · Places match but no photos for {business_name!r}")
+            return ""
+
+        # 2. Resolve first photo reference to a direct CDN URL.
+        photo_ref = (photos[0] or {}).get("name") or ""
+        if not photo_ref:
+            return ""
+        media = requests.get(
+            f"https://places.googleapis.com/v1/{photo_ref}/media",
+            params={
+                "maxHeightPx":      800,
+                "skipHttpRedirect": "true",
+                "key":              GOOGLE_PLACES_API_KEY,
+            },
+            timeout=10,
+        )
+        if media.status_code != 200:
+            return ""
+        url = (media.json() or {}).get("photoUri") or ""
+        if url:
+            print(f"    ✓ Places photo for {business_name!r}: {url[:60]}…")
+        return url
+    except Exception as e:
+        print(f"    · Places photo fetch error for {business_name!r}: {e}")
+        return ""
+
+
 # ---------------------------------------------------------------------------
 # 7. MAIN
 # ---------------------------------------------------------------------------
@@ -311,6 +388,18 @@ if __name__ == "__main__":
 
         if not validated:
             continue
+
+        # Look up each picked business in Google Places Text Search and
+        # attach its first usable photo URL. Same API + key restaurants
+        # already use. Failures are quiet — photo is optional.
+        for pick in validated:
+            photo = fetch_google_places_photo(
+                business_name=pick.get("name", ""),
+                city=pick.get("city", ""),
+                address=pick.get("address", ""),
+            )
+            if photo:
+                pick["photo_url"] = photo
 
         validated = flag_default_winner(validated)
         save_business_briefs_to_notion(validated, newsletter["name"])

@@ -1269,6 +1269,7 @@ def _business_brief_row_to_dict(props: dict) -> dict:
         "address":          _rt("Address"),
         "source_url":       props.get("Source URL", {}).get("url", "") or "",
         "source_domain":    _rt("Source Domain"),
+        "photo_url":        props.get("Photo URL", {}).get("url", "") or "",
         "status":           (props.get("Status", {}).get("select") or {}).get("name", ""),
         "default_winner":   props.get("Default Winner", {}).get("checkbox", False),
         "manually_edited":  props.get("Manually Edited", {}).get("checkbox", False),
@@ -1766,6 +1767,9 @@ def _build_business_brief(newsletter_name: str) -> list[dict]:
         return [callout_block("No business brief yet. Run the Business Brief pipeline and approve a pick.", emoji="⏳")]
 
     out: list[dict] = []
+    # Photo from Google Places (when set on the row) renders above the name.
+    if business.get("photo_url"):
+        out.append(image_block(business["photo_url"]))
     # Bold business name as the title row
     out.append(paragraph_block(business["name"], bold=True))
 

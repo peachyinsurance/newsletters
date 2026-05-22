@@ -1037,6 +1037,16 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["business_brief_url"]     = bb_url
         repl["business_brief_link"]    = bb_url  # alias for templates wired as `_link`
         repl["business_brief_domain"]  = display_domain(bb_url) if bb_url else ""
+        # Google Places photo (when populated on the Notion row). Uploaded
+        # to Beehiiv up front so the long Places media URL doesn't ever
+        # need to re-resolve at email-render time, then swapped into the
+        # template via the standard alt-text/filename-token mechanism.
+        bb_photo = (business.get("photo_url") or "").strip()
+        if bb_photo:
+            hosted = upload_remote_image(client, publication_id, bb_photo)
+            if hosted:
+                image_swaps[bb_photo] = hosted
+            alt_swaps["business_brief_image"] = hosted or bb_photo
 
     # ---- Sponsor Corner ----
     # User-curated: one approved sponsor per newsletter, populated by
@@ -1242,6 +1252,7 @@ def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
         "PET_IMAGE":                   "pet-photo",
         "PET_PHOTO":                   "pet-photo",
         "free_event_image_1":          "free-event",
+        "business_brief_image":        "business-brief-photo",
         "sponsor_logo":                "sponsor_logo",
         "sponsor_image":               "sponsor_image",
         "friday_family_image":         "family_event_friday",
@@ -1351,6 +1362,7 @@ def prune_unused_image_slots(html: str, alt_swaps: dict[str, str]) -> tuple[str,
         "PET_IMAGE":                   "pet-photo",
         "PET_PHOTO":                   "pet-photo",
         "free_event_image_1":          "free-event",
+        "business_brief_image":        "business-brief-photo",
         "sponsor_logo":                "sponsor_logo",
         "sponsor_image":               "sponsor_image",
         "friday_family_image":         "family_event_friday",
