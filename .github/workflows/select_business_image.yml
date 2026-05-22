@@ -7,8 +7,8 @@ on:
         description: 'Business Brief Source URL (identifies the Notion row)'
         required: true
         type: string
-      image_url:
-        description: 'Photo URL to set as the active business image'
+      image_urls:
+        description: 'Comma-separated photo URLs (1 = static photo, 2-3 = animated GIF)'
         required: true
         type: string
       newsletter:
@@ -26,20 +26,54 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install requests
-      - name: Update Photo URL in Notion
+      - run: pip install requests Pillow
+
+      - name: Save selection (single photo or build GIF)
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_BUSINESS_BRIEF_DB_ID: ${{ secrets.NOTION_BUSINESS_BRIEF_DB_ID }}
           SOURCE_URL:                  ${{ github.event.inputs.source_url }}
-          IMAGE_URL:                   ${{ github.event.inputs.image_url }}
+          IMAGE_URLS:                  ${{ github.event.inputs.image_urls }}
           NEWSLETTER:                  ${{ github.event.inputs.newsletter }}
         run: python "Business Brief/Code/select_business_image.py"
 
-      - name: Refresh review app (re-export business_briefs.json)
+      - name: Publish business brief GIF(s) to gh-pages
+        if: ${{ always() }}
+        run: |
+          set -e
+          shopt -s nullglob
+          gifs=("Beehiiv/Code/output/business_brief_gif_"*.gif)
+          if [ ${#gifs[@]} -eq 0 ]; then
+            echo "No GIF generated (single-photo selection); nothing to publish"
+            exit 0
+          fi
+          mkdir -p /tmp/bb_gifs
+          cp "${gifs[@]}" /tmp/bb_gifs/
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git stash --include-untracked || true
+          git fetch origin gh-pages
+          git checkout gh-pages
+          mkdir -p gifs
+          cp /tmp/bb_gifs/*.gif gifs/
+          git add gifs/
+          if git diff --staged --quiet; then
+            echo "No GIF changes to publish"
+          else
+            git commit -m "update business brief gif [skip ci]"
+            git push origin gh-pages
+            echo "✓ GIF published to gh-pages/gifs/"
+          fi
+          git checkout main
+          git stash pop || true
+
+      - name: Refresh review app
         if: ${{ always() }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -51,7 +85,7 @@ jobs:
             -d '{"ref":"main"}'
           echo "→ Triggered Deploy Review App"
 
-      - name: Trigger landing-page rebuild (business_brief section)
+      - name: Trigger landing-page rebuild
         if: ${{ always() }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -3,17 +3,20 @@ import { parseBullets } from "./helpers";
 
 const GITHUB_OWNER = "peachyinsurance";
 const GITHUB_REPO  = "newsletters";
+const MAX_PHOTOS   = 3;   // cap GIF length at 3 frames
 
 export default function BusinessBriefTile({ business, onApprove, approving, approved, token }) {
   const localStatus = business._localStatus;
   const bullets     = parseBullets(business.scoring_notes);
   const total       = business.relevance_score ? parseInt(business.relevance_score) : null;
 
-  // Gallery — current photo first, then the rest of the Places candidates.
+  // Gallery — start with the saved Photo URL first (if it's still one of
+  // the candidates), then the rest of the Places photos.
   const candidateList = Array.isArray(business.image_candidates) ? business.image_candidates : [];
   const gallery = [];
   const seen = new Set();
-  if (business.image_url) {
+  // If business.image_url is a candidate (static photo), surface it first
+  if (business.image_url && candidateList.includes(business.image_url)) {
     gallery.push(business.image_url);
     seen.add(business.image_url);
   }
@@ -24,24 +27,40 @@ export default function BusinessBriefTile({ business, onApprove, approving, appr
     }
   }
 
-  const saved = business.image_url || gallery[0] || "";
-  const [selectedImage, setSelectedImage] = useState(saved);
-  const [appliedImage,  setAppliedImage]  = useState(saved);
-  const [saving, setSaving]   = useState(false);
-  const [saveMsg, setSaveMsg] = useState("");
+  // Multi-select state. Default to the saved Photo URL if it's a single
+  // candidate; otherwise leave empty so the reviewer makes a fresh pick.
+  const initialSelected = business.image_url && candidateList.includes(business.image_url)
+    ? [business.image_url]
+    : [];
+  const [selected, setSelected] = useState(initialSelected);
+  const [applied,  setApplied]  = useState(initialSelected);
+  const [saving,   setSaving]   = useState(false);
+  const [saveMsg,  setSaveMsg]  = useState("");
 
-  const isDirty = selectedImage && selectedImage !== appliedImage;
+  const sameSelection = (a, b) =>
+    a.length === b.length && a.every((u, i) => u === b[i]);
+  const isDirty = selected.length > 0 && !sameSelection(selected, applied);
 
-  function handlePickImage(imgUrl) {
+  function toggle(url) {
     if (saving) return;
-    setSelectedImage(imgUrl);
     setSaveMsg("");
+    setSelected(prev => {
+      if (prev.includes(url)) {
+        return prev.filter(u => u !== url);
+      }
+      if (prev.length >= MAX_PHOTOS) {
+        // Replace the oldest selection so the user keeps clicking
+        // without having to deselect manually.
+        return [...prev.slice(1), url];
+      }
+      return [...prev, url];
+    });
   }
 
-  async function handleApproveImage() {
+  async function handleSave() {
     if (saving || !isDirty || !token) return;
     setSaving(true);
-    setSaveMsg("Saving...");
+    setSaveMsg(selected.length > 1 ? "Building GIF…" : "Saving…");
     try {
       const res = await fetch(
         `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/select_business_image.yml/dispatches`,
@@ -55,16 +74,16 @@ export default function BusinessBriefTile({ business, onApprove, approving, appr
             ref:    "main",
             inputs: {
               source_url: business.source_url || "",
-              image_url:  selectedImage,
+              image_urls: selected.join(","),
               newsletter: business.newsletter_name || "",
             },
           }),
         }
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setAppliedImage(selectedImage);
-      setSaveMsg("Saved ✓");
-      setTimeout(() => setSaveMsg(""), 3000);
+      setApplied(selected);
+      setSaveMsg(selected.length > 1 ? "GIF queued ✓" : "Saved ✓");
+      setTimeout(() => setSaveMsg(""), 4000);
     } catch (e) {
       setSaveMsg(`Save failed: ${e.message}`);
     } finally {
@@ -72,13 +91,24 @@ export default function BusinessBriefTile({ business, onApprove, approving, appr
     }
   }
 
+  const buttonLabel = saving
+    ? (selected.length > 1 ? "Building GIF…" : "Saving…")
+    : isDirty
+      ? (selected.length > 1 ? `Build GIF (${selected.length} photos)` : "Save photo")
+      : (applied.length > 1 ? "GIF saved ✓" : "Photo saved ✓");
+
+  // For the big preview at the top, show the first selected photo so
+  // the reviewer sees what'll lead the gif. Fall back to the current
+  // saved Photo URL otherwise.
+  const previewImg = selected[0] || business.image_url || gallery[0] || "";
+
   return (
     <div className={`tile ${localStatus === "approved" ? "approved" : localStatus === "rejected" ? "rejected" : ""}`}>
       {localStatus === "approved" && <div className="tile-badge">✓ Approved</div>}
-      {selectedImage && (
+      {previewImg && (
         <img
           className="tile-image"
-          src={selectedImage}
+          src={previewImg}
           alt={business.business_name || "Business photo"}
           onError={(e) => { e.currentTarget.style.display = "none"; }}
         />
@@ -86,8 +116,8 @@ export default function BusinessBriefTile({ business, onApprove, approving, appr
       {gallery.length > 1 && (
         <div className="image-picker">
           <div className="image-picker-label">
-            {gallery.length} photo options
-            {isDirty && !saveMsg && <span className="image-picker-status image-picker-pending"> · unsaved preview</span>}
+            {`${gallery.length} photo options · pick 1 for a static photo or 2-3 for a GIF`}
+            {isDirty && !saveMsg && <span className="image-picker-status image-picker-pending"> · unsaved</span>}
             {saveMsg && (
               <span className={`image-picker-status ${saveMsg.includes("failed") ? "image-picker-error" : ""}`}>
                 {" · "}{saveMsg}
@@ -95,30 +125,50 @@ export default function BusinessBriefTile({ business, onApprove, approving, appr
             )}
           </div>
           <div className="image-picker-strip">
-            {gallery.map((u, i) => (
-              <button
-                key={u}
-                type="button"
-                className={`image-thumb ${u === selectedImage ? "selected" : ""} ${u === appliedImage ? "applied" : ""}`}
-                onClick={() => handlePickImage(u)}
-                disabled={saving}
-                title={u === appliedImage ? "Current saved photo" : `Preview option ${i + 1} of ${gallery.length}`}
-              >
-                <img
-                  src={u}
-                  alt={`Option ${i + 1}`}
-                  onError={(e) => { e.currentTarget.parentElement.style.display = "none"; }}
-                />
-              </button>
-            ))}
+            {gallery.map((u, i) => {
+              const isSel = selected.includes(u);
+              const order = isSel ? selected.indexOf(u) + 1 : null;
+              return (
+                <button
+                  key={u}
+                  type="button"
+                  className={`image-thumb ${isSel ? "selected" : ""}`}
+                  onClick={() => toggle(u)}
+                  disabled={saving}
+                  title={isSel ? `Selected (#${order} in GIF)` : `Select option ${i + 1}`}
+                  style={isSel ? { position: "relative" } : undefined}
+                >
+                  <img
+                    src={u}
+                    alt={`Option ${i + 1}`}
+                    onError={(e) => { e.currentTarget.parentElement.style.display = "none"; }}
+                  />
+                  {order && (
+                    <span style={{
+                      position: "absolute",
+                      top: 4, left: 4,
+                      background: "#2A7F2A",
+                      color: "#fff",
+                      borderRadius: "50%",
+                      width: 22, height: 22,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 13,
+                      fontWeight: 700,
+                    }}>{order}</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
           <button
             type="button"
             className="btn btn-approve-image"
-            onClick={handleApproveImage}
-            disabled={!isDirty || saving}
+            onClick={handleSave}
+            disabled={!isDirty || saving || selected.length === 0}
           >
-            {saving ? "Saving..." : isDirty ? "Approve this photo" : "Photo approved ✓"}
+            {buttonLabel}
           </button>
         </div>
       )}
