@@ -1086,9 +1086,28 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     # ---- Insurance Tip ----
     tip = get_latest_tip(newsletter_name)
     if tip and tip.get("blurb"):
-        repl["insurance_tip_title"]  = tip.get("tip_title", "")
-        paragraph_prose["insurance_tip_blurb"] = tip.get("blurb", "")
-        repl["insurance_tip_blurb"]  = md_to_html(tip.get("blurb", ""))
+        title = (tip.get("tip_title") or "").strip()
+        blurb = (tip.get("blurb") or "").strip()
+        # The skill embeds the title at the top of the blurb (usually
+        # as "💡 Insurance Tip: <title>" or just "<title>" bold). We
+        # render the title separately via {insurance_tip_title}, so
+        # strip that leading line from the blurb to avoid showing it
+        # twice in the email.
+        if title:
+            paragraphs = blurb.split("\n\n")
+            if paragraphs:
+                first = paragraphs[0].strip()
+                first_clean = first.lstrip("*_# ").rstrip("*_").strip()
+                title_low = title.lower()
+                # Drop the first paragraph if it's clearly the title
+                # echo: contains the title text and is short enough
+                # to plausibly be just a header line (not real prose).
+                if (title_low in first_clean.lower()
+                        and len(first_clean) <= len(title) + 60):
+                    blurb = "\n\n".join(paragraphs[1:]).strip()
+        repl["insurance_tip_title"]  = title
+        paragraph_prose["insurance_tip_blurb"] = blurb
+        repl["insurance_tip_blurb"]  = md_to_html(blurb)
         tip_url = tip.get("source_url", "") or ""
         repl["insurance_tip_url"]    = tip_url
         repl["insurance_tip_link"]   = tip_url  # alias
