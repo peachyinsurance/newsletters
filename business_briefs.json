@@ -1,1 +1,77 @@
-[]
+[
+  {
+    "source_url": "http://www.foxparts.com/",
+    "business_name": "Fox Appliance Parts",
+    "city": "Marietta",
+    "blurb": "Your dryer stops heating, your dishwasher starts leaking, and you're staring down a $300 service call for a part that probably costs $18. Fox Appliance Parts on Pickens Industrial Drive exists for exactly that situation.\n\nThey stock parts for major home appliances, and the staff actually helps you figure out what you need before you walk out with the wrong thing. A reviewer who manages an apartment complex goes there regularly and says Ben has never once sent him home with the wrong part.\n\nThis is a working-parts supply house, not a showroom. No fancy displays. But if you want to fix your own appliance instead of replacing it, or if you've got a repair person coming and want to supply the part yourself to save money, this is a genuinely useful place to have on your radar.\n\nIt's in the industrial park off Pickens Industrial Drive in Marietta, so Google it before you head over. Not the most intuitive location, but easy enough once you know where you're going.",
+    "price_level": "$",
+    "hours": "Hours vary, see website",
+    "address": "814 Pickens Industrial Dr NE, Marietta, GA 30062",
+    "source_domain": "foxparts.com",
+    "image_url": "https://lh3.googleusercontent.com/places/ANXAkqGc91iNuLmjDITxkQ9HsDrIkB6RbJHSRx1ke0vOGlQvAfzopqW902aHnQAszdVYxiiF3s22b7y1pD5to-F3mQ5xfPfuLJ2JnfE=s4800-h800",
+    "image_candidates": [
+      "https://lh3.googleusercontent.com/places/ANXAkqGc91iNuLmjDITxkQ9HsDrIkB6RbJHSRx1ke0vOGlQvAfzopqW902aHnQAszdVYxiiF3s22b7y1pD5to-F3mQ5xfPfuLJ2JnfE=s4800-h800",
+      "https://lh3.googleusercontent.com/places/ANXAkqFKGhGw_SsjNyHwntFJaHIHpZiwj82LynPq53BL_TcSx6yvCBGQanUsc6jOF27RqY522Xle9HkogJAT2wAO0zwii3nU_7li6aU=s4800-h800",
+      "https://lh3.googleusercontent.com/places/ANXAkqEhedjHcToKMAWBlXpvbxb-_A34P4GkI-1MyCn1lbkkobf6n4q7ifc_v4NG-OsQ5l6rFjDp73sngyhorADt8EsWN2cjl45_ewE=s4800-h800",
+      "https://lh3.googleusercontent.com/places/ANXAkqHMCTHFQVlBaHgOSjxK5gTooEz0Jbqxsv9V_n6ibIE5QHVH6HHVy5YVzpqRFX2ZRGmAhBz41F7AfUhuwS8UDD4kWDNG6_6ONWs=s4800-h800",
+      "https://lh3.googleusercontent.com/places/ANXAkqFrefwWrR8_7qAei8BlpvFUFr7iYaem4FQb5ZVXofFDY_V02T-EHE_XAINnFu8ICU1nHdeWP-Yspl2SkAeQe-DoDmMYq2H5fo8=s4800-h800"
+    ],
+    "scoring_notes": "4.6 stars, practical local resource with strong staff reviews, useful homeowner tip angle fits newsletter audience well",
+    "relevance_score": "6",
+    "total_score": "6",
+    "date_generated": "2026-05-22",
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
+  },
+  {
+    "source_url": "https://www.microcenter.com/site/stores/marietta.aspx?storeid=41",
+    "business_name": "Micro Center",
+    "city": "Marietta",
+    "blurb": "If you've ever ordered a computer part online, waited a week, and gotten the wrong thing, Micro Center on Powers Ferry Road is worth knowing about.\n\nIt's a massive electronics and computer store, but the thing that separates it from ordering online or walking into a big-box chain is the staff. Reviewers keep coming back to the same point: the people here actually know what they're talking about. One customer came in ready to overspend on a PC setup and a sales rep named Justin walked him back to a smarter purchase. That kind of thing doesn't happen at Best Buy.\n\nThey carry computers, components, cables, gaming gear, software, and a surprisingly deep selection of parts for people who build their own machines. The store itself is not fancy. Fluorescent lights, packed shelves. But if you need something specific and you need it today, this is where you go.\n\nParking is easy in the shopping center. Worth a trip if you've got a tech project on the horizon or a laptop that's starting to act up.",
+    "price_level": "$$",
+    "hours": "Hours vary, see website",
+    "address": "1275 Powers Ferry Rd #50, Marietta, GA 30067",
+    "source_domain": "microcenter.com",
+    "image_url": "https://lh3.googleusercontent.com/places/ANXAkqGH3g7ORAGV4QvdNMOdq-4TVCuIHWhtBmXcNlpdVqhRd6VzEGL9DTu-qMNDbIP97SfmOwPbUlXr3Vy4wnaa_Bff9Yb6v5hNGkw=s4800-h800",
+    "image_candidates": [
+      "https://lh3.googleusercontent.com/places/ANXAkqGH3g7ORAGV4QvdNMOdq-4TVCuIHWhtBmXcNlpdVqhRd6VzEGL9DTu-qMNDbIP97SfmOwPbUlXr3Vy4wnaa_Bff9Yb6v5hNGkw=s4800-h800",
+      "https://lh3.googleusercontent.com/places/ANXAkqHD6XhtsHyBpfXy8B-60fGQTFn2vV9mDDY2lFvZv4iPMtoAFEnFmz1WbLAKItsrLNbsDgsOGDqs2tuLwL1Hvh2GR4Y7oJzTLsM=s4800-h720",
+      "https://lh3.googleusercontent.com/place-photos/AJRVUZMF9o_ipzc9O-WtsUy007guYGsZkHagz349jP66EvF5SOz_-W38nzPbiyEbqpdb061dREa6Bxv4_EQVJPGt7wK2xbHXSOXrlM94JLbeLyQiADGC7tU-CLli1Ptx7vgTJ6xPE_ejEp3DvEC2=s4800-h800",
+      "https://lh3.googleusercontent.com/place-photos/AJRVUZMBg2PkG86I98-DyKxyTozSHhxSYojq-KkE0yi1NXYi4Ax4L6Ucu6sGMhLZms9bnmvM_UVES0ALjmN7nACUA2mWaEFdlsU6qVqRdz87Olqtuq837mau-MrqaipNJvw65Kdm74voiP0bqGX1ui4=s4800-h800",
+      "https://lh3.googleusercontent.com/place-photos/AJRVUZMttLPF3-A9E0U8nyWev4405hg4uP6xQVOrPQF1W4qmvqh4PJIvCtPjGxqBQZX7cuT1HHb3jjKj_JaqK17fDwnQBYUv7uvg5svQQ1ZQA9bV9oeEs2s952OB36Q54a0YiL2uqZ5n6dlLd78YLA=s4800-h800"
+    ],
+    "scoring_notes": "4.5 stars across nearly 5,000 reviews is unusually strong for electronics retail; local alternative to Amazon ordering; strong reviewer sentiment around knowledgeable staff",
+    "relevance_score": "7",
+    "total_score": "7",
+    "date_generated": "2026-05-22",
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
+  },
+  {
+    "source_url": "https://tianinaspaparty.com/",
+    "business_name": "Tia Nina Spa Party",
+    "city": "Marietta",
+    "blurb": "Planning a birthday party for a tween and completely out of ideas? Tia Nina Spa Party is one of those businesses that solves a real problem in a really fun way.\n\nNina comes to you. She shows up at your house, sets up a full spa experience in your basement or living room, and leaves the kids with painted nails, face masks, and a memory they'll be talking about for months. She handles the setup, the services, and the cleanup. You just provide the excited 10-year-olds.\n\nReviewers consistently mention two things: how easy Nina makes the planning process, and how she actually delivers what she promises. No scrambling the morning of the party, no disappointments when the setup doesn't look like the photos. One mom said she transformed the basement into something that looked genuinely fabulous.\n\nShe works with groups of girls for birthdays, slumber parties, and special occasions. If your daughter has been asking for something a little more special than a pizza-and-cake setup, this is a solid option. Book early because she fills up fast.",
+    "price_level": "$$",
+    "hours": "Hours vary, see website",
+    "address": "1352 Glenover Way, Marietta, GA 30062",
+    "source_domain": "tianinaspaparty.com",
+    "image_url": "https://lh3.googleusercontent.com/places/ANXAkqG9W-suzHrzYQfpknT3mF4sRLHir7FyFWb1UmrqlXQQ8ezs5m-SYdXlvi5lN5yePwH0T9PBhFcGuR7J9jyAWPicN1aX06L75zo=s4800-h800",
+    "image_candidates": [
+      "https://lh3.googleusercontent.com/places/ANXAkqG9W-suzHrzYQfpknT3mF4sRLHir7FyFWb1UmrqlXQQ8ezs5m-SYdXlvi5lN5yePwH0T9PBhFcGuR7J9jyAWPicN1aX06L75zo=s4800-h800",
+      "https://lh3.googleusercontent.com/places/ANXAkqE7eAPQiBjFgzk7UUEVjrkI_QdaXQnOCfcKHmT1BcWdjKwEP1KeqG-3fYv1Xhk3GvCVxkQxU4EoZ1d6_zgXBQJlEQgyuYJwZ_Y=s4800-h800",
+      "https://lh3.googleusercontent.com/places/ANXAkqHuxOGB21CKbKOiOpUwJw7RI6fVUhSNY72PHa0xA_NQJ2sdfMTndU-8EYajdOt2s6XWJm5cOQU-6XjZWZgH4jbAuO37oCX5B0E=s4800-h800",
+      "https://lh3.googleusercontent.com/places/ANXAkqHijT7NeioZyP8pIejrLBvkFu63Z2KbXlfkyWwicXOQ_PFGUEnp7sxud6l6TcAblJgxw-jjU0NIiNociUvUKyQl7hlOatbKvTY=s4800-h800",
+      "https://lh3.googleusercontent.com/place-photos/AJRVUZOKAbjIqBWdbQ1pSWdjRxcPiP_x5EP0kEvU3ZpdBWt2RFVy3v02r6F4D2md5QHnIVLFEMoECLeYQKitH4NOtb01x-YG5oGgrlnOpIR3YGKHnQCxT7c7FSF7EufiqMpyHn2RKBp3nVOejyGOxwn3aupiYw=s4800-h800"
+    ],
+    "scoring_notes": "Unique local service, 5-star rating across 71 reviews, strong community fit for family-oriented East Cobb audience, no chain competition in this niche",
+    "relevance_score": "8",
+    "total_score": "8",
+    "date_generated": "2026-05-22",
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": "yes"
+  }
+]
