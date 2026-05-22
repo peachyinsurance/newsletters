@@ -675,10 +675,16 @@ def call_claude_for_bucket(
 
     user_prompt = build_claude_user_prompt(newsletter, audience, day, target_date_iso, candidates)
     try:
+        # Generous max_tokens because the response is a JSON array of
+        # up to 20 events × ~200 tokens of structured content each.
+        # The default 4000 routinely truncated the array mid-event,
+        # breaking JSON parsing and forcing the fallback gap-fill path
+        # for both audiences on every run.
         results = call_with_json_output(
             api_key=CLAUDE_API_KEY,
             system=skill_prompt,
             user_content=user_prompt,
+            max_tokens=12000,
         )
     except Exception as e:
         print(f"    ✗ Claude error: {e}")
@@ -956,10 +962,16 @@ Candidates:
 """
 
     try:
+        # Generous max_tokens because the response is a JSON array of
+        # up to 20 events × ~200 tokens of structured content each.
+        # The default 4000 routinely truncated the array mid-event,
+        # breaking JSON parsing and forcing the fallback gap-fill path
+        # for both audiences on every run.
         results = call_with_json_output(
             api_key=CLAUDE_API_KEY,
             system=skill_prompt,
             user_content=user_prompt,
+            max_tokens=12000,
         )
     except Exception as e:
         print(f"    ✗ Claude error: {e}")
