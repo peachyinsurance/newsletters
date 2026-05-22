@@ -1051,6 +1051,12 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             if hosted:
                 image_swaps[logo] = hosted
             alt_swaps["sponsor_logo"] = hosted or logo
+        sponsor_img = sponsor.get("image_url") or ""
+        if sponsor_img:
+            hosted = upload_remote_image(client, publication_id, sponsor_img)
+            if hosted:
+                image_swaps[sponsor_img] = hosted
+            alt_swaps["sponsor_image"] = hosted or sponsor_img
 
     # ---- Meme Corner ----
     # Expanded later by expand_meme_slots once we have the live HTML;
@@ -1228,6 +1234,7 @@ def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
         "PET_PHOTO":                   "pet-photo",
         "free_event_image_1":          "free-event",
         "sponsor_logo":                "sponsor-logo",
+        "sponsor_image":               "sponsor-image",
         "friday_family_image":         "family_event_friday",
         "friday_adult_image":          "adult_event_friday",
         "saturday_family_image":       "family_event_saturday",
@@ -1262,6 +1269,56 @@ def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
     return out, total_swaps
 
 
+def wrap_images_with_links(html: str, links: dict[str, str]) -> tuple[str, int]:
+    """For each (filename_token, click_url) pair, find <img> tags whose
+    src contains the token and wrap them in <a href="click_url">…</a>.
+    Skips images that are already inside an <a>. Used to auto-link
+    sponsor logos/images to {sponsor_url} so the user doesn't have to
+    manually set the click-through in the Beehiiv editor.
+
+    `links` shape: {filename_token: click_through_url}. Empty values
+    skip that slot.
+    """
+    if not links:
+        return html, 0
+
+    out = html
+    total = 0
+    for token, click_url in links.items():
+        if not token or not click_url:
+            continue
+        # Match <img …src="…token…"…>, but only when NOT already preceded
+        # by an open <a tag with no </a> in between. Cheap heuristic
+        # via negative-lookbehind on `</a>?` then `<a [^>]*>` proximity
+        # is hard in Python re, so do a simple two-pass:
+        # 1. Find all matching <img> with their positions.
+        # 2. For each, check the substring just before — if a recent
+        #    <a … is open (no intervening </a>), skip; else wrap.
+        img_pat = re.compile(
+            r'<img\b[^>]*\bsrc\s*=\s*["\'][^"\']*' + re.escape(token) + r'[^"\']*["\'][^>]*>',
+            re.IGNORECASE,
+        )
+        replacements = []
+        for m in img_pat.finditer(out):
+            before = out[:m.start()]
+            # Look for the last <a … in `before`; if there's no </a> after it, the <img> is wrapped.
+            last_a_open = before.rfind("<a ")
+            if last_a_open != -1:
+                last_a_close = before.find("</a>", last_a_open)
+                if last_a_close == -1:
+                    continue  # already inside an <a>
+            wrapped = f'<a href="{click_url}" target="_blank" rel="noopener">{m.group(0)}</a>'
+            replacements.append((m.start(), m.end(), wrapped))
+        if not replacements:
+            continue
+        # Apply replacements right-to-left so earlier offsets stay valid.
+        for start, end, wrapped in reversed(replacements):
+            out = out[:start] + wrapped + out[end:]
+        total += len(replacements)
+        print(f"    ✓ wrapped {len(replacements)} <img> (token='{token}') in <a href={click_url[:40]}…>")
+    return out, total
+
+
 def prune_unused_image_slots(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
     """For image slots that are present in the template but have no real
     image URL in `alt_swaps`, remove the placeholder <img> tag entirely so
@@ -1286,6 +1343,7 @@ def prune_unused_image_slots(html: str, alt_swaps: dict[str, str]) -> tuple[str,
         "PET_PHOTO":                   "pet-photo",
         "free_event_image_1":          "free-event",
         "sponsor_logo":                "sponsor-logo",
+        "sponsor_image":               "sponsor-image",
         "friday_family_image":         "family_event_friday",
         "friday_adult_image":          "adult_event_friday",
         "saturday_family_image":       "family_event_saturday",
@@ -1466,6 +1524,20 @@ def main():
     print("\n  Swapping image src by filename token (Beehiiv strips alt; filenames persist)…")
     new_body, alt_swap_count = swap_images_by_alt(new_body, alt_swaps)
     print(f"  Image alt-swaps applied: {alt_swap_count}")
+
+    # Auto-wrap sponsor logo + sponsor image in <a href="{sponsor_url}">
+    # so both are clickable without manual editor work. Keyed by the
+    # FILENAME TOKEN the image carries (after swap, the src still
+    # contains that token in its filename portion). Only wraps when the
+    # image isn't already inside an <a>.
+    sponsor_click = (repl.get("sponsor_url") or "").strip()
+    if sponsor_click:
+        print("\n  Auto-wrapping sponsor images in clickable <a>…")
+        new_body, link_wraps = wrap_images_with_links(new_body, {
+            "sponsor-logo":  sponsor_click,
+            "sponsor-image": sponsor_click,
+        })
+        print(f"  Sponsor image wraps: {link_wraps}")
 
     # Remove placeholder <img> tags for sections we have no image for
     # (e.g., free event has no og:image — strip the placeholder so the email

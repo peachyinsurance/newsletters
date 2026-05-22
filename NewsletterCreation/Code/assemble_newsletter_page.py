@@ -1864,11 +1864,12 @@ def get_sponsor(newsletter_name: str) -> dict | None:
 
     props = matched[0]["properties"]
     return {
-        "name":     _title("Name"),
-        "blurb":    _rt("blurb"),
-        "hours":    _rt("hours"),
-        "website":  (props.get("website") or {}).get("url", "") or "",
-        "logo_url": _extract_file_or_url(props.get("Logo") or {}),
+        "name":      _title("Name"),
+        "blurb":     _rt("blurb"),
+        "hours":     _rt("hours"),
+        "website":   (props.get("website") or {}).get("url", "") or "",
+        "logo_url":  _extract_file_or_url(props.get("Logo") or {}),
+        "image_url": _extract_file_or_url(props.get("images") or {}),
     }
 
 
@@ -1882,6 +1883,8 @@ def _build_sponsor(newsletter_name: str) -> list[dict]:
     out: list[dict] = []
     if sponsor.get("logo_url"):
         out.append(image_block(sponsor["logo_url"]))
+    if sponsor.get("image_url"):
+        out.append(image_block(sponsor["image_url"]))
     out.append(paragraph_block(sponsor["name"], bold=True))
     for para in (sponsor.get("blurb") or "").split("\n\n"):
         para = para.strip()
