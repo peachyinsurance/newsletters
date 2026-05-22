@@ -27,7 +27,6 @@ from brave_search import search_web, domain_of
 from claude_json import call_with_json_output
 from notion_helper import (
     save_weekend_events_to_notion,
-    get_existing_weekend_event_urls,
     query_database,
     update_page,
     NOTION_WEEKEND_EVENTS_DB_ID,
@@ -343,7 +342,6 @@ def _rich_text_value(prop) -> str:
 
 def fetch_weekend_events_from_notion(newsletter_name: str,
                                      target_weekend: dict,
-                                     excluded_urls: set,
                                      status_equals: str | None = None,
                                      status_excludes: tuple[str, ...] = (),
                                      ) -> list[dict]:
@@ -411,8 +409,6 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
         url   = (props.get("Source URL", {}).get("url") or "").strip()
         if not title or not url:
             continue
-        if url in excluded_urls:
-            continue
         date_prop = (props.get("Date") or {}).get("date") or {}
         start_str = (date_prop.get("start") or "")[:10]
         description = _rich_text_value(props.get("Description"))
@@ -466,13 +462,9 @@ _NOTION_POOL_CACHE: dict[tuple[str, str], list[dict]] = {}
 
 
 def get_notion_pool(newsletter_name: str,
-                    target_weekend: dict,
-                    excluded_urls: set) -> list[dict]:
+                    target_weekend: dict) -> list[dict]:
     """Cached wrapper around fetch_weekend_events_from_notion. The
-    Notion query itself only runs once per (newsletter, weekend), but
-    the `excluded_urls` filter is re-applied on every call so that when
-    Adult runs after Family has added its picked URLs to the exclusion
-    set, those Family URLs are filtered out of Adult's view of the pool.
+    Notion query runs once per (newsletter, weekend).
 
     Two-tier strategy (added 2026-05-20):
       1. Query for status='approved' first.
@@ -486,7 +478,7 @@ def get_notion_pool(newsletter_name: str,
     key = (newsletter_name, target_weekend.get("Friday", ""))
     if key not in _NOTION_POOL_CACHE:
         approved = fetch_weekend_events_from_notion(
-            newsletter_name, target_weekend, set(),
+            newsletter_name, target_weekend,
             status_equals="approved",
         )
         per_day = {d: sum(1 for c in approved if d in (c.get("days") or [])) for d in DAYS}
@@ -498,13 +490,10 @@ def get_notion_pool(newsletter_name: str,
             print(f"  ⚠ Approved pool thin on {thin_days} (per-day {per_day}); "
                   f"falling back to all non-archived events")
             _NOTION_POOL_CACHE[key] = fetch_weekend_events_from_notion(
-                newsletter_name, target_weekend, set(),
+                newsletter_name, target_weekend,
                 status_excludes=_FALLBACK_EXCLUDE_STATUSES,
             )
-    pool = _NOTION_POOL_CACHE[key]
-    if excluded_urls:
-        return [c for c in pool if c.get("url") not in excluded_urls]
-    return list(pool)
+    return list(_NOTION_POOL_CACHE[key])
 
 
 def fetch_and_filter_candidates(
@@ -1019,13 +1008,12 @@ def process_pool(
     newsletter: dict,
     target_weekend: dict,
     skill_prompt: str,
-    existing_urls: set,
 ) -> list[dict]:
     """One Notion pull, one Claude call, every event kept. Returns a flat
     list of classified picks with `audience` set on each. Day-expansion
     and within-run dedup happen in the main loop."""
     print(f"\n  ━━━ Weekend pool ━━━")
-    candidates = get_notion_pool(newsletter["name"], target_weekend, existing_urls)
+    candidates = get_notion_pool(newsletter["name"], target_weekend)
     if not candidates:
         print(f"    No Notion candidates for this weekend")
         return []
@@ -1147,25 +1135,16 @@ if __name__ == "__main__":
             path = (p.path or "/").rstrip("/").lower()
             return f"{p.scheme}://{host}{path}"
 
-        # Date-scoped cross-run dedup: only excludes URLs we already saved
-        # FOR THIS target weekend. Past weekends' URLs don't carry over —
-        # recurring events (weekly farmers market, etc.) flow into every
-        # week's pool.
-        existing_url_set = get_existing_weekend_event_urls(
-            newsletter["name"], target_weekend=weekend,
-        )
-        existing_norm = {_normalize_url(u) for u in existing_url_set}
-        print(f"  {len(existing_norm)} existing URLs in Notion for this weekend (re-run dedup)")
-
         # Single-pool architecture: one Notion query, one Claude call.
         # Claude classifies each candidate Family-or-Adult and writes a
-        # blurb. Every candidate gets through — no rejection. Each picked
-        # event then expands to N rows (one per day it runs).
+        # blurb. Every candidate gets through — no rejection. The
+        # save-time dedup in save_weekend_events_to_notion (date-scoped
+        # to the same target weekend) handles same-week re-runs, so we
+        # don't pre-filter the pool by URL here.
         picks = process_pool(
             newsletter=newsletter,
             target_weekend=weekend,
             skill_prompt=skill_prompt,
-            existing_urls=existing_url_set,
         )
 
         all_events: list[dict] = []
@@ -1183,14 +1162,6 @@ if __name__ == "__main__":
                 row["date"] = weekend[day_name]
                 all_events.append(row)
             print(f"      ↳ {pick.get('event_name','?')[:50]} runs: {days}")
-
-        # Track URLs to prevent next newsletter pulling the same one again
-        for pick in picks:
-            for k in ("source_url", "source_url_aggregator"):
-                u = pick.get(k)
-                if u:
-                    existing_url_set.add(u)
-                    existing_norm.add(_normalize_url(u))
 
         if not all_events:
             print(f"\n  No events accepted for {newsletter['name']}. Skipping save.")
@@ -1377,7 +1348,8 @@ if __name__ == "__main__":
         # renders as a plain section without the templated header image.)
 
         print(f"\n  Saving {len(all_events)} total events for {newsletter['name']}...")
-        save_weekend_events_to_notion(all_events, newsletter["name"])
+        save_weekend_events_to_notion(all_events, newsletter["name"],
+                                      target_weekend=weekend)
 
         # Mark each picked source row in the Weekend Events DB as
         # 'wp_used' so the next Featured Event / Weekend Planner run

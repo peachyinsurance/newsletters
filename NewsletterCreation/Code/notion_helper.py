@@ -2122,40 +2122,6 @@ def get_used_poll_categories(newsletter_name: str, lookback_weeks: int = 8) -> s
 # WEEKEND PLANNER HELPERS
 # ---------------------------------------------------------------------------
 
-def get_existing_weekend_event_urls(newsletter_name: str,
-                                    target_weekend: dict | None = None) -> set:
-    """Get source URLs of existing Weekend Planner rows for this newsletter,
-    scoped to the SAME target weekend so the result is "what did we already
-    save FOR this weekend" — not "every URL we've ever published."
-
-    Date-scoped because recurring events (Marietta Farmers Market every
-    Saturday, weekly yoga, etc.) share one Source URL across weeks. A
-    lifetime-scoped dedup permanently blocks recurring events after their
-    first appearance, which broke the "every event flows through" pool
-    architecture (commit 98c05c0).
-
-    If `target_weekend` is None, returns an empty set (no dedup). Callers
-    should always pass the target weekend now."""
-    if not NOTION_WEEKEND_PLANNER_DB_ID or not target_weekend:
-        return set()
-    try:
-        pages = query_database(NOTION_WEEKEND_PLANNER_DB_ID, filters={
-            "and": [
-                {"property": "Newsletter", "select": {"equals": newsletter_name}},
-                {"property": "Date", "date": {"on_or_after":  target_weekend["Friday"]}},
-                {"property": "Date", "date": {"on_or_before": target_weekend["Sunday"]}},
-            ],
-        })
-        urls = set()
-        for page in pages:
-            url = page["properties"].get("Source URL", {}).get("url", "")
-            if url:
-                urls.add(url)
-        return urls
-    except Exception:
-        return set()
-
-
 def _normalize_weekend_url(u: str) -> str:
     """Normalize a URL for cross-run dedup. Strips query strings, trailing
     slashes, case, and 'www.' so the same event saved with different URL
@@ -2171,28 +2137,39 @@ def _normalize_weekend_url(u: str) -> str:
     return f"{p.scheme}://{host}{path}"
 
 
-def save_weekend_events_to_notion(results: list, newsletter_name: str) -> None:
+def save_weekend_events_to_notion(results: list, newsletter_name: str,
+                                  target_weekend: dict | None = None) -> None:
     """Save weekend event candidates to Notion. Each row is one event×day.
     Expected fields per item: audience, day, date, emoji, event_name, venue,
     address, time, price, source_url, description, scoring_notes.
 
     Dedup key is (normalized_url, audience, day) — a multi-day event
     legitimately gets one row per day, but the SAME (event, audience, day)
-    combination from a previous run is treated as a duplicate."""
+    combination from a previous run is treated as a duplicate.
+
+    Dedup is date-scoped to `target_weekend` so a recurring event (Marietta
+    Farmers Market / Family / Saturday) doesn't get blocked just because
+    it was saved that way in a prior week. Without the date scope the
+    save-time dedup would silently swallow legit recurring rows."""
     if not NOTION_WEEKEND_PLANNER_DB_ID:
         print("  No NOTION_WEEKEND_PLANNER_DB_ID set, skipping Notion save")
         return
 
     print(f"  Saving {len(results)} weekend events to Notion for {newsletter_name}...")
 
-    # Pull existing rows with full (url, audience, day) tuples for dedup.
-    # Falls back to URL-only matching if any of those fields are missing.
+    # Pull existing rows with (url, audience, day) tuples for dedup,
+    # scoped to THIS target weekend's Friday-Sunday window.
     existing_keys: set[tuple[str, str, str]] = set()
     try:
-        pages = query_database(NOTION_WEEKEND_PLANNER_DB_ID, filters={
-            "property": "Newsletter",
-            "select":   {"equals": newsletter_name}
-        })
+        if target_weekend:
+            filters = {"and": [
+                {"property": "Newsletter", "select": {"equals": newsletter_name}},
+                {"property": "Date", "date": {"on_or_after":  target_weekend["Friday"]}},
+                {"property": "Date", "date": {"on_or_before": target_weekend["Sunday"]}},
+            ]}
+        else:
+            filters = {"property": "Newsletter", "select": {"equals": newsletter_name}}
+        pages = query_database(NOTION_WEEKEND_PLANNER_DB_ID, filters=filters)
         for page in pages:
             props = page["properties"]
             u   = props.get("Source URL", {}).get("url", "") or ""
@@ -2201,7 +2178,8 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str) -> None:
             existing_keys.add((_normalize_weekend_url(u), aud, day))
     except Exception:
         pass
-    print(f"  Found {len(existing_keys)} existing (url, audience, day) tuples to skip")
+    scope_note = "for this weekend" if target_weekend else "(all dates)"
+    print(f"  Found {len(existing_keys)} existing (url, audience, day) tuples {scope_note} to skip")
 
     saved = 0
     for data in results:
