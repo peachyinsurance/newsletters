@@ -243,7 +243,7 @@
     ],
     "header_image_url": "https://peachyinsurance.github.io/newsletters/gifs/Newsletter_Header_image_East_Cobb_Connect_Saxophonist_Dalen_Minniefield.png?v=1779483670",
     "gif_url": "https://peachyinsurance.github.io/newsletters/gifs/event_gif_East_Cobb_Connect_Saxophonist_Dalen_Minniefield.gif?v=1779483679",
-    "default_winner": "yes"
+    "default_winner": ""
   },
   {
     "source_url": "https://www.cobbcounty.gov/events/2026-05-30fantastic-world-fungi",
@@ -255,7 +255,7 @@
     "blurb": "This is a genuinely fun Saturday afternoon activity and you will walk away with something growing on your kitchen counter. Gritters Library is hosting a hands-on workshop where you'll cultivate your own oyster mushroom garden from scratch. It's free, it takes a couple of hours, and it's the kind of thing that sounds unusual enough to actually be memorable. If you've got a teenager who's been glued to a screen all week, this is an easy yes.",
     "ticket_url": "",
     "date_generated": "2026-05-21",
-    "status": "approved",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "total_score": "22",
     "demographic_fit_score": "7",
