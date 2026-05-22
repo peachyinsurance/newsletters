@@ -16,40 +16,6 @@ import io
 import requests
 from PIL import Image, ImageDraw
 
-# Brand styling — match the red border used in the Real Estate templates
-BRAND_RED   = (224, 30, 34)
-CORNER_RAD  = 22
-BORDER_PX   = 8
-
-
-def _apply_rounded_red_border(img: Image.Image) -> Image.Image:
-    """Return an RGB image with rounded corners + red rounded border, matching
-    the visual treatment used on Real Estate listing images.
-
-    GIF format doesn't support transparency on rounded outer corners, so we
-    paint the corners white (matches the email background) and stroke the
-    border on top.
-    """
-    rgba = img.convert("RGBA")
-    # Build a rounded mask covering the frame
-    mask = Image.new("L", rgba.size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle(
-        (0, 0, rgba.size[0], rgba.size[1]),
-        radius=CORNER_RAD,
-        fill=255,
-    )
-    # White canvas underneath shows through the rounded corners
-    canvas = Image.new("RGB", rgba.size, (255, 255, 255))
-    canvas.paste(rgba.convert("RGB"), (0, 0), mask)
-    # Stroke the red border just inside the frame edges
-    ImageDraw.Draw(canvas).rounded_rectangle(
-        (0, 0, canvas.size[0] - 1, canvas.size[1] - 1),
-        radius=CORNER_RAD,
-        outline=BRAND_RED,
-        width=BORDER_PX,
-    )
-    return canvas
-
 
 def create_gif_from_urls(
     urls: list[str],
@@ -95,9 +61,6 @@ def create_gif_from_urls(
             # Add label overlay if provided
             if labels and i < len(labels) and labels[i]:
                 img = _add_label(img, labels[i])
-
-            # Apply brand red rounded border (matches Real Estate listing visual)
-            img = _apply_rounded_red_border(img)
 
             frames.append(img)
 
