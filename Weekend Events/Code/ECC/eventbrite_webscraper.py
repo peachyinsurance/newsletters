@@ -82,7 +82,7 @@ EVENTBRITE_CATEGORIES = [
 # city to "East Cobb" directly, so include it explicitly.
 ALLOWED_CITIES = {"marietta", "sandy springs", "east cobb"}
 
-USER_AGENT      = "Mozilla/5.0"
+USER_AGENT      = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 END_WINDOW_DAYS = 14
 PAGE_SLEEP_SEC      = 0.6   # between paginated requests within a category
 CATEGORY_SLEEP_SEC  = 2.0   # between category transitions (heavier pause)
@@ -95,23 +95,40 @@ MAX_PAGES_HARD_CAP = 100
 # HTTP fetch with retry
 # ---------------------------------------------------------------------------
 def _fetch(url: str) -> str:
+    """Fetch one Eventbrite category page. Uses curl_cffi with Chrome TLS
+    fingerprint impersonation when available — Eventbrite blocks data-center
+    IPs (e.g. GitHub Actions) with HTTP 405 unless the request looks like
+    a real browser at the TLS layer. Falls back to plain `requests` if
+    curl_cffi isn't installed (local dev without it)."""
     headers = {
         "User-Agent":      USER_AGENT,
         "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
     }
+    # Prefer curl_cffi for browser TLS impersonation
+    cffi_get = None
+    try:
+        from curl_cffi import requests as _cffi
+        cffi_get = lambda u: _cffi.get(u, impersonate="chrome120",
+                                       timeout=20, allow_redirects=True)
+    except ImportError:
+        pass
+
     for attempt in range(3):
         try:
-            r = requests.get(url, timeout=20, headers=headers, allow_redirects=True)
+            if cffi_get is not None:
+                r = cffi_get(url)
+            else:
+                r = requests.get(url, timeout=20, headers=headers, allow_redirects=True)
         except Exception as e:
             print(f"    fetch error (attempt {attempt + 1}/3): {e}")
             time.sleep(2 * (attempt + 1))
             continue
         if r.status_code == 200 and r.text:
             return r.text
-        # 405 is what Eventbrite returns when its rate-limiter trips on
-        # a burst of category-pagination requests (same as 429 elsewhere).
-        # Treat as retryable with a longer-than-usual backoff.
+        # 202/429/503 are transient. 405 is Eventbrite's bot-detection
+        # block — also retryable since the impersonated TLS fingerprint
+        # sometimes gets through on a second attempt.
         if r.status_code in (202, 405, 429, 503) and attempt < 2:
             wait = 5 * (attempt + 1)
             print(f"    HTTP {r.status_code} — retry {attempt + 1}/3 in {wait}s")
