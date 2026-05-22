@@ -57,6 +57,7 @@ from ecc_event_webscraper import (  # noqa: E402
     format_dates_human,
 )
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
+from event_image_scraper import is_cancelled_event  # noqa: E402
 
 WEEKEND_EVENTS_DB_ID = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
 NEWSLETTER = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
@@ -238,6 +239,11 @@ def normalize_event(raw: dict) -> dict | None:
     description = _clean_html(
         raw.get("full_description") or raw.get("summary") or ""
     )[:2000]
+    # Text-based check in addition to the structured `is_cancelled` flag —
+    # organizers sometimes update the title/description to mark a
+    # cancellation without flipping the API field.
+    if is_cancelled_event(name, description):
+        return None
     return {
         "event_name":  name,
         "description": description,

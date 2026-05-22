@@ -52,6 +52,7 @@ from ecc_event_webscraper import (  # noqa: E402
     format_dates_human,
 )
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
+from event_image_scraper import is_cancelled_event  # noqa: E402
 
 WEEKEND_EVENTS_DB_ID = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
 NEWSLETTER = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
@@ -166,6 +167,9 @@ def normalize_event(api_ev: dict) -> dict | None:
     path  = api_ev.get("path") or ""
     if not title or not path:
         return None
+    description = _clean_html(api_ev.get("summary") or "")[:2000]
+    if is_cancelled_event(title, description):
+        return None
     url = path if path.startswith("http") else f"{SITE_BASE}{path}"
     start = _parse_iso((api_ev.get("startDate") or {}).get("time", ""))
     end   = _parse_iso((api_ev.get("endDate")   or {}).get("time", ""))
@@ -175,10 +179,6 @@ def normalize_event(api_ev: dict) -> dict | None:
         (api_ev.get("startDate") or {}).get("time", ""),
         (api_ev.get("endDate")   or {}).get("time", ""),
     )
-    # cobbcounty.gov's listing API exposes a short `summary`; full body is
-    # only on the detail page. The summary is usually enough for Featured
-    # Event / Free Events / Weekend Planner blurb generation.
-    description = _clean_html(api_ev.get("summary") or "")[:2000]
     return {
         "event_name":  title,
         "description": description,

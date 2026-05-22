@@ -394,7 +394,17 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
         target_weekend["Saturday"]: "Saturday",
         target_weekend["Sunday"]:   "Sunday",
     }
+    # Lazy import — event_image_scraper lives in NewsletterCreation/Code,
+    # already on sys.path via the image-fetch step further down.
+    try:
+        sys.path.append(os.path.join(os.path.dirname(__file__),
+                                     '..', '..', 'NewsletterCreation', 'Code'))
+        from event_image_scraper import is_cancelled_event
+    except Exception:
+        is_cancelled_event = lambda t, d="": False  # noqa: E731
+
     out: list[dict] = []
+    dropped_cancelled = 0
     for p in pages:
         props = p.get("properties", {})
         title = _rich_text_value(props.get("Event Name")) or _rich_text_value(props.get("Name"))
@@ -406,6 +416,9 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
         date_prop = (props.get("Date") or {}).get("date") or {}
         start_str = (date_prop.get("start") or "")[:10]
         description = _rich_text_value(props.get("Description"))
+        if is_cancelled_event(title, description):
+            dropped_cancelled += 1
+            continue
         venue   = _rich_text_value(props.get("Location"))
         address = _rich_text_value(props.get("Address"))
         # Pre-fill `days` from structured Notion fields. Start with the
@@ -441,8 +454,10 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
     status_label = (f"status={status_equals}" if status_equals
                     else f"status not in {status_excludes}" if status_excludes
                     else "any status")
+    cancel_note = (f", dropped {dropped_cancelled} cancelled"
+                   if dropped_cancelled else "")
     print(f"  Notion pool: {len(out)} candidate(s) in window "
-          f"({friday} → {sunday}) for {tags}, {status_label}")
+          f"({friday} → {sunday}) for {tags}, {status_label}{cancel_note}")
     return out
 
 

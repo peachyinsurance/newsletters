@@ -13,6 +13,13 @@ which is no worse than the no-image fallback we'd otherwise ship.
 
 A `backfill_images(events)` helper runs the per-page fetch
 concurrently across a list of event dicts via a ThreadPoolExecutor.
+
+Also exposes `is_cancelled_event(title, description)` — a content-based
+filter the weekend-events scrapers and the Weekend Planner pool fetcher
+both call to drop events whose title/description marks them cancelled.
+Lives here because it's the same shared-utility module the scrapers
+already sys.path-import for image backfill — no point introducing a new
+module for one 4-line helper.
 """
 from __future__ import annotations
 
@@ -24,6 +31,24 @@ from urllib.parse import urlparse, urlunparse
 import requests
 
 USER_AGENT = "Mozilla/5.0 (newsletter-automation)"
+
+# Word-boundary match on the -ed / -ation variants only. "cancel" by
+# itself (no suffix) is intentionally NOT matched, since legitimate
+# event names like "Cancel Culture Comedy Night" use it as a noun.
+# Cancellations always carry the -ed form in practice ("CANCELLED",
+# "[Cancelled]", "Cancelled - Storytime", etc.).
+_CANCEL_RE = re.compile(
+    r"\b(?:cancelled|canceled|cancellation|cancelation)\b",
+    re.IGNORECASE,
+)
+
+
+def is_cancelled_event(title: str, description: str = "") -> bool:
+    """True if the event title or description marks it as cancelled.
+    Used by both the weekend-events scrapers (to skip pre-save) and the
+    Weekend Planner pool fetcher (to skip pre-Claude, catching legacy
+    rows already in Notion)."""
+    return bool(_CANCEL_RE.search(f"{title or ''} | {description or ''}"))
 
 # Affiliate CDNs / generic icons / tracking pixels we never want to
 # pick up as a hero image.

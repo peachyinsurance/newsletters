@@ -46,6 +46,7 @@ from ecc_event_webscraper import (  # noqa: E402
     format_dates_human,
 )
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
+from event_image_scraper import is_cancelled_event  # noqa: E402
 
 WEEKEND_EVENTS_DB_ID = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
 NEWSLETTER = os.environ.get("NEWSLETTER", "ECC_PP")
@@ -209,6 +210,9 @@ def _build_event(item: dict, html: str, url: str,
             candidate_dates.add(d)
 
     if not candidate_dates:
+        return None
+
+    if is_cancelled_event(item.get("name", ""), item.get("description", "")):
         return None
 
     start = min(candidate_dates)
