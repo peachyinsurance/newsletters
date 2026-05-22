@@ -55,23 +55,23 @@ SEARCH_RADIUS_METERS = 16093  # ≈ 10 miles
 MIN_RATING       = 4.2
 MIN_REVIEW_COUNT = 25
 
-# Whitelist of place types eligible for Business Brief. Curated to
-# non-restaurant retail / services. The full Google Places type list
-# is here: https://developers.google.com/maps/documentation/places/web-service/place-types
+# Whitelist of place types eligible for Business Brief. Conservative
+# subset of Google Places API Table A types — the searchNearby endpoint
+# rejects the WHOLE request if any single type isn't in Table A, so we
+# stick to types we're confident are valid. Full list:
+# https://developers.google.com/maps/documentation/places/web-service/place-types
 BUSINESS_INCLUDED_TYPES = [
     # Retail
     "clothing_store", "shoe_store", "jewelry_store", "gift_shop",
     "book_store", "furniture_store", "home_goods_store", "florist",
     "pet_store", "bicycle_store", "electronics_store",
+    "hardware_store",
     # Beauty / wellness
-    "beauty_salon", "hair_care", "nail_salon", "spa", "massage",
-    "skin_care_clinic", "tanning_studio",
+    "beauty_salon", "hair_care", "spa",
     # Fitness
-    "gym", "fitness_center", "yoga_studio",
-    # Culture / hobby
-    "art_gallery", "art_studio",
-    # Services that read editorially well
-    "tailor", "shoe_repair_shop", "laundry",
+    "gym",
+    # Culture
+    "art_gallery",
 ]
 
 # Explicit excludes — Places sometimes infers a primary type one of these
@@ -79,8 +79,7 @@ BUSINESS_INCLUDED_TYPES = [
 # Drop anything that looks food-service.
 BUSINESS_EXCLUDED_TYPES = [
     "restaurant", "cafe", "bar", "fast_food_restaurant",
-    "meal_takeaway", "meal_delivery", "coffee_shop", "bakery",
-    "ice_cream_shop", "pub", "night_club", "wine_bar",
+    "meal_takeaway", "meal_delivery", "bakery", "night_club",
 ]
 
 # Chain detection — Places returns chain locations under their corporate
