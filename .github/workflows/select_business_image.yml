@@ -1,0 +1,64 @@
+name: Select Business Brief Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_url:
+        description: 'Business Brief Source URL (identifies the Notion row)'
+        required: true
+        type: string
+      image_url:
+        description: 'Photo URL to set as the active business image'
+        required: true
+        type: string
+      newsletter:
+        description: 'Newsletter scope (East_Cobb_Connect / Perimeter_Post / Lewisville_Lake_Lookout)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+      - name: Update Photo URL in Notion
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_BUSINESS_BRIEF_DB_ID: ${{ secrets.NOTION_BUSINESS_BRIEF_DB_ID }}
+          SOURCE_URL:                  ${{ github.event.inputs.source_url }}
+          IMAGE_URL:                   ${{ github.event.inputs.image_url }}
+          NEWSLETTER:                  ${{ github.event.inputs.newsletter }}
+        run: python "Business Brief/Code/select_business_image.py"
+
+      - name: Refresh review app (re-export business_briefs.json)
+        if: ${{ always() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/deploy_review_app.yml/dispatches \
+            -d '{"ref":"main"}'
+          echo "→ Triggered Deploy Review App"
+
+      - name: Trigger landing-page rebuild (business_brief section)
+        if: ${{ always() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
+            -d '{"ref":"main","inputs":{"section":"business_brief"}}'
+          echo "→ Triggered Assemble Newsletter Pages (business_brief)"

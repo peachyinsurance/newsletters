@@ -161,21 +161,22 @@ Return ONLY a valid JSON object with no preamble, explanation, or markdown fence
 - `address` — full street address, including city and ZIP if available
 - `relevance_score` — 1-10 per rubric
 - `scoring_notes` — short reason for the score (used for review-app context, not published)
-- `businesses` — array of EXACTLY ONE entry, your top pick
-- `all_scored` — top 3-5 ranked candidates (the #1 also appears in `businesses`)
+- `businesses` — array of EXACTLY THREE entries, ranked best-first. Reviewers pick one in the review app.
+- `all_scored` — top 3-5 ranked candidates (every entry in `businesses` also appears here for the review context)
 - `dropped_candidates` — brief reasons for excluded candidates (restaurants, chains, ambiguous, etc.)
 
 ## Quality Gates
 
 Before returning:
-- `businesses` contains exactly 1 entry
-- The pick's `blurb` is 150-200 words and uses the structure above
+- `businesses` contains exactly 3 entries, ordered best-first by `relevance_score`
+- Every pick's `blurb` is 150-200 words and uses the structure above
+- Each pick is a DISTINCT business — never the same place twice with different framing
 - Outside-coverage businesses lead with the "short drive" framing in the hook
 - No em dashes anywhere
 - No hype words
 - No invented facts
 - `address` is real (not "Various locations" or "TBD")
-- The pick is NOT a restaurant or chain
+- None of the picks are restaurants or chains
 
 ## Critical Reminders
 

@@ -671,6 +671,7 @@ def setup_notion_databases():
             "Source URL":       {"url": {}},
             "Source Domain":    {"rich_text": {}},
             "Photo URL":        {"url": {}},
+            "Image Candidates": {"rich_text": {}},
             "Date Generated":   {"date": {}},
             "Status":           {"select": {"options": [
                 {"name": "pending",        "color": "yellow"},
@@ -1272,6 +1273,56 @@ def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
 
 # ---------------------------------------------------------------------------
 # FEATURED EVENT HELPERS
+def approve_business_brief_in_notion(source_url: str, newsletter_hint: str = "") -> None:
+    """Set the picked business brief to approved, other still-pending
+    rows for the same newsletter to rejected. Mirrors the pattern used
+    by approve_event_in_notion."""
+    source_url = (source_url or "").strip()
+    if not source_url:
+        print("✗ No source_url provided — aborting approval to avoid updating all rows")
+        return
+    if not NOTION_BUSINESS_BRIEF_DB_ID:
+        print("✗ NOTION_BUSINESS_BRIEF_DB_ID empty — cannot approve")
+        return
+
+    pages = query_database(NOTION_BUSINESS_BRIEF_DB_ID)
+    newsletter_hint = (newsletter_hint or "").strip()
+    approved_newsletter = None
+    approved_page_id = None
+    for page in pages:
+        props = page["properties"]
+        page_url = props.get("Source URL", {}).get("url", "")
+        if not (page_url and page_url == source_url):
+            continue
+        page_newsletter = (props.get("Newsletter", {}).get("select") or {}).get("name", "")
+        if newsletter_hint and page_newsletter != newsletter_hint:
+            continue
+        approved_newsletter = page_newsletter
+        approved_page_id = page["id"]
+        break
+
+    if not approved_newsletter:
+        scope = f" in newsletter '{newsletter_hint}'" if newsletter_hint else ""
+        print(f"✗ No business brief found with source_url '{source_url}'{scope} — aborting")
+        return
+
+    print(f"Approving business brief for newsletter: {approved_newsletter}")
+
+    for page in pages:
+        page_id = page["id"]
+        props = page["properties"]
+        status_name = (props.get("Status", {}).get("select") or {}).get("name", "")
+        if status_name != "pending":
+            continue
+        page_newsletter = (props.get("Newsletter", {}).get("select") or {}).get("name", "")
+        if page_newsletter != approved_newsletter:
+            continue
+        new_status = "approved" if page_id == approved_page_id else "rejected"
+        update_page(page_id, {"Status": {"select": {"name": new_status}}})
+        name = (props.get("Name", {}).get("title") or [{}])[0].get("text", {}).get("content", "")
+        print(f"  {new_status}: {name}")
+
+
 def approve_event_in_notion(source_url: str, newsletter_hint: str = "") -> None:
     """Set selected event to approved, others in same newsletter to rejected.
 
@@ -2221,6 +2272,7 @@ def save_business_briefs_to_notion(results: list, newsletter_name: str) -> None:
             "Source URL":       {"url":       data.get("source_url") or None},
             "Source Domain":    {"rich_text": [{"text": {"content": safe_str(data.get("source"))}}]},
             "Photo URL":        {"url":       data.get("photo_url") or None},
+            "Image Candidates": {"rich_text": [{"text": {"content": json.dumps(data.get("image_candidates") or [])[:1900]}}]},
             "Date Generated":   {"date":      {"start": datetime.today().strftime("%Y-%m-%d")}},
             "Status":           {"select":    {"name": "pending"}},
             "Relevance Score":  {"number":    int(data.get("relevance_score", 0) or 0)},

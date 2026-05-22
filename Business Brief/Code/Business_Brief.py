@@ -212,30 +212,26 @@ def flag_default_winner(results: list[dict]) -> list[dict]:
     return results
 
 
-def fetch_google_places_photo(business_name: str, city: str = "",
-                              address: str = "") -> str:
+def fetch_google_places_photos(business_name: str, city: str = "",
+                               address: str = "",
+                               max_photos: int = 5) -> list[str]:
     """Look up `business_name` in Google Places (Text Search) and return
-    a direct CDN URL for its first photo. Returns "" on any miss / error.
+    up to `max_photos` direct CDN URLs from the matched place. Reviewers
+    can browse the gallery in the review app and pick one for the email.
 
-    Owner-uploaded business photos are far more reliable than Brave
-    image-search results: they're almost always the actual storefront
-    or interior rather than stock / news / social images. Same API +
-    key the Restaurants pipeline uses.
+    Returns [] on any miss / error. Owner-uploaded business photos are
+    far more reliable than Brave image-search results.
 
     Query strategy: name + city (or first 4 words of address as fallback
     locator) so we don't accidentally match a chain location somewhere
-    else in the country. Empty city/address still works — Places is
-    pretty good at disambiguating local businesses by name alone."""
-    if not GOOGLE_PLACES_API_KEY:
-        return ""
-    if not business_name:
-        return ""
+    else in the country."""
+    if not GOOGLE_PLACES_API_KEY or not business_name:
+        return []
 
     locator = city or " ".join((address or "").split()[:4])
     query = f"{business_name} {locator}".strip()
 
     try:
-        # 1. Text Search — get the first place candidate.
         resp = requests.post(
             "https://places.googleapis.com/v1/places:searchText",
             headers={
@@ -248,38 +244,52 @@ def fetch_google_places_photo(business_name: str, city: str = "",
         )
         if resp.status_code != 200:
             print(f"    · Places text search HTTP {resp.status_code} for {business_name!r}")
-            return ""
+            return []
         places = (resp.json() or {}).get("places") or []
         if not places:
             print(f"    · Places: no match for {query!r}")
-            return ""
-        photos = places[0].get("photos") or []
+            return []
+        photos = (places[0].get("photos") or [])[:max_photos]
         if not photos:
             print(f"    · Places match but no photos for {business_name!r}")
-            return ""
+            return []
 
-        # 2. Resolve first photo reference to a direct CDN URL.
-        photo_ref = (photos[0] or {}).get("name") or ""
-        if not photo_ref:
-            return ""
-        media = requests.get(
-            f"https://places.googleapis.com/v1/{photo_ref}/media",
-            params={
-                "maxHeightPx":      800,
-                "skipHttpRedirect": "true",
-                "key":              GOOGLE_PLACES_API_KEY,
-            },
-            timeout=10,
-        )
-        if media.status_code != 200:
-            return ""
-        url = (media.json() or {}).get("photoUri") or ""
-        if url:
-            print(f"    ✓ Places photo for {business_name!r}: {url[:60]}…")
-        return url
+        # Resolve each photo reference to a direct CDN URL.
+        urls: list[str] = []
+        for entry in photos:
+            ref = (entry or {}).get("name") or ""
+            if not ref:
+                continue
+            try:
+                media = requests.get(
+                    f"https://places.googleapis.com/v1/{ref}/media",
+                    params={
+                        "maxHeightPx":      800,
+                        "skipHttpRedirect": "true",
+                        "key":              GOOGLE_PLACES_API_KEY,
+                    },
+                    timeout=10,
+                )
+                if media.status_code != 200:
+                    continue
+                url = (media.json() or {}).get("photoUri") or ""
+                if url and url not in urls:
+                    urls.append(url)
+            except Exception:
+                continue
+        if urls:
+            print(f"    ✓ Places: {len(urls)} photo(s) for {business_name!r}")
+        return urls
     except Exception as e:
         print(f"    · Places photo fetch error for {business_name!r}: {e}")
-        return ""
+        return []
+
+
+def fetch_google_places_photo(business_name: str, city: str = "",
+                              address: str = "") -> str:
+    """Single-photo convenience wrapper — kept for backwards compat."""
+    urls = fetch_google_places_photos(business_name, city, address, max_photos=1)
+    return urls[0] if urls else ""
 
 
 # ---------------------------------------------------------------------------
@@ -390,16 +400,20 @@ if __name__ == "__main__":
             continue
 
         # Look up each picked business in Google Places Text Search and
-        # attach its first usable photo URL. Same API + key restaurants
-        # already use. Failures are quiet — photo is optional.
+        # attach a small gallery of photos. The review app shows the
+        # gallery so reviewers can pick which one ships. photo_url is
+        # the current selection (first photo by default); image_candidates
+        # is the JSON-encoded gallery the tile renders for swap.
         for pick in validated:
-            photo = fetch_google_places_photo(
+            photos = fetch_google_places_photos(
                 business_name=pick.get("name", ""),
                 city=pick.get("city", ""),
                 address=pick.get("address", ""),
+                max_photos=5,
             )
-            if photo:
-                pick["photo_url"] = photo
+            if photos:
+                pick["photo_url"] = photos[0]
+                pick["image_candidates"] = photos
 
         validated = flag_default_winner(validated)
         save_business_briefs_to_notion(validated, newsletter["name"])

@@ -188,6 +188,54 @@ def export_events():
         json.dump(events, f, indent=2, ensure_ascii=False)
     print(f"Exported {len(events)} events to events.json")
 
+def export_business_briefs():
+    """Export Business Brief candidates for the review app. Skips
+    `approved - old` so archived weeks don't appear. The review tile
+    surfaces image_candidates so reviewers can swap the photo too."""
+    db_id = os.environ.get("NOTION_BUSINESS_BRIEF_DB_ID", "")
+    if not db_id:
+        print("⚠ NOTION_BUSINESS_BRIEF_DB_ID empty — skipping business briefs export")
+        return
+    from notion_helper import query_database  # noqa: E402
+    pages = query_database(db_id)
+    briefs = []
+    for page in pages:
+        props = page["properties"]
+        status_val = extract_text(props.get("Status", {})) or "pending"
+        if status_val == "approved - old":
+            continue
+        ic_text = extract_text(props.get("Image Candidates", {}))
+        try:
+            image_candidates = json.loads(ic_text) if ic_text else []
+            if not isinstance(image_candidates, list):
+                image_candidates = []
+        except Exception:
+            image_candidates = []
+        briefs.append({
+            "source_url":       extract_text(props.get("Source URL", {})),
+            "business_name":    extract_text(props.get("Business Name", {})),
+            "city":             extract_text(props.get("City", {})),
+            "blurb":            extract_text(props.get("Blurb", {})),
+            "price_level":      extract_text(props.get("Price Level", {})),
+            "hours":            extract_text(props.get("Hours", {})),
+            "address":          extract_text(props.get("Address", {})),
+            "source_domain":    extract_text(props.get("Source Domain", {})),
+            "image_url":        extract_text(props.get("Photo URL", {})),
+            "image_candidates": image_candidates,
+            "scoring_notes":    extract_text(props.get("Scoring Notes", {})),
+            "relevance_score":  str(extract_text(props.get("Relevance Score", {}))),
+            "total_score":      str(extract_text(props.get("Relevance Score", {}))),  # alias for sort
+            "date_generated":   extract_text(props.get("Date Generated", {})),
+            "status":           status_val,
+            "newsletter_name":  extract_text(props.get("Newsletter", {})),
+            "default_winner":   "yes" if extract_text(props.get("Default Winner", {})) else "",
+        })
+
+    with open("business_briefs.json", "w", encoding="utf-8") as f:
+        json.dump(briefs, f, indent=2, ensure_ascii=False)
+    print(f"Exported {len(briefs)} business briefs to business_briefs.json")
+
+
 def export_memes():
     """Export Meme Corner candidates for the review app. Skips
     `approved - old` so archived weeks don't appear, but keeps
@@ -225,4 +273,5 @@ if __name__ == "__main__":
     export_pets()
     export_restaurants()
     export_events()
+    export_business_briefs()
     export_memes()

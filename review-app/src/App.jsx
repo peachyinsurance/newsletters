@@ -4,6 +4,7 @@ import { isOddWeek, checkPassword, decodeBase64Utf8 } from "./helpers";
 import PetTile from "./PetTile";
 import RestaurantTile from "./RestaurantTile";
 import FeaturedEventTile from "./FeaturedEventTile";
+import BusinessBriefTile from "./BusinessBriefTile";
 import MemeTile from "./MemeTile";
 
 
@@ -145,6 +146,46 @@ const SECTIONS = {
       h1Prefix:   "Pick This Week's",
       h1Emphasis: "Featured Event",
       sub:        "Review candidates and approve the one that best fits the newsletter.",
+    },
+  },
+
+  business_briefs: {
+    dataFile:        "business_briefs.json",
+    idField:         "source_url",
+    nameField:       "business_name",
+    approveWorkflow: "approve_business_brief.yml",
+    approveInputs:   (item) => ({ source_url: item.source_url, newsletter: item.newsletter_name || "" }),
+    redoWorkflow:    (newsletter) => `redo_${newsletter.toLowerCase()}.yml`,
+    redoSection:     "business_brief",
+    approvedStatus:  "approved",
+    rejectedStatus:  "rejected",
+    storageKey:      "approved_business_ids",
+    sectionPrefix:   "business_briefs",
+    TileComponent:   BusinessBriefTile,
+    itemPropName:    "business",
+    label:           "Business Brief",
+    navIcon:         "🏢",
+    loadingText:     "Loading this week's business candidates...",
+    emptyText:       "No pending businesses found. Run the Business Brief pipeline.",
+    statusBarText:   (count) => `${count} business candidates this week`,
+    emptyCandidatesText: () => ({ title: "No candidates", sub: "Run the Business Brief pipeline." }),
+    filterCandidates: (items) => ({ candidates: items, extra: {} }),
+    renderDefaultWinners: (visibleItems) => {
+      const defaultWinner = visibleItems.find(b => b.default_winner === "yes");
+      return {
+        label: "Default Winner",
+        rows: [
+          { badgeClass: "winner-badge-rest", badgeText: "Business",
+            name: defaultWinner ? defaultWinner.business_name : "None set",
+            score: defaultWinner ? `${defaultWinner.relevance_score}/10` : null },
+        ],
+      };
+    },
+    header: {
+      eyebrow:    "Newsletter Business Brief Review",
+      h1Prefix:   "Pick This Week's",
+      h1Emphasis: "Featured Business",
+      sub:        "Review the three candidates, pick the photo that fits, and approve.",
     },
   },
 

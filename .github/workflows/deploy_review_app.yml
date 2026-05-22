@@ -27,11 +27,12 @@ jobs:
 
       - name: Export Notion data
         env:
-          NOTION_API_KEY:           ${{ secrets.NOTION_API_KEY }}
-          NOTION_PETS_DB_ID:        ${{ secrets.NOTION_PETS_DB_ID }}
-          NOTION_RESTAURANTS_DB_ID: ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
-          NOTION_EVENTS_DB_ID:      ${{ secrets.NOTION_EVENTS_DB_ID }}
-          NOTION_MEMES_DB_ID:       ${{ secrets.NOTION_MEMES_DB_ID }}
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_PETS_DB_ID:           ${{ secrets.NOTION_PETS_DB_ID }}
+          NOTION_RESTAURANTS_DB_ID:    ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+          NOTION_EVENTS_DB_ID:         ${{ secrets.NOTION_EVENTS_DB_ID }}
+          NOTION_BUSINESS_BRIEF_DB_ID: ${{ secrets.NOTION_BUSINESS_BRIEF_DB_ID }}
+          NOTION_MEMES_DB_ID:          ${{ secrets.NOTION_MEMES_DB_ID }}
         run: |
           pip install requests
           cd NewsletterCreation/Code
@@ -39,6 +40,7 @@ jobs:
           cp pets.json ../../review-app/public/pets.json
           cp restaurants.json ../../review-app/public/restaurants.json
           cp events.json ../../review-app/public/events.json
+          cp business_briefs.json ../../review-app/public/business_briefs.json
           cp memes.json ../../review-app/public/memes.json
 
       - name: Set up Node.js
