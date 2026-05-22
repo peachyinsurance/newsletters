@@ -1147,10 +1147,15 @@ if __name__ == "__main__":
             path = (p.path or "/").rstrip("/").lower()
             return f"{p.scheme}://{host}{path}"
 
-        existing_url_set = get_existing_weekend_event_urls(newsletter["name"])
-        # Stored normalized so any URL variant of an already-saved event matches
+        # Date-scoped cross-run dedup: only excludes URLs we already saved
+        # FOR THIS target weekend. Past weekends' URLs don't carry over —
+        # recurring events (weekly farmers market, etc.) flow into every
+        # week's pool.
+        existing_url_set = get_existing_weekend_event_urls(
+            newsletter["name"], target_weekend=weekend,
+        )
         existing_norm = {_normalize_url(u) for u in existing_url_set}
-        print(f"  {len(existing_norm)} existing URLs in Notion (cross-run dedup)")
+        print(f"  {len(existing_norm)} existing URLs in Notion for this weekend (re-run dedup)")
 
         # Single-pool architecture: one Notion query, one Claude call.
         # Claude classifies each candidate Family-or-Adult and writes a

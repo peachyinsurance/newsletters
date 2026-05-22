@@ -2122,14 +2122,29 @@ def get_used_poll_categories(newsletter_name: str, lookback_weeks: int = 8) -> s
 # WEEKEND PLANNER HELPERS
 # ---------------------------------------------------------------------------
 
-def get_existing_weekend_event_urls(newsletter_name: str) -> set:
-    """Get source URLs of existing weekend events for this newsletter to avoid duplicates."""
-    if not NOTION_WEEKEND_PLANNER_DB_ID:
+def get_existing_weekend_event_urls(newsletter_name: str,
+                                    target_weekend: dict | None = None) -> set:
+    """Get source URLs of existing Weekend Planner rows for this newsletter,
+    scoped to the SAME target weekend so the result is "what did we already
+    save FOR this weekend" — not "every URL we've ever published."
+
+    Date-scoped because recurring events (Marietta Farmers Market every
+    Saturday, weekly yoga, etc.) share one Source URL across weeks. A
+    lifetime-scoped dedup permanently blocks recurring events after their
+    first appearance, which broke the "every event flows through" pool
+    architecture (commit 98c05c0).
+
+    If `target_weekend` is None, returns an empty set (no dedup). Callers
+    should always pass the target weekend now."""
+    if not NOTION_WEEKEND_PLANNER_DB_ID or not target_weekend:
         return set()
     try:
         pages = query_database(NOTION_WEEKEND_PLANNER_DB_ID, filters={
-            "property": "Newsletter",
-            "select":   {"equals": newsletter_name}
+            "and": [
+                {"property": "Newsletter", "select": {"equals": newsletter_name}},
+                {"property": "Date", "date": {"on_or_after":  target_weekend["Friday"]}},
+                {"property": "Date", "date": {"on_or_before": target_weekend["Sunday"]}},
+            ],
         })
         urls = set()
         for page in pages:
