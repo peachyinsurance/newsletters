@@ -2143,23 +2143,25 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str,
     Expected fields per item: audience, day, date, emoji, event_name, venue,
     address, time, price, source_url, description, scoring_notes.
 
-    Dedup key is (normalized_url, audience, day) — a multi-day event
-    legitimately gets one row per day, but the SAME (event, audience, day)
-    combination from a previous run is treated as a duplicate.
-
-    Dedup is date-scoped to `target_weekend` so a recurring event (Marietta
-    Farmers Market / Family / Saturday) doesn't get blocked just because
-    it was saved that way in a prior week. Without the date scope the
-    save-time dedup would silently swallow legit recurring rows."""
+    Re-run semantics: before writing new rows, archive any existing rows
+    for THIS target weekend whose Status is `pending` (the default save
+    status) by flipping them to `approved - old` — the same convention
+    archive_stale_rows / dedupe_pets use. Manually-curated rows with
+    Status in (`approved`, `featured`) are preserved. This makes re-runs
+    reproducible: the rendered newsletter reflects only the latest WP
+    pass, not the union of every prior run."""
     if not NOTION_WEEKEND_PLANNER_DB_ID:
         print("  No NOTION_WEEKEND_PLANNER_DB_ID set, skipping Notion save")
         return
 
     print(f"  Saving {len(results)} weekend events to Notion for {newsletter_name}...")
 
-    # Pull existing rows with (url, audience, day) tuples for dedup,
-    # scoped to THIS target weekend's Friday-Sunday window.
+    # Pull existing rows for THIS target weekend so we can both (a) archive
+    # the stale pending rows from prior runs and (b) build the dedup set
+    # for the live save loop.
     existing_keys: set[tuple[str, str, str]] = set()
+    archived = 0
+    preserved = 0
     try:
         if target_weekend:
             filters = {"and": [
@@ -2172,14 +2174,33 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str,
         pages = query_database(NOTION_WEEKEND_PLANNER_DB_ID, filters=filters)
         for page in pages:
             props = page["properties"]
-            u   = props.get("Source URL", {}).get("url", "") or ""
-            aud = (props.get("Audience", {}).get("select") or {}).get("name", "")
-            day = (props.get("Day", {}).get("select") or {}).get("name", "")
-            existing_keys.add((_normalize_weekend_url(u), aud, day))
+            u      = props.get("Source URL", {}).get("url", "") or ""
+            aud    = (props.get("Audience", {}).get("select") or {}).get("name", "")
+            day    = (props.get("Day", {}).get("select") or {}).get("name", "")
+            status = (props.get("Status",   {}).get("select") or {}).get("name", "")
+            # Archive stale pending rows from prior runs so the assembler
+            # doesn't render them alongside this run's output. Leave manual
+            # curation (approved / featured) and already-archived rows alone.
+            if status == "pending" and target_weekend:
+                try:
+                    update_page(page["id"],
+                                {"Status": {"select": {"name": "approved - old"}}})
+                    archived += 1
+                except Exception:
+                    pass
+            else:
+                # Non-pending rows still occupy a (url, audience, day) slot —
+                # don't overwrite them on this run.
+                existing_keys.add((_normalize_weekend_url(u), aud, day))
+                preserved += 1
     except Exception:
         pass
-    scope_note = "for this weekend" if target_weekend else "(all dates)"
-    print(f"  Found {len(existing_keys)} existing (url, audience, day) tuples {scope_note} to skip")
+    if archived:
+        print(f"  Archived {archived} stale pending row(s) from prior runs "
+              f"(flipped Status → 'approved - old')")
+    if preserved:
+        print(f"  Preserving {preserved} manually-curated row(s) "
+              f"(approved / featured) — dedup will skip matching keys")
 
     saved = 0
     for data in results:
