@@ -1126,7 +1126,12 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             title = lines[0].lstrip("# ").strip()
             # Address line is typically the second line ("**Saturday, 10am-2pm** • Venue • audience")
             details = lines[1].strip() if len(lines) > 1 else ""
-            description = "\n".join(lines[2:-1]).strip() if len(lines) > 2 else ""
+            # Join description chunks with a BLANK line between them so
+            # expand_paragraph_field can split each markdown paragraph
+            # (e.g. **What it is:** …, **Plan it:** …) into its own <p>.
+            # Otherwise the whole thing renders as one wall of text in
+            # Beehiiv even after markdown bold gets converted.
+            description = "\n\n".join(lines[2:-1]).strip() if len(lines) > 2 else ""
             # The "More: [label](url)" is the last line — parse out URL if present
             link = ""
             for ln in reversed(lines):
