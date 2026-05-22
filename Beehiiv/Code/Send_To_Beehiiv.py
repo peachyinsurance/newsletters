@@ -1668,11 +1668,14 @@ def main():
     title = f"{NEWSLETTER.replace('_', ' ')} — {datetime.today().strftime('%B %d, %Y')}"
 
     # The header image is generated + published to gh-pages by the
-    # `prepare_header_image.py` step earlier in the workflow. Beehiiv
-    # renders this as the post thumbnail: shows at the top of the email,
-    # on the web post hero, on the newsletter homepage card, and as the
-    # social-share preview (OG image). One field, every surface.
-    thumbnail_url = (
+    # Featured Event picker (or the review-app image picker) using a
+    # PER-EVENT filename `Newsletter_Header_image_<NL>_<EventName>.png`.
+    # Read the currently-approved event's Header Image URL from Notion
+    # so the thumbnail matches the featured event being shipped. Falls
+    # back to the legacy generic filename only if the per-event URL
+    # isn't set (e.g. legacy rows from before the per-event rename).
+    _thumb_event = get_featured_event(NEWSLETTER) or {}
+    thumbnail_url = (_thumb_event.get("header_image_url") or "").strip() or (
         f"https://peachyinsurance.github.io/newsletters/gifs/"
         f"Newsletter_Header_image_{NEWSLETTER}.png"
     )
