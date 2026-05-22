@@ -43,18 +43,12 @@ BRAVE_NEWS_API_KEY = os.environ["BRAVE_NEWS_API_KEY"]
 
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-weekend-planner-skill_auto.md"
 
-TARGET_PER_AUDIENCE = 20     # HARD target Claude tries to hit per audience (Family OR Adult)
-MIN_PER_AUDIENCE    = 20     # same as target — we want to hit 20/audience consistently.
-                             # If Adult is short, family events get promoted (one-way only —
-                             # see _backfill_adult_from_family in main). If Claude itself
-                             # returns fewer than TARGET, the Python fallback re-prompts
-                             # asking it to fill the gap with eased guardrails.
-MIN_PER_DAY         = 5      # HARD floor per audience per day (after row-expansion).
-                             # A multi-day event counts once per day it runs. If a day
-                             # is short, process_audience runs a targeted per-day gap-fill
-                             # call. Below this, the section visibly skips a day in the
-                             # published newsletter — which is the failure mode this
-                             # constant exists to prevent.
+TARGET_PER_AUDIENCE = 20     # Soft target per audience. The pool depth IS the section length
+MIN_PER_AUDIENCE    = 20     # now (Claude can't reject), so this is informational. If Adult
+                             # ends up short, family events get promoted (one-way) in main.
+MIN_PER_DAY         = 5      # Surfaced as a warning when the scraper pool is thin on a given
+                             # day. Not enforced (no gap-fill anymore) — surfacing is the
+                             # signal to add scraper coverage upstream.
 MAX_RESULTS_PER_QUERY = 15
 PAUSE_BETWEEN_BRAVE = 0.5    # rate-limit buffer
 
@@ -814,44 +808,33 @@ def determine_event_days(candidate: dict, target_weekend: dict) -> list[str]:
     return []
 
 
-def call_claude_for_audience(
+def call_claude_for_pool(
     candidates: list[dict],
     newsletter: dict,
-    audience: str,
     target_weekend: dict,
     skill_prompt: str,
-    gap_fill_count: int | None = None,
-    target_day: str | None = None,
 ) -> list[dict]:
-    """Ask Claude to pick the best events for one audience across the whole
-    weekend. Returns validated event dicts WITHOUT day/date assignment —
-    those are derived from each candidate's text after Claude picks.
-    URLs reattached from candidate_index.
+    """One Claude call over the entire weekend pool. Claude's only jobs:
+    classify each event as `audience: "Family"` or `"Adult"` and write a
+    blurb. EVERY candidate must appear in the output — the pipeline already
+    pre-filtered by date (Notion window query) and dedup, so Claude has
+    no rejection power here.
 
-    Two anchor dates passed in the prompt so Claude has full context, but
-    Claude is told the candidate set was already date-filtered for the target
-    weekend and should not re-filter.
+    If Claude still drops candidates (e.g. truncated output, classification
+    miss), the missing ones are backfilled code-side with audience='Family'
+    (the safe default for local-event scrapers) and a fallback blurb drawn
+    from the candidate's own description. This guarantees the scraper pool
+    IS the published curation.
 
-    `gap_fill_count` — when set, signals this is a follow-up call to fill
-    a gap from a prior pass. The prompt asks for that many additional
-    picks with softened guardrails (already-relaxed criteria, allow
-    weaker audience fits, allow recurring without 'special edition'
-    framing, etc.).
-
-    `target_day` — when set (along with gap_fill_count), restricts the
-    prompt to a specific day (Friday/Saturday/Sunday). Caller is expected
-    to have pre-filtered `candidates` to only events that cover that day."""
+    HARD venue/city exclusion (newsletter["excluded_venues"|"excluded_cities"])
+    still applies post-pass — out-of-range events are dropped regardless of
+    what Claude returns.
+    """
     if not candidates:
         return []
 
     indexed = [{**c, "candidate_index": i} for i, c in enumerate(candidates, 1)]
     candidates_json = json.dumps(indexed, indent=2)
-
-    # Per-day candidate availability so Claude knows the pool depth before
-    # picking. A multi-day event counts toward each of its days.
-    pool_per_day = {dy: sum(1 for c in candidates if dy in (c.get("days") or []))
-                    for dy in DAYS}
-    pool_per_day_str = ", ".join(f"{dy}={pool_per_day[dy]}" for dy in DAYS)
 
     d = newsletter["demographics"]
     demo_summary = (
@@ -862,33 +845,26 @@ def call_claude_for_audience(
         f"Education level: {d['education']}"
     )
 
-    # HARD exclusion list per newsletter. Editorial guidance from Jason: each
-    # newsletter has venues / cities that are out of range even if they show
-    # up in candidate results. Substring match, case-insensitive, against
-    # venue + address. No "big event worth the drive" override — if it's on
-    # the list, it's out.
-    excluded_venues = newsletter.get("excluded_venues") or []
-    excluded_cities = newsletter.get("excluded_cities") or []
+    excluded_venues_raw = newsletter.get("excluded_venues") or []
+    excluded_cities_raw = newsletter.get("excluded_cities") or []
     exclusion_block = ""
-    if excluded_venues or excluded_cities:
-        lines = ["", "OUT OF RANGE — DO NOT PICK any event whose venue or address",
-                 "matches one of these (case-insensitive substring match):"]
-        if excluded_venues:
+    if excluded_venues_raw or excluded_cities_raw:
+        lines = ["",
+                 "OUT OF RANGE — these venues/cities are outside coverage.",
+                 "Still classify them and write a blurb (the pipeline drops",
+                 "them in post — don't pre-skip):"]
+        if excluded_venues_raw:
             lines.append("Venues:")
-            for v in excluded_venues:
+            for v in excluded_venues_raw:
                 lines.append(f"  - {v}")
-        if excluded_cities:
+        if excluded_cities_raw:
             lines.append("Cities:")
-            for c in excluded_cities:
+            for c in excluded_cities_raw:
                 lines.append(f"  - {c}")
-        lines.append("This is a HARD rule. Even a major event at one of these")
-        lines.append("venues / in one of these cities should be SKIPPED — they")
-        lines.append("are outside this newsletter's coverage area.")
         exclusion_block = "\n".join(lines)
 
     user_prompt = f"""
 Newsletter: {newsletter['name'].replace('_', ' ')} ({newsletter['display_area']})
-Audience: {audience}
 Target weekend: Fri {target_weekend['Friday']} / Sat {target_weekend['Saturday']} / Sun {target_weekend['Sunday']}
 
 Audience demographics:
@@ -897,64 +873,32 @@ Audience demographics:
 Anchor towns: {', '.join(newsletter['search_areas'])}
 {exclusion_block}
 
-The candidates below have ALREADY been screened by the pipeline for:
-domain quality, date range, duplicates, AND target-weekend day mapping.
-Each candidate has a `days` field listing which of Fri/Sat/Sun it runs
-on — that's the source of truth. Do NOT try to figure out the date or
-day yourself. The pipeline already did it.
+The {len(candidates)} candidates below have already been scraped from
+local event calendars AND pre-filtered for date (every one runs during
+this target weekend). Pre-filtering is done. Your job is NOT to filter.
 
-Candidate pool depth by day (multi-day events count for each day they cover):
-{pool_per_day_str}
+YOUR JOB:
+1. Classify each event as either `audience: "Family"` or `audience: "Adult"`.
+   - Family: kid-friendly, all-ages, daytime, libraries, parks, festivals,
+     markets, museums, family workshops, community events.
+   - Adult: 21+, nightlife, bars/breweries/wineries, late-night shows,
+     adult-only classes, professional networking, mature themes.
+   - When in doubt → Family. Most local events are family-appropriate.
+2. Write `event_name`, `emoji`, and a short blurb per the skill schema.
 
-{f'''TARGETED PER-DAY GAP-FILL: an earlier pass left {target_day} short of the
-{MIN_PER_DAY}-pick minimum for this audience. The candidates below ALL cover
-{target_day} (the pipeline pre-filtered the pool). Pick exactly {gap_fill_count}
-more {audience.lower()}-appropriate events from this {target_day} pool to fill
-the gap. Soften guardrails — accept B+ events, recurring events, weak audience
-fits as long as plausibly {audience.lower()}-appropriate. Avoid the four hard-
-skip cases (cancelled, extreme wrong-audience, OUT OF RANGE, duplicate).
+INCLUDE EVERY CANDIDATE. The scraper-driven pool IS the curation. There
+is no downstream filtering. Return exactly {len(candidates)} entries —
+one per `candidate_index` from 1 to {len(candidates)}, no skips. A
+borderline / vague / recurring / generic event still gets classified and
+blurbed — do NOT drop it for being weak. The four old hard-skip cases
+(cancelled, wrong-audience, out-of-range, duplicate) no longer apply
+here — out-of-range is handled by the pipeline post-pass, and dedup
+already happened upstream.
 
-''' if target_day else (f'''GAP-FILL PASS: an earlier pass picked some of the candidates but came up short
-of the {TARGET_PER_AUDIENCE} target for this audience. The candidates below are
-ONLY the ones the first pass DIDN'T pick. Pick up to {gap_fill_count} more events
-to fill the gap. Soften the guardrails further — accept events that are decent
-but not perfect, accept recurring events even when they're not special editions,
-accept events whose audience fit is weaker than ideal as long as they're
-plausibly {audience.lower()}-appropriate. The goal is fill the section, not
-chase perfection. Avoid duplicating events from the first pass; the candidates
-here are the ones not already taken.
+CRITICAL: each event belongs to ONE audience (Family OR Adult). Don't
+emit the same `candidate_index` twice.
 
-''' if gap_fill_count else '')}Your job is to INCLUDE every candidate in the pool that fits the
-{audience.lower()} audience and WRITE an event description for each one.{f' Cap this gap-fill pass at {gap_fill_count} additional picks.' if gap_fill_count else ''}
-
-HARD PER-DAY REQUIREMENT: pick AT LEAST {MIN_PER_DAY} events for EACH of
-Friday, Saturday, Sunday (counting events whose `days` field includes that day
-— a Friday-Saturday festival counts for both days). The pool depth above
-tells you what's available; if a day has fewer than {MIN_PER_DAY} candidates,
-pick them all and the post-processing will flag the scraper gap. Do NOT
-return a Friday-heavy distribution with empty Saturday or Sunday — that
-ships a visibly broken section.
-
-NO CAP on total picks. The scraper-driven pool IS the curation — your
-job is to include every event that's a plausible {audience.lower()} fit
-and write a blurb for it, not to further trim the list. If the pool has
-40 qualifying events, return 40 picks. If 80, return 80.
-
-DEFAULT TO INCLUDING. The candidates have already been pulled from real
-local event calendars by the pipeline. Your bar for INCLUSION is low:
-unless an event is (a) clearly cancelled, (b) extreme wrong-audience
-(toddler storytime for Adult / 21+ show for Family), (c) on the OUT OF
-RANGE block, or (d) a duplicate of another candidate — INCLUDE IT.
-"Generic description", "recurring weekly", "no time listed", "vague
-summary" are NOT skip reasons. Infer reasonable defaults for missing
-fields. Better to include a B+ event with a thin description than to
-leave a day empty.
-
-CRITICAL: each event belongs to ONLY ONE audience (Family OR Adult). For
-events that could fit either, pick the better-fitting audience and leave
-the other empty. This avoids the same event showing up in both panes.
-
-Use `candidate_index` to reference URLs — do NOT include raw URLs in
+Use `candidate_index` to reference URLs. Do NOT include raw URLs in
 the output.
 
 Candidates:
@@ -962,28 +906,38 @@ Candidates:
 """
 
     try:
-        # Generous max_tokens because the response is a JSON array of
-        # up to 20 events × ~200 tokens of structured content each.
-        # The default 4000 routinely truncated the array mid-event,
-        # breaking JSON parsing and forcing the fallback gap-fill path
-        # for both audiences on every run.
+        # Generous max_tokens because the response is a JSON array of up
+        # to ~50+ events x ~200 tokens each. Bumped above the previous
+        # 12000 because the pool can now be much larger (whole weekend
+        # pool in one call, not per-audience).
         results = call_with_json_output(
             api_key=CLAUDE_API_KEY,
             system=skill_prompt,
             user_content=user_prompt,
-            max_tokens=12000,
+            max_tokens=16000,
         )
     except Exception as e:
         print(f"    ✗ Claude error: {e}")
-        return []
-    if not results:
-        return []
+        results = []
 
     candidates_by_index = {i: c for i, c in enumerate(candidates, 1)}
-    excluded_venues = [v.lower() for v in (newsletter.get("excluded_venues") or [])]
-    excluded_cities = [c.lower() for c in (newsletter.get("excluded_cities") or [])]
-    validated = []
-    for r in results:
+    excluded_venues = [v.lower() for v in excluded_venues_raw]
+    excluded_cities = [c.lower() for c in excluded_cities_raw]
+
+    def _is_out_of_range(haystack: str) -> str:
+        if not (excluded_venues or excluded_cities):
+            return ""
+        hl = haystack.lower()
+        for v in excluded_venues:
+            if v in hl:
+                return v
+        for c in excluded_cities:
+            if c in hl:
+                return c
+        return ""
+
+    validated_by_idx: dict[int, dict] = {}
+    for r in results or []:
         idx = r.get("candidate_index")
         try:
             idx = int(idx) if idx is not None else None
@@ -991,150 +945,95 @@ Candidates:
             idx = None
         source = candidates_by_index.get(idx) if idx is not None else None
         if not source:
-            print(f"    ✗ Rejecting event with invalid candidate_index {idx}: {r.get('event_name', '?')}")
+            print(f"    ✗ Discarding entry with invalid candidate_index "
+                  f"{idx}: {r.get('event_name', '?')}")
             continue
-        # HARD exclusion enforcement. Substring match on venue + address +
-        # event_name (some events name the venue in the title). Belt-and-
-        # suspenders alongside the prompt-side OUT OF RANGE block.
-        if excluded_venues or excluded_cities:
-            haystack = " | ".join(str(r.get(k, "") or "") for k in
-                                  ("venue", "address", "event_name")).lower()
-            hit = next((v for v in excluded_venues if v in haystack), None) \
-                  or next((c for c in excluded_cities if c in haystack), None)
-            if hit:
-                print(f"    ✗ Rejecting out-of-range event '{r.get('event_name','?')[:50]}' (matched: {hit})")
-                continue
+        haystack = " | ".join(str(r.get(k, "") or "") for k in
+                              ("venue", "address", "event_name"))
+        hit = _is_out_of_range(haystack)
+        if hit:
+            print(f"    ✗ Dropping out-of-range event "
+                  f"'{r.get('event_name','?')[:50]}' (matched: {hit})")
+            continue
+        aud = (r.get("audience") or "").strip().capitalize()
+        if aud not in ("Family", "Adult"):
+            aud = "Family"
+        r["audience"] = aud
         r["source_url"] = source.get("url", "")
-        r["audience"] = audience
-        # Attach the source candidate so we can later derive days from its text
         r["_source_candidate"] = source
         r.pop("candidate_index", None)
-        validated.append(r)
+        validated_by_idx[idx] = r
+
+    # Backfill any candidates Claude dropped. The whole point of this
+    # flow is "every event gets through" — if Claude skipped or the
+    # response truncated, we synthesize a row from the source candidate.
+    missing = [(i, c) for i, c in candidates_by_index.items()
+               if i not in validated_by_idx]
+    if missing:
+        print(f"    ⚠ Claude returned {len(validated_by_idx)}/"
+              f"{len(candidates_by_index)} — backfilling {len(missing)} "
+              f"from source descriptions")
+        for idx, c in missing:
+            haystack = " | ".join(str(c.get(k, "") or "") for k in
+                                  ("venue", "address", "title"))
+            hit = _is_out_of_range(haystack)
+            if hit:
+                print(f"    ✗ Dropping out-of-range skipped event "
+                      f"'{c.get('title','?')[:50]}' (matched: {hit})")
+                continue
+            desc = (c.get("description") or "").strip()
+            blurb = desc[:400] if desc else c.get("title", "")
+            validated_by_idx[idx] = {
+                "event_name":  c.get("title", "Event"),
+                "emoji":       "📅",
+                "summary":     blurb,
+                "venue":       c.get("venue", ""),
+                "address":     c.get("address", ""),
+                "audience":    "Family",
+                "source_url":  c.get("url", ""),
+                "_source_candidate": c,
+                "_backfilled": True,
+            }
+
+    validated = list(validated_by_idx.values())
     validated = prefer_primary_source(validated)
     return validated
 
 
-def process_audience(
+def process_pool(
     newsletter: dict,
-    audience: str,
     target_weekend: dict,
     skill_prompt: str,
     existing_urls: set,
 ) -> list[dict]:
-    """Pull the Notion Weekend Events pool for this newsletter+weekend,
-    let Claude select what fits this audience. The Brave-search retry /
-    gap-fill paths are gone — a single Notion query returns the entire
-    in-window pool, so re-pulling can't find anything new.
-
-    Per-day enforcement: after the primary pass + standard gap-fill, any
-    day below MIN_PER_DAY rows triggers a targeted per-day Claude call
-    with only that day's candidates."""
-    print(f"\n  ━━━ {audience} pool ━━━")
-
+    """One Notion pull, one Claude call, every event kept. Returns a flat
+    list of classified picks with `audience` set on each. Day-expansion
+    and within-run dedup happen in the main loop."""
+    print(f"\n  ━━━ Weekend pool ━━━")
     candidates = get_notion_pool(newsletter["name"], target_weekend, existing_urls)
     if not candidates:
-        print(f"    No Notion candidates for {audience}")
+        print(f"    No Notion candidates for this weekend")
         return []
 
-    # Pool depth per day — surface upfront so it's obvious whether a later
-    # shortfall is a Claude problem or a scraper coverage gap.
     pool_per_day = {d: sum(1 for c in candidates if d in (c.get("days") or []))
                     for d in DAYS}
-    print(f"    Pool depth per day: " + ", ".join(f"{d}={pool_per_day[d]}" for d in DAYS))
+    print(f"    Pool depth per day: " +
+          ", ".join(f"{d}={pool_per_day[d]}" for d in DAYS))
     for d in DAYS:
         if pool_per_day[d] < MIN_PER_DAY:
-            print(f"    ⚠ {audience} {d}: pool has only {pool_per_day[d]} candidates "
+            print(f"    ⚠ {d}: pool has only {pool_per_day[d]} candidates "
                   f"(< {MIN_PER_DAY} required) — scraper coverage gap")
 
-    results = call_claude_for_audience(
-        candidates, newsletter, audience, target_weekend, skill_prompt
-    )
-    print(f"    {audience} pass: {len(results)} event(s) accepted "
-          f"(from {len(candidates)} Notion candidates)")
-
-    # If Claude came up short, re-prompt for the gap using ONLY the
-    # candidates it didn't pick last time + softened guardrails. The
-    # second call usually fills 5-15 more events. Stops trying after one
-    # gap pass — Claude won't suddenly invent quality where there is
-    # none, so two passes is enough.
-    gap = TARGET_PER_AUDIENCE - len(results)
-    if gap > 0 and len(results) < len(candidates):
-        used_urls = {r.get("source_url") for r in results if r.get("source_url")}
-        remaining = [c for c in candidates if c.get("url") not in used_urls]
-        if remaining and len(remaining) >= 1:
-            print(f"    Gap pass: Claude returned {len(results)}, target is "
-                  f"{TARGET_PER_AUDIENCE} — re-prompting for {gap} more "
-                  f"from {len(remaining)} remaining candidates with eased guardrails")
-            extra = call_claude_for_audience(
-                remaining, newsletter, audience, target_weekend, skill_prompt,
-                gap_fill_count=gap,
-            )
-            # Cross-dedup by URL (in case Claude re-picks)
-            for ev in extra:
-                if ev.get("source_url") and ev["source_url"] not in used_urls:
-                    results.append(ev)
-                    used_urls.add(ev["source_url"])
-            print(f"    Gap pass added {len(extra)} event(s) — "
-                  f"{audience} total now {len(results)}")
-
-    # Per-day enforcement — count expanded rows per day (a pick tagged
-    # for multiple days contributes one row per day). For any day below
-    # MIN_PER_DAY, run a targeted gap-fill call with only that day's
-    # remaining candidates. This is the only place per-day shortfall is
-    # actually corrected; the primary + total-count gap-fill above can
-    # both legitimately leave a day empty.
-    def _per_day_row_counts(events: list[dict]) -> dict:
-        counts = {d: 0 for d in DAYS}
-        for ev in events:
-            cand = ev.get("_source_candidate", {})
-            days = cand.get("days") or determine_event_days(cand, target_weekend)
-            for d in days:
-                if d in counts:
-                    counts[d] += 1
-        return counts
-
-    per_day = _per_day_row_counts(results)
-    print(f"    Per-day row counts after main pass: " +
-          ", ".join(f"{d}={per_day[d]}" for d in DAYS))
-
-    used_urls = {r.get("source_url") for r in results if r.get("source_url")}
-    for day in DAYS:
-        shortfall = MIN_PER_DAY - per_day[day]
-        if shortfall <= 0:
-            continue
-        # Filter candidates to ones that cover this day AND aren't already picked.
-        day_pool = [c for c in candidates
-                    if day in (c.get("days") or [])
-                    and c.get("url") not in used_urls]
-        if not day_pool:
-            print(f"    ⚠ {audience} {day}: short by {shortfall}; "
-                  f"pool exhausted (no remaining {day} candidates) — scraper gap")
-            continue
-        print(f"    Per-day gap-fill: {audience} {day} short by {shortfall}, "
-              f"trying {len(day_pool)} remaining {day} candidates")
-        extra = call_claude_for_audience(
-            day_pool, newsletter, audience, target_weekend, skill_prompt,
-            gap_fill_count=shortfall, target_day=day,
-        )
-        added = 0
-        for ev in extra:
-            if ev.get("source_url") and ev["source_url"] not in used_urls:
-                results.append(ev)
-                used_urls.add(ev["source_url"])
-                added += 1
-        per_day = _per_day_row_counts(results)
-        if added:
-            print(f"    → added {added} pick(s) for {day} (now {per_day[day]})")
-        else:
-            print(f"    ⚠ {audience} {day}: gap-fill returned nothing usable; "
-                  f"still at {per_day[day]} (< {MIN_PER_DAY})")
-
-    print(f"    Final per-day row counts: " +
-          ", ".join(f"{d}={per_day[d]}" for d in DAYS))
-    print(f"    ✓ {len(results)} {audience} events accepted")
-    for r in results:
-        print(f"      - {r.get('emoji', '')} {r.get('event_name', '?')}")
-    return results
+    picks = call_claude_for_pool(candidates, newsletter, target_weekend, skill_prompt)
+    from collections import Counter
+    by_aud = Counter(p["audience"] for p in picks)
+    print(f"    Claude classified {len(picks)} event(s): " +
+          ", ".join(f"{a}={by_aud.get(a,0)}" for a in AUDIENCES))
+    for p in picks:
+        tag = " [backfilled]" if p.get("_backfilled") else ""
+        print(f"      - [{p['audience']}] {p.get('emoji','')} "
+              f"{p.get('event_name','?')[:60]}{tag}")
+    return picks
 
 
 def process_bucket(
@@ -1238,87 +1137,40 @@ if __name__ == "__main__":
         existing_norm = {_normalize_url(u) for u in existing_url_set}
         print(f"  {len(existing_norm)} existing URLs in Notion (cross-run dedup)")
 
-        # Audience-pooled architecture:
-        #   • Family processed first → list of events with day(s) extracted
-        #   • Family URLs AND event-name tokens added to exclusion → Adult
-        #     can't repeat any event even via a different URL or rephrasing
-        #   • Adult processed second on the remaining candidate space
-        # Each picked event expands to N rows (one per day it runs).
-        import re as _re_audience
-
-        def _event_name_key(name: str) -> str:
-            """Normalize event name for fuzzy cross-audience matching.
-            'Marietta Greek Festival' and '36th Annual Marietta Greek Festival'
-            both reduce to {'greek', 'festival', 'marietta'} (after dropping
-            year/qualifier tokens and short words)."""
-            tokens = _re_audience.findall(r"\w+", (name or "").lower())
-            STOP = {"the", "and", "for", "with", "at", "an", "a", "of", "on",
-                    "to", "annual", "th", "st", "nd", "rd"}
-            return frozenset(t for t in tokens
-                             if len(t) > 2 and not t.isdigit() and t not in STOP)
-
-        family_name_keys: set[frozenset] = set()
+        # Single-pool architecture: one Notion query, one Claude call.
+        # Claude classifies each candidate Family-or-Adult and writes a
+        # blurb. Every candidate gets through — no rejection. Each picked
+        # event then expands to N rows (one per day it runs).
+        picks = process_pool(
+            newsletter=newsletter,
+            target_weekend=weekend,
+            skill_prompt=skill_prompt,
+            existing_urls=existing_url_set,
+        )
 
         all_events: list[dict] = []
-        for audience in AUDIENCES:  # ["Family", "Adult"] — Family first
-            picks = process_audience(
-                newsletter=newsletter,
-                audience=audience,
-                target_weekend=weekend,
-                skill_prompt=skill_prompt,
-                existing_urls=existing_url_set,
-            )
-            # Cross-audience name dedup for Adult: drop picks whose name-key
-            # significantly overlaps a Family pick's name-key.
-            if audience == "Adult" and family_name_keys:
-                filtered_picks = []
-                for pick in picks:
-                    pk = _event_name_key(pick.get("event_name", ""))
-                    if not pk:
-                        filtered_picks.append(pick)
-                        continue
-                    overlap_with_family = max(
-                        (len(pk & fam_pk) / max(len(pk), 1) for fam_pk in family_name_keys),
-                        default=0,
-                    )
-                    if overlap_with_family >= 0.6:  # ≥60% token overlap = same event
-                        print(f"      ✗ cross-audience dedup: dropping Adult '{pick.get('event_name','?')[:50]}' (matches Family pick)")
-                        continue
-                    filtered_picks.append(pick)
-                picks = filtered_picks
+        for pick in picks:
+            source_cand = pick.pop("_source_candidate", {})
+            days = source_cand.get("days") or determine_event_days(source_cand, weekend)
+            if not days:
+                print(f"      ✗ dropped (no date matches target weekend "
+                      f"{weekend['Friday']}..{weekend['Sunday']}): "
+                      f"{pick.get('event_name','?')[:60]}")
+                continue
+            for day_name in days:
+                row = dict(pick)  # shallow copy per day
+                row["day"]  = day_name
+                row["date"] = weekend[day_name]
+                all_events.append(row)
+            print(f"      ↳ {pick.get('event_name','?')[:50]} runs: {days}")
 
-            # Expand each pick into one row per day the event runs. The
-            # pipeline already tagged each candidate with `days` pre-Claude
-            # (see fetch_and_filter_candidates), so we just read it back
-            # off the source candidate. If it's missing for any reason,
-            # fall back to determine_event_days for safety.
-            for pick in picks:
-                source_cand = pick.pop("_source_candidate", {})
-                days = source_cand.get("days") or determine_event_days(source_cand, weekend)
-                if not days:
-                    print(f"      ✗ dropped (no date matches target weekend "
-                          f"{weekend['Friday']}..{weekend['Sunday']}): "
-                          f"{pick.get('event_name','?')[:60]}")
-                    continue
-                for day_name in days:
-                    row = dict(pick)  # shallow copy per day
-                    row["day"]  = day_name
-                    row["date"] = weekend[day_name]
-                    all_events.append(row)
-                print(f"      ↳ {pick.get('event_name','?')[:50]} runs: {days}")
-            # Track Family's name-keys so Adult can avoid them
-            if audience == "Family":
-                for pick in picks:
-                    family_name_keys.add(_event_name_key(pick.get("event_name", "")))
-            # URL-based cross-audience exclusion (belt-and-suspenders alongside
-            # name-token matching above)
-            for pick in picks:
-                for k in ("source_url", "source_url_aggregator"):
-                    u = pick.get(k)
-                    if u:
-                        existing_url_set.add(u)
-                        existing_norm.add(_normalize_url(u))
-            time.sleep(0.5)
+        # Track URLs to prevent next newsletter pulling the same one again
+        for pick in picks:
+            for k in ("source_url", "source_url_aggregator"):
+                u = pick.get(k)
+                if u:
+                    existing_url_set.add(u)
+                    existing_norm.add(_normalize_url(u))
 
         if not all_events:
             print(f"\n  No events accepted for {newsletter['name']}. Skipping save.")
