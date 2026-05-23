@@ -110,7 +110,7 @@ jobs:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
-        run: python "Weekend Events/Code/_shared/eventbrite_apify.py"
+        run: python "Weekend Events/Code/East_Cobb_Connect/eventbrite.py"
 
       - name: Archive past events
         if: ${{ (github.event.inputs.mode || 'both') != 'scrape' }}
