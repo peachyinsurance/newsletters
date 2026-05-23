@@ -52,46 +52,65 @@ jobs:
           python-version: '3.11'
       - run: pip install requests
 
-      - name: Scrape Cobb County events
+      # ── East_Cobb_Connect scrapers ─────────────────────────────────────
+      - name: Scrape travelcobb.org (East Cobb Connect)
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
-        run: python "Weekend Events/Code/ECC/ecc_event_webscraper.py"
+        run: python "Weekend Events/Code/East_Cobb_Connect/travel_cobb.py"
 
-      - name: Scrape Sandy Springs events (ECC_PP — shared pool)
+      - name: Scrape visitmariettaga.com (East Cobb Connect)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
+        run: python "Weekend Events/Code/East_Cobb_Connect/visit_marietta.py"
+
+      - name: Scrape kennesaw-ga.gov (East Cobb Connect)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
+        run: python "Weekend Events/Code/East_Cobb_Connect/kennesaw.py"
+
+      - name: Scrape cobbcounty.gov (East Cobb Connect)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
+        run: python "Weekend Events/Code/East_Cobb_Connect/cobb_county.py"
+
+      - name: Scrape The Battery Atlanta (East Cobb Connect)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
+        run: python "Weekend Events/Code/East_Cobb_Connect/battery_atlanta.py"
+
+      # ── Perimeter_Post scrapers (also feeds ECC via ECC_PP shared tag) ──
+      - name: Scrape visitsandysprings.org (ECC_PP shared)
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  ECC_PP
-        run: python "Weekend Events/Code/ECC_PP/sandy_springs_webscraper.py"
+        run: python "Weekend Events/Code/Perimeter_Post/sandy_springs.py"
 
-      - name: Scrape Eventbrite (via Apify — East Cobb / Marietta)
+      # ── Shared scrapers (multi-newsletter via NEWSLETTER_CONFIGS) ───────
+      - name: Scrape Eventbrite via Apify (multi-newsletter)
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
         env:
           APIFY_API_KEY:               ${{ secrets.APIFY_API_KEY }}
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
-        run: python "Weekend Events/Code/ECC/eventbrite_webscraper.py"
-
-      - name: Scrape Cobb County (cobbcounty.gov)
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
-        env:
-          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
-          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
-          NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
-        run: python "Weekend Events/Code/ECC/cobb_county_webscraper.py"
-
-      - name: Scrape The Battery Atlanta
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
-        env:
-          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
-          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
-          NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
-        run: python "Weekend Events/Code/ECC_PP/battery_atl_webscraper.py"
+        run: python "Weekend Events/Code/_shared/eventbrite_apify.py"
 
       - name: Archive past events
         if: ${{ (github.event.inputs.mode || 'both') != 'scrape' }}
@@ -99,7 +118,7 @@ jobs:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
-        run: python "Weekend Events/Code/ECC/cleanup_past_events.py"
+        run: python "Weekend Events/Code/utilities/cleanup_past_events.py"
 
       # ── Chain entry point ──────────────────────────────────────────────
       # This workflow is now the FIRST step of the Monday rebuild chain:

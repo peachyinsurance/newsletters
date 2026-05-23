@@ -28,8 +28,7 @@ automatically via the keyword 'free' / 'no charge' / etc., so we don't
 do any special tagging here.
 
 Shared helpers (_clean_html, _normalize_title, existing_source_urls,
-save_event, format_dates_human) imported from the sibling
-ecc_event_webscraper module.
+save_event, format_dates_human) imported from _shared/.
 """
 import os
 import re
@@ -39,18 +38,13 @@ from datetime import date, datetime, timedelta
 
 import requests
 
-# Sibling-folder helper imports (same path setup the other ECC-folder
-# scrapers use). NewsletterCreation/Code is on path for event_date_filter.
-sys.path.insert(0, os.path.dirname(__file__))
+# _shared/ holds the cross-newsletter helpers; NewsletterCreation/Code
+# holds the upstream date/image utilities.
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "_shared"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
-from ecc_event_webscraper import (  # noqa: E402
-    _clean_html,
-    _normalize_title,
-    existing_source_urls,
-    save_event,
-    format_dates_human,
-)
+from html_utils  import _clean_html, _normalize_title, format_dates_human  # noqa: E402
+from notion_save import existing_source_urls, save_event  # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
 from event_image_scraper import is_cancelled_event, is_inappropriate_event  # noqa: E402
 

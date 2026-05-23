@@ -51,13 +51,29 @@ jobs:
           pip install requests anthropic beautifulsoup4 curl_cffi Pillow
           sudo apt-get update -qq && sudo apt-get install -y -qq fonts-open-sans || true
       # ── Optional pre-scrape (data_source == 'scrape') ───────────────────
-      - name: Refresh Cobb-County calendars (travelcobb/visitmariettaga/kennesaw)
+      - name: Refresh travelcobb.org
         if: ${{ github.event.inputs.data_source == 'scrape' }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  East_Cobb_Connect
-        run: python "Weekend Events/Code/ECC/ecc_event_webscraper.py"
+        run: python "Weekend Events/Code/East_Cobb_Connect/travel_cobb.py"
+
+      - name: Refresh visitmariettaga.com
+        if: ${{ github.event.inputs.data_source == 'scrape' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  East_Cobb_Connect
+        run: python "Weekend Events/Code/East_Cobb_Connect/visit_marietta.py"
+
+      - name: Refresh kennesaw-ga.gov
+        if: ${{ github.event.inputs.data_source == 'scrape' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  East_Cobb_Connect
+        run: python "Weekend Events/Code/East_Cobb_Connect/kennesaw.py"
 
       - name: Refresh Sandy Springs (ECC_PP shared pool)
         if: ${{ github.event.inputs.data_source == 'scrape' }}
@@ -65,7 +81,7 @@ jobs:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  ECC_PP
-        run: python "Weekend Events/Code/ECC_PP/sandy_springs_webscraper.py"
+        run: python "Weekend Events/Code/Perimeter_Post/sandy_springs.py"
 
       - name: Refresh Eventbrite (via Apify)
         if: ${{ github.event.inputs.data_source == 'scrape' }}
@@ -74,7 +90,7 @@ jobs:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  East_Cobb_Connect
-        run: python "Weekend Events/Code/ECC/eventbrite_webscraper.py"
+        run: python "Weekend Events/Code/_shared/eventbrite_apify.py"
 
       - name: Refresh cobbcounty.gov
         if: ${{ github.event.inputs.data_source == 'scrape' }}
@@ -82,7 +98,7 @@ jobs:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  East_Cobb_Connect
-        run: python "Weekend Events/Code/ECC/cobb_county_webscraper.py"
+        run: python "Weekend Events/Code/East_Cobb_Connect/cobb_county.py"
 
       - name: Refresh The Battery Atlanta
         if: ${{ github.event.inputs.data_source == 'scrape' }}
@@ -90,7 +106,7 @@ jobs:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  East_Cobb_Connect
-        run: python "Weekend Events/Code/ECC_PP/battery_atl_webscraper.py"
+        run: python "Weekend Events/Code/East_Cobb_Connect/battery_atlanta.py"
 
       - name: Generate Weekend Planner
         env:

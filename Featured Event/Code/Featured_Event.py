@@ -4,7 +4,7 @@ Newsletter Automation - Featured Event Section
 
 Pipeline:
   1. Pull upcoming events from the Weekend Events Notion DB (populated by
-     per-newsletter scrapers, e.g. ecc_event_webscraper.py).
+     per-newsletter scrapers in Weekend Events/Code/<Newsletter>/).
   2. Date-window filter: only events whose start_date is between this
      week's upcoming Friday and 14 days later.
   3. Claude pass 1 — title-only: pick the top 10 events by title alone.

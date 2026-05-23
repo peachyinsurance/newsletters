@@ -1,20 +1,30 @@
 #!/usr/bin/env python3
-"""Diagnostic for the travelcobb scraper. Walks the calendar pages the
-same way ecc_event_webscraper.py does, but instead of saving to Notion
-it prints every unique Source URL with its title and every date it
-appears on. Tells you whether the calendar truly has only ~22 events or
-whether something else is going on.
+"""Diagnostic for the Tribe Events scrapers. Walks the calendar pages
+the same way _shared/tribe_events.run_tribe_source does, but instead
+of saving to Notion it prints every unique Source URL with its title
+and every date it appears on. Tells you whether a calendar truly has
+only ~22 events or whether something else is going on.
 
 Usage (from repo root):
     NOTION_API_KEY=... NOTION_WEEKEND_EVENTS_DB_ID=... \\
-    python3 "Weekend Events/Code/ECC/diagnose_calendar.py"
+    python3 "Weekend Events/Code/utilities/diagnose_calendar.py"
 """
 import os
 import sys
 from collections import defaultdict
 
-sys.path.insert(0, os.path.dirname(__file__))
-from ecc_event_webscraper import fetch_page_events, normalize_event, SOURCES
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "_shared"))
+from tribe_events import fetch_page_events, normalize_event  # noqa: E402
+
+# Hardcoded list of Tribe Events sources to diagnose. Mirror whatever
+# per-source wrappers live under East_Cobb_Connect/ (travel_cobb.py,
+# visit_marietta.py, kennesaw.py, battery_atlanta.py).
+SOURCES = [
+    "https://travelcobb.org/cobb-county-events/",
+    "https://visitmariettaga.com/events/",
+    "https://www.kennesaw-ga.gov/events/category/events/",
+    "https://batteryatl.com/events-calendar/",
+]
 
 
 def main() -> int:
@@ -85,7 +95,7 @@ def main() -> int:
     db_id = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
     if db_id:
         try:
-            from ecc_event_webscraper import existing_source_urls
+            from notion_save import existing_source_urls
             existing = existing_source_urls(db_id)
             in_db = {u for u in by_url if u in existing}
             not_in_db = {u for u in by_url if u not in existing}

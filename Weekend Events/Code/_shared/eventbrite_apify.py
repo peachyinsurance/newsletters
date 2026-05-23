@@ -38,15 +38,12 @@ from datetime import date, datetime, timedelta
 import requests
 
 # Sibling-folder import of shared helpers + Notion save.
+# Same-directory imports (this file is in _shared/) plus NewsletterCreation/Code.
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
-from ecc_event_webscraper import (  # noqa: E402
-    _clean_html,
-    _normalize_title,
-    existing_source_urls,
-    save_event,
-)
+from html_utils  import _clean_html, _normalize_title  # noqa: E402
+from notion_save import existing_source_urls, save_event  # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
 from event_image_scraper import (is_cancelled_event,           # noqa: E402
                                  is_inappropriate_event,

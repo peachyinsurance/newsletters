@@ -33,18 +33,13 @@ from urllib.parse import urljoin
 
 import requests
 
-# Pull shared helpers from the sibling ECC scraper module.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "ECC"))
+# _shared/ holds the cross-newsletter helpers; NewsletterCreation/Code
+# holds the upstream date/image utilities.
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "_shared"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
-from ecc_event_webscraper import (  # noqa: E402
-    _clean_html,
-    _parse_iso_date,
-    _normalize_title,
-    existing_source_urls,
-    save_event,
-    format_dates_human,
-)
+from html_utils  import _clean_html, _parse_iso_date, _normalize_title, format_dates_human  # noqa: E402
+from notion_save import existing_source_urls, save_event  # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
 from event_image_scraper import is_cancelled_event, is_inappropriate_event  # noqa: E402
 
