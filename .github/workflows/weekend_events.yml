@@ -63,7 +63,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install requests
+      # curl_cffi: Chrome TLS impersonation for sites that fingerprint
+      # plain Python requests (dunwoody_gov.py needs it; without it the
+      # Vision Internet CMS returns 403).
+      - run: pip install requests curl_cffi
 
       # Each scraper step runs only when the dropdown is "all" or its
       # newsletter. ECC owns Sandy Springs (shared ECC_PP) so the
