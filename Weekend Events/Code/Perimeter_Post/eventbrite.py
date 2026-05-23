@@ -2,8 +2,10 @@
 """Eventbrite via Apify for Perimeter Post.
 Thin wrapper around _shared/eventbrite_apify.run_eventbrite.
 
-Not yet wired into a workflow — flip on when Perimeter Post launches:
-add a step in weekend_events.yml that runs this file."""
+Anchor city is Sandy Springs (PP's main coverage area); allow-list
+spans the broader Perimeter / North-DeKalb belt — Roswell, Dunwoody,
+Chamblee, Brookhaven. Eventbrite's geo filter is loose so a Sandy
+Springs search returns events all the way up I-285 into these cities."""
 import os
 import sys
 
@@ -14,5 +16,11 @@ if __name__ == "__main__":
     sys.exit(run_eventbrite(
         newsletter_tag="Perimeter_Post",
         anchor_city="sandy-springs",
-        allowed_cities={"sandy springs", "dunwoody"},
+        allowed_cities={
+            "sandy springs",
+            "dunwoody",
+            "chamblee",
+            "brookhaven",
+            "roswell",
+        },
     ))

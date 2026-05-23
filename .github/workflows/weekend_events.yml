@@ -134,15 +134,22 @@ jobs:
           NEWSLETTER:                  ECC_PP
         run: python "Weekend Events/Code/Perimeter_Post/roswell_365.py"
 
-      # ── Shared scrapers (multi-newsletter via NEWSLETTER_CONFIGS) ───────
-      - name: Scrape Eventbrite via Apify (multi-newsletter)
+      # ── Per-newsletter Eventbrite (via Apify) ──────────────────────────
+      - name: Scrape Eventbrite via Apify (East Cobb Connect)
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
         env:
           APIFY_API_KEY:               ${{ secrets.APIFY_API_KEY }}
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
-          NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
         run: python "Weekend Events/Code/East_Cobb_Connect/eventbrite.py"
+
+      - name: Scrape Eventbrite via Apify (Perimeter Post)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        env:
+          APIFY_API_KEY:               ${{ secrets.APIFY_API_KEY }}
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+        run: python "Weekend Events/Code/Perimeter_Post/eventbrite.py"
 
       - name: Archive past events
         if: ${{ (github.event.inputs.mode || 'both') != 'scrape' }}
