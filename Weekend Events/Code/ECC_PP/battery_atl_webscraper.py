@@ -35,7 +35,7 @@ from ecc_event_webscraper import (  # noqa: E402
     format_dates_human,
 )
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
-from event_image_scraper import is_cancelled_event  # noqa: E402
+from event_image_scraper import is_cancelled_event, is_inappropriate_event  # noqa: E402
 
 WEEKEND_EVENTS_DB_ID = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
 NEWSLETTER = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
@@ -89,6 +89,9 @@ def main() -> int:
             if not url or not sd or not name:
                 continue
             if is_cancelled_event(name, ev.get("description", "")):
+                continue
+            if is_inappropriate_event(name, ev.get("description", ""),
+                                      ev.get("location", "")):
                 continue
             key = (url, sd.isoformat())
             if key in seen_occurrences:

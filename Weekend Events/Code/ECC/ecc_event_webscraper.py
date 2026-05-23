@@ -50,7 +50,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
 from notion_helper import HEADERS as NOTION_HEADERS, query_database  # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
-from event_image_scraper import is_cancelled_event  # noqa: E402
+from event_image_scraper import is_cancelled_event, is_inappropriate_event  # noqa: E402
 
 NOTION_API_KEY = os.environ["NOTION_API_KEY"]
 WEEKEND_EVENTS_DB_ID = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
@@ -427,6 +427,9 @@ def main() -> int:
                 if not url or not sd or not name:
                     continue
                 if is_cancelled_event(name, ev.get("description", "")):
+                    continue
+                if is_inappropriate_event(name, ev.get("description", ""),
+                                          ev.get("location", "")):
                     continue
                 key = (url, sd.isoformat())
                 if key in seen_occurrences:

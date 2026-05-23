@@ -406,12 +406,14 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
     try:
         sys.path.append(os.path.join(os.path.dirname(__file__),
                                      '..', '..', 'NewsletterCreation', 'Code'))
-        from event_image_scraper import is_cancelled_event
+        from event_image_scraper import is_cancelled_event, is_inappropriate_event
     except Exception:
-        is_cancelled_event = lambda t, d="": False  # noqa: E731
+        is_cancelled_event     = lambda t, d="":          False  # noqa: E731
+        is_inappropriate_event = lambda t, d="", v="":   False  # noqa: E731
 
     out: list[dict] = []
     dropped_cancelled = 0
+    dropped_inappropriate = 0
     for p in pages:
         props = p.get("properties", {})
         title = _rich_text_value(props.get("Event Name")) or _rich_text_value(props.get("Name"))
@@ -426,6 +428,9 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
             continue
         venue   = _rich_text_value(props.get("Location"))
         address = _rich_text_value(props.get("Address"))
+        if is_inappropriate_event(title, description, venue):
+            dropped_inappropriate += 1
+            continue
         # Pre-fill `days` from structured Notion fields. Start with the
         # row's primary Date, then merge any ISO dates parsed out of the
         # `Dates` rich-text field (for recurring events).
@@ -467,10 +472,14 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
     status_label = (f"status={status_equals}" if status_equals
                     else f"status not in {status_excludes}" if status_excludes
                     else "any status")
-    cancel_note = (f", dropped {dropped_cancelled} cancelled"
-                   if dropped_cancelled else "")
+    drop_notes = []
+    if dropped_cancelled:
+        drop_notes.append(f"{dropped_cancelled} cancelled")
+    if dropped_inappropriate:
+        drop_notes.append(f"{dropped_inappropriate} adult/NSFW")
+    drop_note = (", dropped " + ", ".join(drop_notes)) if drop_notes else ""
     print(f"  Notion pool: {len(out)} candidate(s) in window "
-          f"({friday} → {sunday}) for {tags}, {status_label}{cancel_note}")
+          f"({friday} → {sunday}) for {tags}, {status_label}{drop_note}")
     return out
 
 

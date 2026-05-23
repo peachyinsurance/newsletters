@@ -50,6 +50,49 @@ def is_cancelled_event(title: str, description: str = "") -> bool:
     rows already in Notion)."""
     return bool(_CANCEL_RE.search(f"{title or ''} | {description or ''}"))
 
+
+# Adult / NSFW content patterns we never want in a family newsletter.
+# Word-boundary anchored on terms that are unambiguous in event-listing
+# context (a "strip club night" or "burlesque" show). Patterns avoid
+# false positives on benign uses: "stripped" (in "stripped-down acoustic"),
+# "naked" (only matches "naked party" / "naked yoga night"-style phrases
+# isn't worth chasing — we'd rather drop a legit naked-yoga event than
+# ship a stripper show).
+_INAPPROPRIATE_RE = re.compile(
+    r"\b(?:"
+    r"strip[- ]?club|stripper|strippers|stripping[- ]?(?:show|party|night)|"
+    r"exotic[- ]?dancer|gentlemen'?s?[- ]?club|gentleman'?s?[- ]?club|"
+    r"burlesque|"
+    r"nude|topless|"
+    r"fetish|kink|kinky|bdsm|"
+    r"swingers?|swinger[- ]?(?:party|club|night)|sex[- ]?party|"
+    r"orgy|orgies|"
+    r"adult[- ]?(?:only|entertainment|event)|adults[- ]?only|"
+    r"xxx|x-rated|"
+    r"playboy[- ]?(?:party|night|club)|"
+    r"lingerie[- ]?(?:party|show|night)|"
+    r"pole[- ]?dance(?:r|ing)?|"
+    r"escort[- ]?(?:service|agency)|sugar[- ]?(?:baby|daddy)|"
+    r"hookup|hookups"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def is_inappropriate_event(title: str, description: str = "",
+                           venue: str = "") -> bool:
+    """True if the event reads as adult / NSFW for a family newsletter.
+    Scans title + description + venue against a curated blocklist of
+    unambiguous markers (strip club, fetish, etc.). Pole dance fitness
+    classes get caught — that's an acceptable false positive vs. the
+    risk of shipping an explicit event.
+
+    Called from the weekend-events scrapers (pre-save) and the Weekend
+    Planner pool fetcher (pre-Claude). Claude no longer filters events,
+    so this filter has to be airtight at the data layer."""
+    haystack = f"{title or ''} | {description or ''} | {venue or ''}"
+    return bool(_INAPPROPRIATE_RE.search(haystack))
+
 # Affiliate CDNs / generic icons / tracking pixels we never want to
 # pick up as a hero image.
 SKIP_TOKENS = (

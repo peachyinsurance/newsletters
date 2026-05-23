@@ -52,7 +52,7 @@ from ecc_event_webscraper import (  # noqa: E402
     format_dates_human,
 )
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
-from event_image_scraper import is_cancelled_event  # noqa: E402
+from event_image_scraper import is_cancelled_event, is_inappropriate_event  # noqa: E402
 
 WEEKEND_EVENTS_DB_ID = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
 NEWSLETTER = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
@@ -175,6 +175,8 @@ def normalize_event(api_ev: dict) -> dict | None:
     end   = _parse_iso((api_ev.get("endDate")   or {}).get("time", ""))
     location_name = _clean_html((api_ev.get("location") or {}).get("title") or "")
     address       = _build_address(api_ev.get("eventAddress") or {})
+    if is_inappropriate_event(title, description, location_name):
+        return None
     time_str      = _format_time_range(
         (api_ev.get("startDate") or {}).get("time", ""),
         (api_ev.get("endDate")   or {}).get("time", ""),

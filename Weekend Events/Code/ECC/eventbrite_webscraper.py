@@ -35,7 +35,9 @@ from ecc_event_webscraper import (  # noqa: E402
     save_event,
 )
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
-from event_image_scraper import is_cancelled_event, backfill_images  # noqa: E402
+from event_image_scraper import (is_cancelled_event,  # noqa: E402
+                                 is_inappropriate_event,
+                                 backfill_images)
 
 APIFY_API_KEY        = os.environ.get("APIFY_API_KEY", "")
 WEEKEND_EVENTS_DB_ID = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
@@ -46,7 +48,14 @@ ACTOR_ID    = "aitorsm~eventbrite"   # tilde-form for the API path
 COUNTRY     = "united-states"
 CITY        = "marietta"             # passed to Apify; Eventbrite resolves loosely
 MAX_PAGES   = 3                      # caps cost (Apify charges $0.02/event)
-END_WINDOW_DAYS = 14
+
+# Eventbrite-only: target THIS coming weekend (Fri-Sun), not the broader
+# 14-day window the other scrapers use. Eventbrite events are mostly
+# one-off (no recurring-event aggregation like cobbcounty.gov), and the
+# user wants tight scope here to (a) cut cost and (b) keep the pool
+# focused on the Weekend Planner's actual target window. Saturday and
+# Sunday are upcoming_friday + 1 and + 2 respectively.
+WINDOW_END_OFFSET_DAYS = 2
 
 # Post-fetch city allow-list. Eventbrite's "marietta" search returns
 # events from Atlanta, Kennesaw, Powder Springs, etc. — we keep only
@@ -138,6 +147,11 @@ def normalize_event(item: dict) -> dict | None:
                                          "fullDescription", "shortDescription"))[:2000]
     if is_cancelled_event(name, description):
         return None
+    # Surface adult / NSFW events for the family newsletter — Claude no
+    # longer rejects, so this is the only place these get filtered out.
+    venue_str = _first_str(item.get("venue") or {}, "name") if isinstance(item.get("venue"), dict) else ""
+    if is_inappropriate_event(name, description, venue_str):
+        return None
 
     # Dates — Apify items typically expose startDate / endDate ISO strings.
     # Some shapes nest under "dates" or "schedule".
@@ -220,14 +234,14 @@ def main() -> int:
 
     today = date.today()
     start = _upcoming_friday(today)
-    end   = start + timedelta(days=END_WINDOW_DAYS)
+    end   = start + timedelta(days=WINDOW_END_OFFSET_DAYS)  # Sunday of target weekend
 
     print("Eventbrite scraper (via Apify)")
     print(f"  → Actor:        {ACTOR_ID}")
     print(f"  → City search:  {CITY}  (then filtered to {sorted(ALLOWED_CITIES)})")
     print(f"  → Notion DB:    {WEEKEND_EVENTS_DB_ID[:8]}…")
     print(f"  → Newsletter:   {NEWSLETTER}")
-    print(f"  → Date window:  {start} → {end}")
+    print(f"  → Date window:  {start} → {end}  (target weekend Fri-Sun only)")
     print()
 
     existing = existing_source_urls(WEEKEND_EVENTS_DB_ID)
@@ -239,7 +253,7 @@ def main() -> int:
 
     candidates: list[dict] = []
     skipped_city    = 0
-    skipped_no_data = 0
+    skipped_no_data = 0   # missing name/url OR caught by is_cancelled/is_inappropriate
     skipped_dup     = 0
     seen_urls: set[str] = set()
     for raw in raw_events:
@@ -258,6 +272,10 @@ def main() -> int:
             skipped_city += 1
             continue
         candidates.append(ev)
+    print(f"  Filtered: {len(candidates)} keep, "
+          f"{skipped_city} wrong city, "
+          f"{skipped_dup} duplicate URL, "
+          f"{skipped_no_data} unparseable / cancelled / inappropriate")
 
     # Some Apify items may arrive without an image; backfill from the
     # event detail page (og:image / JSON-LD). Concurrent so latency cost
