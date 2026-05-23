@@ -1,5 +1,11 @@
 name: Scrape Weekend Events
 
+# Free scrapers only — every step in this workflow is a direct HTTP
+# fetch with no per-event cost. Paid Eventbrite passes live in the
+# separate `Scrape Eventbrite (Apify, paid)` workflow so the two
+# pricing tiers stay clearly distinct. To do a "full" refresh, trigger
+# both workflows (this one + the Eventbrite one).
+
 on:
   # schedule:  # ── PAUSED for the week. Uncomment to resume auto-runs. ──
   #   # Mondays at 7am ET (11am UTC) — well ahead of Friday's newsletter
@@ -131,16 +137,6 @@ jobs:
           NEWSLETTER:                  ECC_PP
         run: python "Weekend Events/Code/Perimeter_Post/sandy_springs.py"
 
-      - name: Scrape Eventbrite via Apify (East Cobb Connect)
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
-             && contains(fromJson('["all","East_Cobb_Connect"]'),
-                         github.event.inputs.newsletter || 'all') }}
-        env:
-          APIFY_API_KEY:               ${{ secrets.APIFY_API_KEY }}
-          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
-          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
-        run: python "Weekend Events/Code/East_Cobb_Connect/eventbrite.py"
-
       # ── PP group ───────────────────────────────────────────────────────
       - name: Scrape discoverdunwoody.com (Perimeter Post)
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
@@ -182,15 +178,10 @@ jobs:
           NEWSLETTER:                  ECC_PP
         run: python "Weekend Events/Code/Perimeter_Post/roswell_365.py"
 
-      - name: Scrape Eventbrite via Apify (Perimeter Post)
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
-             && contains(fromJson('["all","Perimeter_Post"]'),
-                         github.event.inputs.newsletter || 'all') }}
-        env:
-          APIFY_API_KEY:               ${{ secrets.APIFY_API_KEY }}
-          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
-          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
-        run: python "Weekend Events/Code/Perimeter_Post/eventbrite.py"
+      # NOTE: paid Eventbrite scrapers used to live here. They've moved
+      # to the dedicated `Scrape Eventbrite (Apify, paid)` workflow so
+      # this workflow stays free / no-cost. Trigger that one separately
+      # to refresh Eventbrite for any newsletter.
 
       # ── Post-scrape sweep: retag shared-city rows ──────────────────────
       # After all scrapers run, flip rows whose venue City matches a
