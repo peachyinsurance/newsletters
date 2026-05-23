@@ -1,277 +1,209 @@
 #!/usr/bin/env python3
-"""Scrape Eventbrite's East-Cobb / Marietta listings for upcoming
-events and save them to the Weekend Events Notion DB tagged
-East_Cobb_Connect.
+"""Eventbrite scraper — via Apify's aitorsm/eventbrite actor.
 
-We walk six category-scoped result pages — each filters Eventbrite's
-catalog to one interest area so generic noise (yoga drop-ins, pricing
-seminars, etc.) doesn't drown out real local events:
+Replaces the prior direct HTML scrape which started returning HTTP 405
+from Eventbrite's bot detection on GitHub Actions data-center IPs (the
+same URLs return 200 fine from a residential IP). curl_cffi with
+Chrome TLS impersonation didn't reliably break the block.
 
-    https://www.eventbrite.com/d/ga--marietta/{CATEGORY}/east-cobb/
-        ?page=N&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+Apify runs the scraper on residential proxies, so the IP block goes
+away. Output is upserted into the Weekend Events Notion DB via the
+shared save_event helper (same as the 4 other weekend-events scrapers).
 
-CATEGORY slugs: hobbies--events, charity-and-causes--events,
-sports-and-fitness--events, community--events, performances, networking.
+Cost: aitorsm/eventbrite charges $0.02 per event scraped (pay-per-event
+pricing). With city=marietta, no category filter, and maxPages=3 the
+typical run pulls ~60-150 events ≈ $1.20-$3.00 per scrape. Weekly use
+runs roughly $5-12/month. Tune MAX_PAGES down to cap cost.
 
-City filter: Eventbrite's geo filter is loose — a "East Cobb" search
-still returns Atlanta, Kennesaw, Powder Springs, Stone Mountain, etc.
-We exclude anything whose venue city isn't Marietta or Sandy Springs
-(case-insensitive). Online-only events (no venue city) are also
-excluded for this reason.
-
-Window: upcoming_friday(today) → +14 days. Sent to Eventbrite directly
-via the URL so we don't paginate through anything outside the window.
-
-Events come from a JSON blob embedded in the HTML:
-
-    window.__SERVER_DATA__ = { … search_data: { events: { results: [...] } } … };
-
-Each result has name, summary, full_description, url, start_date,
-start_time, end_date, end_time, primary_venue (with address), image,
-is_cancelled, is_online_event. Cancelled events are skipped.
-
-Shared helpers (_clean_html, _normalize_title, existing_source_urls,
-save_event, format_dates_human) are imported from the sibling
-ecc_event_webscraper module so they stay in sync.
+Set EVENTBRITE_DEBUG=1 to dump the first raw item — useful first time
+the actor schema changes and we need to re-map field names.
 """
-import os
-import re
-import sys
 import json
-import time
+import os
+import sys
 from datetime import date, datetime, timedelta
 
 import requests
 
-# Sibling-folder import of shared helpers from the travelcobb/visitmariettaga
-# scraper. Same NewsletterCreation/Code path for the Notion helper +
-# upcoming_friday.
+# Sibling-folder import of shared helpers + Notion save.
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
 from ecc_event_webscraper import (  # noqa: E402
     _clean_html,
-    _normalize_title,
     existing_source_urls,
     save_event,
-    format_dates_human,
 )
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
-from event_image_scraper import is_cancelled_event  # noqa: E402
+from event_image_scraper import is_cancelled_event, backfill_images  # noqa: E402
 
+APIFY_API_KEY        = os.environ.get("APIFY_API_KEY", "")
 WEEKEND_EVENTS_DB_ID = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
-NEWSLETTER = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
+NEWSLETTER           = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
+DEBUG                = os.environ.get("EVENTBRITE_DEBUG", "") == "1"
 
-# Category-scoped result pages. Each is one URL of the form
-# /d/{LOCALITY_PREFIX}/{CATEGORY}/{LOCALITY_SUFFIX}/?page=N&start=…&end=…
-LOCALITY_PREFIX = "ga--marietta"
-LOCALITY_SUFFIX = "east-cobb"
-EVENTBRITE_CATEGORIES = [
-    "hobbies--events",
-    "charity-and-causes--events",
-    "sports-and-fitness--events",
-    "community--events",
-    "performances",
-    "networking",
-]
-
-# Venue city allow-list. Eventbrite's geo filter is loose — the East
-# Cobb URL still surfaces Atlanta / Kennesaw / Powder Springs events —
-# so we hard-filter on venue.address.city. Case-insensitive match.
-# "East Cobb" is technically part of Marietta but some venues set their
-# city to "East Cobb" directly, so include it explicitly.
-ALLOWED_CITIES = {"marietta", "sandy springs", "east cobb"}
-
-USER_AGENT      = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+ACTOR_ID    = "aitorsm~eventbrite"   # tilde-form for the API path
+COUNTRY     = "united-states"
+CITY        = "marietta"             # passed to Apify; Eventbrite resolves loosely
+MAX_PAGES   = 3                      # caps cost (Apify charges $0.02/event)
 END_WINDOW_DAYS = 14
-PAGE_SLEEP_SEC      = 0.6   # between paginated requests within a category
-CATEGORY_SLEEP_SEC  = 2.0   # between category transitions (heavier pause)
-# Hard cap on pages walked PER CATEGORY, in case Eventbrite ever returns
-# a bad page_count or we miss the stop signal.
-MAX_PAGES_HARD_CAP = 100
+
+# Post-fetch city allow-list. Eventbrite's "marietta" search returns
+# events from Atlanta, Kennesaw, Powder Springs, etc. — we keep only
+# the ones whose venue city is in our newsletter's coverage area.
+ALLOWED_CITIES = {
+    "marietta", "east cobb", "kennesaw", "smyrna", "vinings",
+    "sandy springs", "dunwoody", "atlanta",
+}
 
 
 # ---------------------------------------------------------------------------
-# HTTP fetch with retry
+# Apify call
 # ---------------------------------------------------------------------------
-def _fetch(url: str) -> str:
-    """Fetch one Eventbrite category page. Uses curl_cffi with Chrome TLS
-    fingerprint impersonation when available — Eventbrite blocks data-center
-    IPs (e.g. GitHub Actions) with HTTP 405 unless the request looks like
-    a real browser at the TLS layer. Falls back to plain `requests` if
-    curl_cffi isn't installed (local dev without it)."""
-    headers = {
-        "User-Agent":      USER_AGENT,
-        "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
+def fetch_events(start: date, end: date) -> list[dict]:
+    """Trigger a sync Apify run and return the dataset items."""
+    payload = {
+        "country":   COUNTRY,
+        "city":      CITY,
+        "category":  "",                       # all categories
+        "startDate": start.isoformat(),
+        "endDate":   end.isoformat(),
+        "maxPages":  MAX_PAGES,
     }
-    # Prefer curl_cffi for browser TLS impersonation
-    cffi_get = None
+    print(f"  Calling Apify actor {ACTOR_ID}")
+    print(f"    city={CITY}, window={start}..{end}, maxPages={MAX_PAGES}")
     try:
-        from curl_cffi import requests as _cffi
-        cffi_get = lambda u: _cffi.get(u, impersonate="chrome120",
-                                       timeout=20, allow_redirects=True)
-    except ImportError:
-        pass
-
-    for attempt in range(3):
-        try:
-            if cffi_get is not None:
-                r = cffi_get(url)
-            else:
-                r = requests.get(url, timeout=20, headers=headers, allow_redirects=True)
-        except Exception as e:
-            print(f"    fetch error (attempt {attempt + 1}/3): {e}")
-            time.sleep(2 * (attempt + 1))
-            continue
-        if r.status_code == 200 and r.text:
-            return r.text
-        # 202/429/503 are transient. 405 is Eventbrite's bot-detection
-        # block — also retryable since the impersonated TLS fingerprint
-        # sometimes gets through on a second attempt.
-        if r.status_code in (202, 405, 429, 503) and attempt < 2:
-            wait = 5 * (attempt + 1)
-            print(f"    HTTP {r.status_code} — retry {attempt + 1}/3 in {wait}s")
-            time.sleep(wait)
-            continue
-        print(f"    HTTP {r.status_code} from {url}")
-        return ""
-    return ""
+        r = requests.post(
+            f"https://api.apify.com/v2/acts/{ACTOR_ID}/run-sync-get-dataset-items",
+            headers={"Authorization": f"Bearer {APIFY_API_KEY}",
+                     "Content-Type":  "application/json"},
+            json=payload, timeout=600,
+        )
+    except Exception as e:
+        print(f"  ✗ Apify request error: {e}")
+        return []
+    if r.status_code not in (200, 201):
+        print(f"  ✗ Apify HTTP {r.status_code}: {r.text[:400]}")
+        return []
+    items = r.json() or []
+    print(f"  Apify returned {len(items)} item(s)")
+    if DEBUG and items:
+        print(f"  [DEBUG] first item keys: {sorted(items[0].keys())}")
+        print(f"  [DEBUG] first item:\n{json.dumps(items[0], indent=2, default=str)[:2000]}")
+    return items
 
 
 # ---------------------------------------------------------------------------
-# Parse the __SERVER_DATA__ JSON blob out of a page's HTML
+# Normalize one Apify event → our standard event dict
 # ---------------------------------------------------------------------------
-_SERVER_DATA_RE = re.compile(
-    r"window\.__SERVER_DATA__\s*=\s*(\{.+?\});\s*\n", re.DOTALL,
-)
-
-
-def _parse_server_data(html: str) -> dict:
-    m = _SERVER_DATA_RE.search(html)
-    if not m:
-        return {}
-    try:
-        return json.loads(m.group(1))
-    except json.JSONDecodeError as e:
-        print(f"    __SERVER_DATA__ parse failed: {e}")
-        return {}
-
-
-def _build_url(category: str, start: date, end: date, page: int) -> str:
-    return (f"https://www.eventbrite.com/d/"
-            f"{LOCALITY_PREFIX}/{category}/{LOCALITY_SUFFIX}/"
-            f"?page={page}&start_date={start.isoformat()}&end_date={end.isoformat()}")
-
-
-def fetch_page(category: str, start: date, end: date,
-               page: int) -> tuple[list[dict], int]:
-    """Return (events_on_page, page_count) for one category's Eventbrite
-    results page. page_count is what Eventbrite reports for that
-    category in this date window."""
-    url = _build_url(category, start, end, page)
-    html = _fetch(url)
-    if not html:
-        return [], 0
-    sd = _parse_server_data(html)
-    if not sd:
-        return [], 0
-    page_count = int(sd.get("page_count", 0) or 0)
-    events = (sd.get("search_data", {}).get("events", {}).get("results", [])) or []
-    return events, page_count
-
-
-# ---------------------------------------------------------------------------
-# Normalize an Eventbrite event dict → our standard event shape
-# ---------------------------------------------------------------------------
-def _venue_fields(venue) -> tuple[str, str, str]:
-    """Return (venue_name, address_display, city) from an Eventbrite
-    primary_venue dict. Empty strings if any field is missing."""
-    if not isinstance(venue, dict):
-        return "", "", ""
-    name = _clean_html(venue.get("name", "") or "")
-    addr = venue.get("address") or {}
-    if not isinstance(addr, dict):
-        return name, "", ""
-    city = (addr.get("city") or "").strip()
-    display = addr.get("localized_address_display", "") or ""
-    if not display:
-        display = ", ".join(p for p in (
-            addr.get("address_1", ""),
-            city,
-            addr.get("region", ""),
-            addr.get("postal_code", ""),
-        ) if p)
-    return name, _clean_html(display), city
-
-
-def _format_time(start_time: str, end_time: str) -> str:
-    """'18:00' + '20:00' → '6:00 PM – 8:00 PM'. Empty inputs return ''."""
-    def _fmt(t: str) -> str:
-        if not t or ":" not in t:
-            return ""
-        try:
-            h, m = (int(x) for x in t.split(":")[:2])
-        except ValueError:
-            return ""
-        suffix = "AM" if h < 12 else "PM"
-        h12 = h % 12 or 12
-        return f"{h12}:{m:02d} {suffix}"
-    s, e = _fmt(start_time), _fmt(end_time)
-    if s and e:
-        return f"{s} – {e}"
-    return s or e
-
-
-def _image_url(image) -> str:
-    if isinstance(image, dict):
-        return image.get("url", "") or ""
-    if isinstance(image, str):
-        return image
-    return ""
-
-
-def _parse_date(s: str) -> date | None:
+def _parse_date(s) -> date | None:
     if not s:
         return None
+    s = str(s)
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).date()
+    except Exception:
+        pass
     try:
         return date.fromisoformat(s[:10])
-    except ValueError:
+    except Exception:
         return None
 
 
-def normalize_event(raw: dict) -> dict | None:
-    """Convert a raw Eventbrite search result into our standard event
-    dict. Returns None if the event is cancelled or missing required
-    fields (url, name, start_date)."""
-    if raw.get("is_cancelled"):
+def _first_str(d: dict, *keys) -> str:
+    """Try each key on `d`; return the first non-empty string value."""
+    for k in keys:
+        v = d.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        if isinstance(v, dict):
+            for inner in ("url", "src", "name", "value"):
+                iv = v.get(inner)
+                if isinstance(iv, str) and iv.strip():
+                    return iv.strip()
+    return ""
+
+
+def normalize_event(item: dict) -> dict | None:
+    """Map an Apify aitorsm/eventbrite item to our standard event dict.
+    Defensive about field names — the actor may rename fields between
+    versions. Returns None if essential fields (name, url) are missing
+    or if the event is marked cancelled."""
+    name = _first_str(item, "name", "title", "eventName")
+    url  = _first_str(item, "url", "eventUrl", "link", "permalink")
+    if not name or not url:
         return None
-    url   = raw.get("url", "") or ""
-    name  = _clean_html(raw.get("name", "") or "")
-    start = _parse_date(raw.get("start_date", ""))
-    if not url or not name or not start:
-        return None
-    end = _parse_date(raw.get("end_date", "")) or start
-    venue_name, address, city = _venue_fields(raw.get("primary_venue"))
-    description = _clean_html(
-        raw.get("full_description") or raw.get("summary") or ""
-    )[:2000]
-    # Text-based check in addition to the structured `is_cancelled` flag —
-    # organizers sometimes update the title/description to mark a
-    # cancellation without flipping the API field.
+
+    description = _clean_html(_first_str(item, "description", "summary",
+                                         "fullDescription", "shortDescription"))[:2000]
     if is_cancelled_event(name, description):
         return None
+
+    # Dates — Apify items typically expose startDate / endDate ISO strings.
+    # Some shapes nest under "dates" or "schedule".
+    start_raw = (_first_str(item, "startDate", "start", "starts", "dateStart")
+                 or (item.get("dates") or {}).get("start")
+                 or (item.get("schedule") or {}).get("start"))
+    end_raw   = (_first_str(item, "endDate", "end", "ends", "dateEnd")
+                 or (item.get("dates") or {}).get("end")
+                 or (item.get("schedule") or {}).get("end"))
+    start = _parse_date(start_raw)
+    end   = _parse_date(end_raw) or start
+
+    # Time — try to extract HH:MM from the start datetime
+    time_str = ""
+    if start_raw and "T" in str(start_raw):
+        try:
+            sdt = datetime.fromisoformat(str(start_raw).replace("Z", "+00:00"))
+            if sdt.hour or sdt.minute:
+                time_str = sdt.strftime("%-I:%M %p")
+                if end_raw and "T" in str(end_raw):
+                    try:
+                        edt = datetime.fromisoformat(str(end_raw).replace("Z", "+00:00"))
+                        if edt.hour or edt.minute:
+                            time_str += " – " + edt.strftime("%-I:%M %p")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    # Venue — could be dict with nested address, or flat strings
+    venue = item.get("venue") or item.get("location") or {}
+    if isinstance(venue, dict):
+        loc_name = _first_str(venue, "name", "title")
+        addr_parts = []
+        for k in ("address", "streetAddress", "address1", "addressLine1"):
+            v = venue.get(k)
+            if isinstance(v, dict):
+                v = _first_str(v, "localizedAddressDisplay", "address1",
+                                  "streetAddress", "line1")
+            if isinstance(v, str) and v.strip() and v.strip() not in addr_parts:
+                addr_parts.append(v.strip())
+        city_str = _first_str(venue, "city", "localityName", "town").lower()
+        region   = _first_str(venue, "region", "state", "stateName")
+        if city_str:
+            addr_parts.append(city_str.title())
+        if region:
+            addr_parts.append(region)
+        address = ", ".join(addr_parts)
+    else:
+        loc_name = str(venue or "")
+        address  = ""
+        city_str = ""
+
+    image = _first_str(item, "image", "imageUrl", "logo", "thumbnail", "imageURL")
+
     return {
         "event_name":  name,
         "description": description,
         "source_url":  url,
-        "image_url":   _image_url(raw.get("image")),
+        "image_url":   image,
         "start_date":  start,
         "end_date":    end,
-        "time":        _format_time(raw.get("start_time", ""), raw.get("end_time", "")),
-        "location":    venue_name,
+        "time":        time_str,
+        "location":    loc_name,
         "address":     address,
-        "city":        city,
+        "city":        city_str,
     }
 
 
@@ -279,6 +211,9 @@ def normalize_event(raw: dict) -> dict | None:
 # Main
 # ---------------------------------------------------------------------------
 def main() -> int:
+    if not APIFY_API_KEY:
+        print("✗ APIFY_API_KEY is not set in env.")
+        return 1
     if not WEEKEND_EVENTS_DB_ID:
         print("✗ NOTION_WEEKEND_EVENTS_DB_ID is not set in env.")
         return 1
@@ -287,114 +222,68 @@ def main() -> int:
     start = _upcoming_friday(today)
     end   = start + timedelta(days=END_WINDOW_DAYS)
 
-    print("Eventbrite scraper")
-    print(f"  → Categories:   {len(EVENTBRITE_CATEGORIES)}  ({', '.join(EVENTBRITE_CATEGORIES)})")
-    print(f"  → City filter:  {sorted(ALLOWED_CITIES)}")
+    print("Eventbrite scraper (via Apify)")
+    print(f"  → Actor:        {ACTOR_ID}")
+    print(f"  → City search:  {CITY}  (then filtered to {sorted(ALLOWED_CITIES)})")
     print(f"  → Notion DB:    {WEEKEND_EVENTS_DB_ID[:8]}…")
     print(f"  → Newsletter:   {NEWSLETTER}")
-    print(f"  → Date filter:  {start} → {end}  (sent to Eventbrite directly)")
+    print(f"  → Date window:  {start} → {end}")
     print()
 
     existing = existing_source_urls(WEEKEND_EVENTS_DB_ID)
     print(f"Dedup: {len(existing)} URLs already in DB\n")
 
-    # Group by normalized title across ALL categories. Eventbrite lists
-    # each occurrence of a recurring event as a separate result with its
-    # own URL and date — same name across them. Grouping on name
-    # collapses them into one Notion row with `all_dates` = every
-    # in-window occurrence.
-    by_name: dict[str, dict] = {}
-    skipped_cancelled = 0
-    skipped_no_data   = 0
-    skipped_city      = 0
+    raw_events = fetch_events(start, end)
+    if not raw_events:
+        return 0
 
-    for cat_idx, category in enumerate(EVENTBRITE_CATEGORIES):
-        if cat_idx > 0:
-            # Cool-down between categories — Eventbrite's rate-limiter
-            # responds with HTTP 405 to burst traffic across categories.
-            time.sleep(CATEGORY_SLEEP_SEC)
-        print(f"━━ category: {category} ━━")
-        events, page_count = fetch_page(category, start, end, 1)
-        if not events and page_count == 0:
-            print(f"  · no events / __SERVER_DATA__ missing — skipping category")
-            print()
+    candidates: list[dict] = []
+    skipped_city    = 0
+    skipped_no_data = 0
+    skipped_dup     = 0
+    seen_urls: set[str] = set()
+    for raw in raw_events:
+        ev = normalize_event(raw)
+        if not ev:
+            skipped_no_data += 1
             continue
-        total_pages = min(page_count or 1, MAX_PAGES_HARD_CAP)
-        if page_count > MAX_PAGES_HARD_CAP:
-            print(f"  ⚠ {page_count} pages reported, capping at {MAX_PAGES_HARD_CAP}")
-        print(f"  Eventbrite reports {page_count} page(s)")
+        if ev["source_url"] in seen_urls:
+            skipped_dup += 1
+            continue
+        seen_urls.add(ev["source_url"])
+        # City filter — only Marietta-area events. Online-only / empty city
+        # is dropped (no venue context to evaluate).
+        city = ev.get("city", "")
+        if not city or city not in ALLOWED_CITIES:
+            skipped_city += 1
+            continue
+        candidates.append(ev)
 
-        for page in range(1, total_pages + 1):
-            if page > 1:
-                time.sleep(PAGE_SLEEP_SEC)
-                events, _ = fetch_page(category, start, end, page)
-                if not events:
-                    print(f"  [page {page}] no events returned — stopping early")
-                    break
-            kept_this_page = 0
-            for raw in events:
-                if raw.get("is_cancelled"):
-                    skipped_cancelled += 1
-                    continue
-                ev = normalize_event(raw)
-                if not ev:
-                    skipped_no_data += 1
-                    continue
-                if (ev.get("city") or "").strip().lower() not in ALLOWED_CITIES:
-                    skipped_city += 1
-                    continue
-                name_key = _normalize_title(ev["event_name"])
-                if not name_key:
-                    continue
-                kept_this_page += 1
-                entry = by_name.get(name_key)
-                if entry is None:
-                    ev["all_dates"] = {ev["start_date"]}
-                    by_name[name_key] = ev
-                else:
-                    entry["all_dates"].add(ev["start_date"])
-                    if ev["start_date"] < entry["start_date"]:
-                        entry["start_date"] = ev["start_date"]
-            print(f"  [page {page}/{total_pages}] {len(events)} events  "
-                  f"({kept_this_page} after city filter)")
-        print()
-
-    candidates = sorted(by_name.values(), key=lambda e: e["start_date"])
-
-    # Backfill: Eventbrite's search API usually returns a CDN image,
-    # but a small number slip through with image=None (private/draft
-    # events, image still uploading, etc.). Scrape each detail page
-    # for an og:image fallback so we don't ship blank cards.
-    import sys as _sys, os as _os
-    _sys.path.append(_os.path.join(_os.path.dirname(__file__), "..", "..",
-                                   "..", "NewsletterCreation", "Code"))
-    from event_image_scraper import backfill_images  # noqa: E402
+    # Some Apify items may arrive without an image; backfill from the
+    # event detail page (og:image / JSON-LD). Concurrent so latency cost
+    # is bounded.
     filled = backfill_images(candidates)
     if filled:
-        print(f"  ↳ Backfilled {filled} image(s) from event detail pages")
+        print(f"  ↳ Backfilled {filled} image(s) from source pages")
 
     inserted = 0
-    updated = 0
-    multi_date = 0
+    updated  = 0
     print(f"━━ Saving {len(candidates)} unique event(s) ━━")
     for ev in candidates:
-        if len(ev.get("all_dates") or {}) > 1:
-            multi_date += 1
         page_id = existing.get(ev["source_url"])
         if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER, page_id=page_id):
-            dates_disp = format_dates_human(ev.get("all_dates") or [])
             label = "↻" if page_id else "✓"
+            disp_date = ev["start_date"] or "no-date"
             if page_id:
                 updated += 1
             else:
                 inserted += 1
-            print(f"  {label} {dates_disp or ev['start_date']}  {ev['event_name'][:60]}  ({ev.get('city','?')})")
+            print(f"  {label} {disp_date}  {ev['event_name'][:60]}  ({ev.get('city','?')})")
     print()
     print(f"✓ Done. Inserted {inserted}, refreshed {updated}, "
           f"{skipped_city} wrong city, "
-          f"{skipped_cancelled} cancelled, "
-          f"{skipped_no_data} unparseable  "
-          f"({multi_date} multi-date event(s))")
+          f"{skipped_dup} duplicates, "
+          f"{skipped_no_data} unparseable")
     return 0
 
 
