@@ -73,7 +73,8 @@ _INAPPROPRIATE_RE = re.compile(
     r"lingerie[- ]?(?:party|show|night)|"
     r"pole[- ]?dance(?:r|ing)?|"
     r"escort[- ]?(?:service|agency)|sugar[- ]?(?:baby|daddy)|"
-    r"hookup|hookups"
+    r"hookup|hookups|"
+    r"hookah"            # tobacco-product events; user-requested exclusion
     r")\b",
     re.IGNORECASE,
 )
