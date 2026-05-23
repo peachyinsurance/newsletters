@@ -1,0 +1,77 @@
+name: Scrape Eventbrite (Apify, paid)
+
+# Targeted Eventbrite refresh. Each per-newsletter Apify run costs
+# roughly $2-3 in actor credits. Manual-only dispatch (no cron) since
+# the cost is non-trivial and these events are also scraped as part of
+# the broader `Scrape Weekend Events` workflow when that runs.
+#
+# Use this workflow when you want to refresh JUST Eventbrite (e.g., a
+# new event got added late in the week and the next full scrape isn't
+# until Monday) without paying for everything else.
+
+on:
+  workflow_dispatch:
+    inputs:
+      newsletter:
+        description: |
+          Which newsletter's Eventbrite pass to run. Each pass costs
+          ~$2-3 in Apify credits. Picking `all` runs every enabled
+          newsletter (~$4-6+). Default is East_Cobb_Connect (one pass,
+          one charge).
+        required: true
+        default: 'East_Cobb_Connect'
+        type: choice
+        options:
+          - 'East_Cobb_Connect'
+          - 'Perimeter_Post'
+          - 'Lewisville_Lake_Lookout'
+          - 'all'
+
+permissions:
+  contents: read
+
+jobs:
+  eventbrite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+
+      - name: Eventbrite — East Cobb Connect (~$2-3)
+        if: ${{ contains(fromJson('["all","East_Cobb_Connect"]'),
+                         github.event.inputs.newsletter) }}
+        env:
+          APIFY_API_KEY:               ${{ secrets.APIFY_API_KEY }}
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+        run: python "Weekend Events/Code/East_Cobb_Connect/eventbrite.py"
+
+      - name: Eventbrite — Perimeter Post (~$2-3)
+        if: ${{ contains(fromJson('["all","Perimeter_Post"]'),
+                         github.event.inputs.newsletter) }}
+        env:
+          APIFY_API_KEY:               ${{ secrets.APIFY_API_KEY }}
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+        run: python "Weekend Events/Code/Perimeter_Post/eventbrite.py"
+
+      - name: Eventbrite — Lewisville Lake Lookout (~$2-3)
+        if: ${{ contains(fromJson('["all","Lewisville_Lake_Lookout"]'),
+                         github.event.inputs.newsletter) }}
+        env:
+          APIFY_API_KEY:               ${{ secrets.APIFY_API_KEY }}
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+        run: python "Weekend Events/Code/Lewisville_Lake_Lookout/eventbrite.py"
+
+      # Post-scrape: any Eventbrite row whose venue city is in a shared
+      # coverage area (e.g. Roswell) flips Newsletter to ECC_PP so both
+      # newsletters' pickers see it. Free — just a Notion query + patch.
+      - name: Normalize city tags (shared-city sweep)
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+        run: python "Weekend Events/Code/utilities/normalize_city_tags.py"
