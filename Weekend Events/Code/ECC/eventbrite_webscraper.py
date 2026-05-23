@@ -1,31 +1,34 @@
 #!/usr/bin/env python3
 """Eventbrite scraper — via Apify's aitorsm/eventbrite actor.
 
-Replaces the prior direct HTML scrape which started returning HTTP 405
-from Eventbrite's bot detection on GitHub Actions data-center IPs.
-Apify runs the scraper on residential proxies, so the IP block goes
-away. Output is upserted into the Weekend Events Notion DB via the
-shared save_event helper.
+Multi-newsletter mode (Pattern B): one file scrapes Eventbrite for
+N newsletters. Each newsletter has its own anchor city (the term
+passed to Apify's Eventbrite search), city allow-list (post-fetch
+venue filter), and Notion newsletter tag (drives downstream WP /
+Featured Event / Free Events queries). See NEWSLETTER_CONFIGS below.
 
-Filtering done at this layer (Claude no longer rejects anything, so
-data has to arrive clean):
-  1. Category allow-list — 7 chosen categories, skip business / spirituality
-     / school-activities / etc. where MLM and recruitment pitches live.
-  2. Date scrub — Eventbrite's date filter is loose (returns past-dated
-     events occasionally); we re-verify start_date is in the target
-     weekend window after Apify returns.
-  3. Price ≤ $50 — best-effort parse of the price field; drop pricier
-     events. Free / unknown-price events are kept.
-  4. City allow-list — only events whose venue city is in our coverage.
-  5. Cancelled / adult-NSFW / hookah filters via the shared
-     is_cancelled_event / is_inappropriate_event helpers.
-  6. Cross-category dedup by (normalized_name, start_date) — Eventbrite
-     tags the same event in multiple categories; we'd otherwise pay 7×
-     and save 7× rows for one event.
+NEWSLETTER env var picks which configs to run:
+  • `all` (or empty) → every config where `enabled=True`
+  • specific tag (e.g. `East_Cobb_Connect`) → just that one config
+  • unknown tag → error, abort
 
-Cost: aitorsm/eventbrite charges $0.02 per event scraped. With 7
-categories × maxPages=1 × ~20 events/cat ≈ 140 events ≈ $2.80 per run.
-Weekly = ~$11/month. Tune MAX_PAGES to trade coverage vs cost.
+Per-newsletter dedup is essential: a shared event scraped under both
+East_Cobb_Connect and Perimeter_Post should land as two rows (one per
+newsletter), not collide and corrupt the first newsletter's row.
+existing_source_urls() is now newsletter-scoped to enforce this.
+
+Filters applied for every config (Claude doesn't reject anything):
+  1. Category allow-list — 7 chosen categories per Apify run.
+  2. Date scrub — Eventbrite's date filter is loose; re-verify in window.
+  3. Price ≤ $50 — best-effort parse; unknown price kept.
+  4. City allow-list — only events whose venue city is in coverage.
+  5. Cancelled / adult-NSFW / hookah via shared helpers.
+  6. Cross-category dedup by (normalized_name, start_date) per config.
+
+Cost (per config): 7 categories × $0.02/event × maxPages=1 ≈ $2-3.
+Running all 3 configs (ECC, PP, LLL) ≈ $6-9 per scrape, weekly ≈
+$25-35/month. Cut by setting `enabled=False` for newsletters you
+haven't launched yet.
 """
 import json
 import os
@@ -56,19 +59,16 @@ DEBUG                = os.environ.get("EVENTBRITE_DEBUG", "") == "1"
 
 ACTOR_ID  = "aitorsm~eventbrite"   # tilde-form for the API path
 COUNTRY   = "united-states"
-CITY      = "marietta"             # passed to Apify; Eventbrite resolves loosely
 MAX_PAGES = 1                      # caps cost — Apify charges $0.02/event
 
 # Eventbrite-only: target THIS coming weekend (Fri-Sun), not the broader
 # 14-day window the other scrapers use.
 WINDOW_END_OFFSET_DAYS = 2
 
-# Allow-list of Eventbrite categories. Single value per Apify run, so
-# this becomes a 7-call loop. Excluded by absence: business / spirituality /
-# school-activities / government / science-and-tech / film-and-media /
-# fashion / home-and-lifestyle / health / auto-boat-and-air / community /
-# family-and-education / travel-and-outdoor / other — most MLM, recruitment,
-# and noise lives in those categories.
+# Category allow-list per Apify run. Excluded by absence: business /
+# spirituality / school-activities / government / science-and-tech /
+# film-and-media / fashion / home-and-lifestyle / health / auto-boat-and-air /
+# community / family-and-education / travel-and-outdoor / other.
 CATEGORIES = [
     "food-and-drink",
     "music",
@@ -79,28 +79,58 @@ CATEGORIES = [
     "holiday",
 ]
 
-# Strict city allow-list for the newsletter's coverage area.
-ALLOWED_CITIES = {"marietta", "east cobb", "sandy springs"}
-
 # Hard ceiling on ticket price (USD). Anything above is dropped at the
 # scrape layer. Free / unknown is kept.
 PRICE_CAP_USD = 50.0
 
 
 # ---------------------------------------------------------------------------
+# Per-newsletter configs. Add / remove / flip `enabled` to scale to new
+# newsletters. Each config drives one full 7-category Apify scrape with
+# its own city anchor, city allow-list, and Notion newsletter tag.
+# ---------------------------------------------------------------------------
+NEWSLETTER_CONFIGS = [
+    {
+        "tag":            "East_Cobb_Connect",
+        "anchor_city":    "marietta",
+        "allowed_cities": {"marietta", "east cobb"},
+        "enabled":        True,
+    },
+    {
+        "tag":            "Perimeter_Post",
+        "anchor_city":    "sandy-springs",
+        "allowed_cities": {"sandy springs", "dunwoody"},
+        # Flip to True when the Perimeter Post newsletter launches.
+        "enabled":        False,
+    },
+    {
+        "tag":            "Lewisville_Lake_Lookout",
+        "anchor_city":    "lewisville",
+        "allowed_cities": {
+            "lewisville", "flower mound", "highland village",
+            "lake dallas", "little elm", "the colony",
+        },
+        # Flip to True when the LLL newsletter launches.
+        "enabled":        False,
+    },
+]
+
+
+# ---------------------------------------------------------------------------
 # Apify call (one per category)
 # ---------------------------------------------------------------------------
-def fetch_category(category: str, start: date, end: date) -> list[dict]:
-    """Trigger an Apify sync run for one category. Returns raw items."""
+def fetch_category(anchor_city: str, category: str,
+                   start: date, end: date) -> list[dict]:
+    """Trigger an Apify sync run for one (anchor_city, category)."""
     payload = {
         "country":   COUNTRY,
-        "city":      CITY,
+        "city":      anchor_city,
         "category":  category,
         "startDate": start.isoformat(),
         "endDate":   end.isoformat(),
         "maxPages":  MAX_PAGES,
     }
-    print(f"  Apify run: city={CITY}, category={category!r}, "
+    print(f"  Apify run: city={anchor_city}, category={category!r}, "
           f"window={start}..{end}, maxPages={MAX_PAGES}")
     try:
         r = requests.post(
@@ -283,48 +313,39 @@ def normalize_event(item: dict) -> dict | None:
         "location":    loc_name,
         "address":     address,
         "city":        city_str,
-        "price_usd":   price,   # None when unknown
+        "price_usd":   price,
     }
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Per-config scrape
 # ---------------------------------------------------------------------------
-def main() -> int:
-    if not APIFY_API_KEY:
-        print("✗ APIFY_API_KEY is not set in env.")
-        return 1
-    if not WEEKEND_EVENTS_DB_ID:
-        print("✗ NOTION_WEEKEND_EVENTS_DB_ID is not set in env.")
-        return 1
+def scrape_for_config(cfg: dict, start: date, end: date) -> None:
+    """Run one newsletter config end-to-end: 7-category Apify loop,
+    filter pipeline, upsert to Notion under cfg['tag']."""
+    tag           = cfg["tag"]
+    anchor_city   = cfg["anchor_city"]
+    allowed_cities = cfg["allowed_cities"]
 
-    today = date.today()
-    start = _upcoming_friday(today)
-    end   = start + timedelta(days=WINDOW_END_OFFSET_DAYS)
+    print(f"\n{'='*70}")
+    print(f"= Newsletter: {tag}")
+    print(f"= Anchor city (Apify search): {anchor_city}")
+    print(f"= City allow-list: {sorted(allowed_cities)}")
+    print(f"{'='*70}")
 
-    print("Eventbrite scraper (via Apify)")
-    print(f"  → Actor:        {ACTOR_ID}")
-    print(f"  → City search:  {CITY}  (then filtered to {sorted(ALLOWED_CITIES)})")
-    print(f"  → Categories:   {len(CATEGORIES)}  ({', '.join(CATEGORIES)})")
-    print(f"  → Price cap:    ${PRICE_CAP_USD:.0f}")
-    print(f"  → Notion DB:    {WEEKEND_EVENTS_DB_ID[:8]}…")
-    print(f"  → Newsletter:   {NEWSLETTER}")
-    print(f"  → Date window:  {start} → {end}  (target weekend Fri-Sun only)")
-    print()
-
-    existing = existing_source_urls(WEEKEND_EVENTS_DB_ID)
-    print(f"Dedup vs Notion: {len(existing)} URLs already in DB\n")
+    existing = existing_source_urls(WEEKEND_EVENTS_DB_ID, newsletter=tag)
+    print(f"  Dedup vs Notion ({tag}): {len(existing)} URLs already saved\n")
 
     # Pull all categories, accumulate raw items.
     all_raw: list[dict] = []
     for cat in CATEGORIES:
-        all_raw.extend(fetch_category(cat, start, end))
+        all_raw.extend(fetch_category(anchor_city, cat, start, end))
     print(f"\n  Total raw items across {len(CATEGORIES)} categories: {len(all_raw)}")
 
     # Filter pipeline. Counters surface in the run log so it's obvious
     # which filter is dropping events.
     seen_urls:      set[str] = set()
-    seen_name_keys: set[tuple[str, str]] = set()   # (normalized_name, iso_date)
+    seen_name_keys: set[tuple[str, str]] = set()
     candidates: list[dict] = []
 
     skipped_no_data  = 0
@@ -340,15 +361,11 @@ def main() -> int:
             skipped_no_data += 1
             continue
 
-        # Cross-category URL dedup
         if ev["source_url"] in seen_urls:
             skipped_dup_url += 1
             continue
         seen_urls.add(ev["source_url"])
 
-        # Cross-category name+date dedup. Same event in two categories with
-        # slightly different URLs gets collapsed; same event on a different
-        # day still gets its own row (multi-day events keep both occurrences).
         name_key = _normalize_title(ev["event_name"])
         date_key = ev["start_date"].isoformat() if ev["start_date"] else ""
         nd_key = (name_key, date_key)
@@ -358,27 +375,23 @@ def main() -> int:
         if name_key:
             seen_name_keys.add(nd_key)
 
-        # Date scrub — Eventbrite's date filter is loose; re-verify
-        # actual start_date is inside the target weekend window.
         sd = ev["start_date"]
         if not sd or sd < start or sd > end:
             skipped_date += 1
             continue
 
-        # Price scrub — drop above cap. Unknown price (None) is kept.
         if ev["price_usd"] is not None and ev["price_usd"] > PRICE_CAP_USD:
             skipped_price += 1
             continue
 
-        # City filter — strict allow-list. Online-only / empty city dropped.
         city = ev.get("city", "")
-        if not city or city not in ALLOWED_CITIES:
+        if not city or city not in allowed_cities:
             skipped_city += 1
             continue
 
         candidates.append(ev)
 
-    print(f"\n  Filtered to {len(candidates)} keep:")
+    print(f"\n  Filtered to {len(candidates)} keep for {tag}:")
     print(f"    {skipped_dup_url:>3} dropped — duplicate URL across categories")
     print(f"    {skipped_dup_name:>3} dropped — duplicate (name, date) across categories")
     print(f"    {skipped_date:>3} dropped — out-of-window date (Eventbrite filter slop)")
@@ -386,17 +399,16 @@ def main() -> int:
     print(f"    {skipped_city:>3} dropped — venue city not in allow-list")
     print(f"    {skipped_no_data:>3} dropped — unparseable / cancelled / adult-NSFW")
 
-    # Backfill images for events Apify didn't return one for.
     filled = backfill_images(candidates)
     if filled:
         print(f"\n  ↳ Backfilled {filled} image(s) from source pages")
 
     inserted = 0
     updated  = 0
-    print(f"\n━━ Saving {len(candidates)} unique event(s) ━━")
+    print(f"\n━━ Saving {len(candidates)} unique event(s) for {tag} ━━")
     for ev in candidates:
         page_id = existing.get(ev["source_url"])
-        if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER, page_id=page_id):
+        if save_event(WEEKEND_EVENTS_DB_ID, ev, tag, page_id=page_id):
             label = "↻" if page_id else "✓"
             if page_id:
                 updated += 1
@@ -405,8 +417,60 @@ def main() -> int:
             price_disp = (f" ${ev['price_usd']:.0f}" if ev["price_usd"] else "")
             print(f"  {label} {ev['start_date']}  {ev['event_name'][:55]:55s}"
                   f"  ({ev.get('city','?')}){price_disp}")
-    print()
-    print(f"✓ Done. Inserted {inserted}, refreshed {updated}")
+    print(f"\n  ✓ {tag}: inserted {inserted}, refreshed {updated}")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+def _select_configs(requested: str) -> list[dict]:
+    """Pick which NEWSLETTER_CONFIGS entries to run based on NEWSLETTER env.
+    `all` or empty → every enabled config. A specific tag → just that
+    config (whether enabled or not — manual override). Unknown → empty."""
+    r = (requested or "").strip().lower()
+    if r in ("", "all"):
+        return [c for c in NEWSLETTER_CONFIGS if c.get("enabled", True)]
+    matches = [c for c in NEWSLETTER_CONFIGS
+               if c["tag"].lower() == r]
+    return matches
+
+
+def main() -> int:
+    if not APIFY_API_KEY:
+        print("✗ APIFY_API_KEY is not set in env.")
+        return 1
+    if not WEEKEND_EVENTS_DB_ID:
+        print("✗ NOTION_WEEKEND_EVENTS_DB_ID is not set in env.")
+        return 1
+
+    configs = _select_configs(NEWSLETTER)
+    if not configs:
+        avail = [c["tag"] for c in NEWSLETTER_CONFIGS]
+        print(f"✗ NEWSLETTER={NEWSLETTER!r} doesn't match any config. "
+              f"Available: {avail}. Use 'all' to run every enabled config.")
+        return 1
+
+    today = date.today()
+    start = _upcoming_friday(today)
+    end   = start + timedelta(days=WINDOW_END_OFFSET_DAYS)
+
+    print("Eventbrite scraper (via Apify) — multi-newsletter mode")
+    print(f"  → Actor:        {ACTOR_ID}")
+    print(f"  → Date window:  {start} → {end}  (target weekend Fri-Sun only)")
+    print(f"  → Categories:   {len(CATEGORIES)}  ({', '.join(CATEGORIES)})")
+    print(f"  → Price cap:    ${PRICE_CAP_USD:.0f}")
+    print(f"  → Notion DB:    {WEEKEND_EVENTS_DB_ID[:8]}…")
+    print(f"  → Running {len(configs)} newsletter config(s): "
+          f"{[c['tag'] for c in configs]}")
+
+    for cfg in configs:
+        try:
+            scrape_for_config(cfg, start, end)
+        except Exception as e:
+            print(f"\n  ✗ {cfg['tag']} scrape failed: {e}")
+            # Continue with the next config rather than aborting the run.
+
+    print("\nAll requested newsletter configs complete.")
     return 0
 
 

@@ -260,12 +260,24 @@ def normalize_event(ev: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Notion save
 # ---------------------------------------------------------------------------
-def existing_source_urls(db_id: str) -> dict[str, str]:
-    """Return mapping of Source URL → Notion page_id for every row in the
-    DB. Callers can still use `url in dict` for membership tests, and
-    now also have the page_id for upserting recurring-event content
-    (Dates field, refreshed Description / Image URL, etc.) on re-scrape."""
-    pages = query_database(db_id) or []
+def existing_source_urls(db_id: str,
+                         newsletter: str | None = None) -> dict[str, str]:
+    """Return mapping of Source URL → Notion page_id for rows in the
+    Weekend Events DB. Callers can use `url in dict` for membership
+    tests AND get the page_id for upserting recurring-event content
+    (Dates field, refreshed Description / Image URL, etc.) on re-scrape.
+
+    `newsletter` scopes the lookup to rows tagged with that newsletter.
+    Crucial for the Apify Eventbrite scraper's multi-newsletter mode
+    (Pattern B) — without scoping, an East_Cobb_Connect run that
+    encounters a URL already saved under Perimeter_Post would update
+    the PP row in place, corrupting cross-newsletter state. Defaults
+    to None (all newsletters) for the per-source scrapers that only
+    serve one newsletter each."""
+    filters = None
+    if newsletter:
+        filters = {"property": "Newsletter", "select": {"equals": newsletter}}
+    pages = query_database(db_id, filters=filters) or []
     out: dict[str, str] = {}
     for p in pages:
         url = (p.get("properties", {}).get("Source URL", {}).get("url") or "").strip()
