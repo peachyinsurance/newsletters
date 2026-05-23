@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""visitsandysprings.org Simpleview Tempest scraper.
+"""visitroswellga.com Simpleview Tempest scraper.
 Thin wrapper around _shared/simpleview_tempest.run_simpleview_tempest.
 
-Tag: ECC_PP (shared) — Sandy Springs events appear in both East Cobb
-Connect and Perimeter Post via the existing _SHARED_NEWSLETTER_TAGS
-mapping. East Cobb readers do drive south for Sandy Springs venues."""
+Tag: ECC_PP (shared) — Roswell events appear in both East Cobb
+Connect and Perimeter Post. Roswell sits between the two coverage
+areas and either newsletter's readers might drive there."""
 import os
 import sys
 
@@ -13,6 +13,6 @@ from simpleview_tempest import run_simpleview_tempest  # noqa: E402
 
 if __name__ == "__main__":
     sys.exit(run_simpleview_tempest(
-        sitemap_url="https://www.visitsandysprings.org/sitemaps-1-event-default-1-sitemap.xml",
+        sitemap_url="https://www.visitroswellga.com/sitemaps-1-event-default-1-sitemap.xml",
         newsletter=os.environ.get("NEWSLETTER", "ECC_PP"),
     ))

@@ -86,6 +86,38 @@ jobs:
           NEWSLETTER:                  ECC_PP
         run: python "Weekend Events/Code/Perimeter_Post/sandy_springs.py"
 
+      - name: Refresh discoverdunwoody.com (Perimeter Post)
+        if: ${{ github.event.inputs.data_source == 'scrape' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  Perimeter_Post
+        run: python "Weekend Events/Code/Perimeter_Post/discover_dunwoody.py"
+
+      - name: Refresh dunwoodyga.gov calendar (Perimeter Post)
+        if: ${{ github.event.inputs.data_source == 'scrape' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  Perimeter_Post
+        run: python "Weekend Events/Code/Perimeter_Post/dunwoody_gov.py"
+
+      - name: Refresh visitroswellga.com (ECC_PP shared)
+        if: ${{ github.event.inputs.data_source == 'scrape' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ECC_PP
+        run: python "Weekend Events/Code/Perimeter_Post/visit_roswell.py"
+
+      - name: Refresh roswell365.com (ECC_PP shared)
+        if: ${{ github.event.inputs.data_source == 'scrape' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ECC_PP
+        run: python "Weekend Events/Code/Perimeter_Post/roswell_365.py"
+
       - name: Refresh Eventbrite (via Apify)
         if: ${{ github.event.inputs.data_source == 'scrape' }}
         env:

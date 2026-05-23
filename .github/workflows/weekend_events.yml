@@ -93,7 +93,7 @@ jobs:
           NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
         run: python "Weekend Events/Code/East_Cobb_Connect/battery_atlanta.py"
 
-      # ── Perimeter_Post scrapers (also feeds ECC via ECC_PP shared tag) ──
+      # ── Perimeter_Post scrapers ─────────────────────────────────────────
       - name: Scrape visitsandysprings.org (ECC_PP shared)
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
         env:
@@ -101,6 +101,38 @@ jobs:
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  ECC_PP
         run: python "Weekend Events/Code/Perimeter_Post/sandy_springs.py"
+
+      - name: Scrape discoverdunwoody.com (Perimeter Post)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  Perimeter_Post
+        run: python "Weekend Events/Code/Perimeter_Post/discover_dunwoody.py"
+
+      - name: Scrape dunwoodyga.gov city calendar (Perimeter Post)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  Perimeter_Post
+        run: python "Weekend Events/Code/Perimeter_Post/dunwoody_gov.py"
+
+      - name: Scrape visitroswellga.com (ECC_PP shared)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ECC_PP
+        run: python "Weekend Events/Code/Perimeter_Post/visit_roswell.py"
+
+      - name: Scrape roswell365.com (ECC_PP shared)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ECC_PP
+        run: python "Weekend Events/Code/Perimeter_Post/roswell_365.py"
 
       # ── Shared scrapers (multi-newsletter via NEWSLETTER_CONFIGS) ───────
       - name: Scrape Eventbrite via Apify (multi-newsletter)
