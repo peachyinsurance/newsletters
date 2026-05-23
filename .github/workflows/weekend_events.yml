@@ -59,9 +59,22 @@ jobs:
           python-version: '3.11'
       - run: pip install requests
 
-      # ── East_Cobb_Connect scrapers ─────────────────────────────────────
+      # Each scraper step runs only when the dropdown is "all" or its
+      # newsletter. ECC owns Sandy Springs (shared ECC_PP) so the
+      # Sandy Springs scrape rides with the ECC group; PP owns Roswell
+      # so both Roswell scrapers ride with the PP group. The shared
+      # rows still tag ECC_PP and show in both newsletters' pickers —
+      # only the *scrape work* is split here.
+      #
+      # YAML helpers: `mode != cleanup` keeps the scraper off when only
+      # archive is requested; `contains(fromJson(...))` matches the
+      # dropdown against the group's allow-list.
+
+      # ── ECC group ──────────────────────────────────────────────────────
       - name: Scrape travelcobb.org (East Cobb Connect)
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","East_Cobb_Connect"]'),
+                         github.event.inputs.newsletter || 'all') }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
@@ -69,7 +82,9 @@ jobs:
         run: python "Weekend Events/Code/East_Cobb_Connect/travel_cobb.py"
 
       - name: Scrape visitmariettaga.com (East Cobb Connect)
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","East_Cobb_Connect"]'),
+                         github.event.inputs.newsletter || 'all') }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
@@ -77,7 +92,9 @@ jobs:
         run: python "Weekend Events/Code/East_Cobb_Connect/visit_marietta.py"
 
       - name: Scrape kennesaw-ga.gov (East Cobb Connect)
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","East_Cobb_Connect"]'),
+                         github.event.inputs.newsletter || 'all') }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
@@ -85,7 +102,9 @@ jobs:
         run: python "Weekend Events/Code/East_Cobb_Connect/kennesaw.py"
 
       - name: Scrape cobbcounty.gov (East Cobb Connect)
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","East_Cobb_Connect"]'),
+                         github.event.inputs.newsletter || 'all') }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
@@ -93,24 +112,40 @@ jobs:
         run: python "Weekend Events/Code/East_Cobb_Connect/cobb_county.py"
 
       - name: Scrape The Battery Atlanta (East Cobb Connect)
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","East_Cobb_Connect"]'),
+                         github.event.inputs.newsletter || 'all') }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  East_Cobb_Connect
         run: python "Weekend Events/Code/East_Cobb_Connect/battery_atlanta.py"
 
-      # ── Perimeter_Post scrapers ─────────────────────────────────────────
-      - name: Scrape visitsandysprings.org (ECC_PP shared)
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+      - name: Scrape visitsandysprings.org (ECC_PP shared — runs with ECC)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","East_Cobb_Connect"]'),
+                         github.event.inputs.newsletter || 'all') }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  ECC_PP
         run: python "Weekend Events/Code/Perimeter_Post/sandy_springs.py"
 
+      - name: Scrape Eventbrite via Apify (East Cobb Connect)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","East_Cobb_Connect"]'),
+                         github.event.inputs.newsletter || 'all') }}
+        env:
+          APIFY_API_KEY:               ${{ secrets.APIFY_API_KEY }}
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+        run: python "Weekend Events/Code/East_Cobb_Connect/eventbrite.py"
+
+      # ── PP group ───────────────────────────────────────────────────────
       - name: Scrape discoverdunwoody.com (Perimeter Post)
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","Perimeter_Post"]'),
+                         github.event.inputs.newsletter || 'all') }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
@@ -118,40 +153,39 @@ jobs:
         run: python "Weekend Events/Code/Perimeter_Post/discover_dunwoody.py"
 
       - name: Scrape dunwoodyga.gov city calendar (Perimeter Post)
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","Perimeter_Post"]'),
+                         github.event.inputs.newsletter || 'all') }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  Perimeter_Post
         run: python "Weekend Events/Code/Perimeter_Post/dunwoody_gov.py"
 
-      - name: Scrape visitroswellga.com (ECC_PP shared)
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+      - name: Scrape visitroswellga.com (ECC_PP shared — runs with PP)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","Perimeter_Post"]'),
+                         github.event.inputs.newsletter || 'all') }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  ECC_PP
         run: python "Weekend Events/Code/Perimeter_Post/visit_roswell.py"
 
-      - name: Scrape roswell365.com (ECC_PP shared)
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+      - name: Scrape roswell365.com (ECC_PP shared — runs with PP)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","Perimeter_Post"]'),
+                         github.event.inputs.newsletter || 'all') }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  ECC_PP
         run: python "Weekend Events/Code/Perimeter_Post/roswell_365.py"
 
-      # ── Per-newsletter Eventbrite (via Apify) ──────────────────────────
-      - name: Scrape Eventbrite via Apify (East Cobb Connect)
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
-        env:
-          APIFY_API_KEY:               ${{ secrets.APIFY_API_KEY }}
-          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
-          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
-        run: python "Weekend Events/Code/East_Cobb_Connect/eventbrite.py"
-
       - name: Scrape Eventbrite via Apify (Perimeter Post)
-        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","Perimeter_Post"]'),
+                         github.event.inputs.newsletter || 'all') }}
         env:
           APIFY_API_KEY:               ${{ secrets.APIFY_API_KEY }}
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
