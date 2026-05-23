@@ -145,6 +145,14 @@ jobs:
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  East_Cobb_Connect
         run: python "Weekend Events/Code/East_Cobb_Connect/cobb_county.py"
+      # ── Post-scrape sweep: retag shared-city rows ──────────────────────
+      - name: Normalize city tags (shared-city sweep)
+        if: ${{ github.event.inputs.data_source == 'scrape' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+        run: python "Weekend Events/Code/utilities/normalize_city_tags.py"
+
 
       - name: Generate Featured Event
         env:

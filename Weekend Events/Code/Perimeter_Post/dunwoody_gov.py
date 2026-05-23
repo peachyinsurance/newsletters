@@ -172,6 +172,7 @@ def _parse_tile(tile: str) -> dict | None:
         "time":        time_str,
         "location":    loc_name,
         "address":     "Dunwoody, GA",
+        "city":        "dunwoody",
     }
 
 

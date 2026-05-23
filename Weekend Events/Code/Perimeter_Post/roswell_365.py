@@ -119,25 +119,28 @@ def _parse_dt(s) -> tuple[date | None, str]:
         return None, ""
 
 
-def _normalize_location(loc) -> tuple[str, str]:
+def _normalize_location(loc) -> tuple[str, str, str]:
+    """Returns (location_name, address, city)."""
     if not loc:
-        return "", ""
+        return "", "", ""
     if isinstance(loc, str):
-        return _clean_html(loc), ""
+        return _clean_html(loc), "", ""
     if isinstance(loc, dict):
         name = _clean_html(loc.get("name", "") or "")
+        city = ""
         addr_obj = loc.get("address", "")
         if isinstance(addr_obj, dict):
+            city = (addr_obj.get("addressLocality", "") or "").strip()
             parts = [
                 addr_obj.get("streetAddress", ""),
-                addr_obj.get("addressLocality", ""),
+                city,
                 addr_obj.get("addressRegion", ""),
             ]
             addr = _clean_html(", ".join(p for p in parts if p))
         else:
             addr = _clean_html(str(addr_obj or ""))
-        return name, addr
-    return "", ""
+        return name, addr, _clean_html(city).lower()
+    return "", "", ""
 
 
 def fetch_event(url: str, today: date, window_end: date) -> dict | None:
@@ -174,7 +177,7 @@ def _build_event(item: dict, url: str,
     if is_cancelled_event(name, desc):
         return None
 
-    loc_name, address = _normalize_location(item.get("location"))
+    loc_name, address, city = _normalize_location(item.get("location"))
     if is_inappropriate_event(name, desc, loc_name):
         return None
 
@@ -199,6 +202,7 @@ def _build_event(item: dict, url: str,
         "time":        time_str,
         "location":    loc_name,
         "address":     address,
+        "city":        city or "roswell",   # fallback — every event on roswell365 is in Roswell
     }
 
 

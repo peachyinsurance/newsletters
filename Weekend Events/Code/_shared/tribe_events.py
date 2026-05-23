@@ -90,26 +90,28 @@ def fetch_page_events(source_url: str, page: int = 1) -> list[dict]:
     return events
 
 
-def _location_fields(loc) -> tuple[str, str]:
-    """Extract (location_name, address) from a JSON-LD Place."""
+def _location_fields(loc) -> tuple[str, str, str]:
+    """Extract (location_name, address, city) from a JSON-LD Place.
+    `city` is returned separately for the City column / shared-tag sweep."""
     if not isinstance(loc, dict):
-        return "", ""
+        return "", "", ""
     name = loc.get("name", "") or ""
     addr = loc.get("address", "") or ""
+    city = ""
     if isinstance(addr, dict):
         street = addr.get("streetAddress", "") or ""
-        city   = addr.get("addressLocality", "") or ""
+        city   = (addr.get("addressLocality", "") or "").strip()
         region = addr.get("addressRegion", "") or ""
         parts = [p for p in (street, city, region) if p]
         addr_str = ", ".join(parts)
     else:
         addr_str = str(addr)
-    return _clean_html(name), _clean_html(addr_str)
+    return _clean_html(name), _clean_html(addr_str), _clean_html(city).lower()
 
 
 def normalize_event(ev: dict) -> dict:
     """Map a JSON-LD Event into our Notion row dict."""
-    loc_name, address = _location_fields(ev.get("location", {}))
+    loc_name, address, city = _location_fields(ev.get("location", {}))
     start = _parse_iso_date(ev.get("startDate", ""))
     end   = _parse_iso_date(ev.get("endDate", ""))
     start_str = ev.get("startDate", "") or ""
@@ -135,6 +137,7 @@ def normalize_event(ev: dict) -> dict:
         "time":        time_str,
         "location":    loc_name,
         "address":     address,
+        "city":        city,
     }
 
 

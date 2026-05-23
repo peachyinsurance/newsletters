@@ -168,7 +168,9 @@ def normalize_event(api_ev: dict) -> dict | None:
     start = _parse_iso((api_ev.get("startDate") or {}).get("time", ""))
     end   = _parse_iso((api_ev.get("endDate")   or {}).get("time", ""))
     location_name = _clean_html((api_ev.get("location") or {}).get("title") or "")
-    address       = _build_address(api_ev.get("eventAddress") or {})
+    addr_obj      = api_ev.get("eventAddress") or {}
+    address       = _build_address(addr_obj)
+    city          = (addr_obj.get("locality") or "").strip().lower()
     if is_inappropriate_event(title, description, location_name):
         return None
     time_str      = _format_time_range(
@@ -185,6 +187,7 @@ def normalize_event(api_ev: dict) -> dict | None:
         "time":        time_str,
         "location":    location_name,
         "address":     address,
+        "city":        city,
     }
 
 

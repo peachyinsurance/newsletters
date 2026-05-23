@@ -78,12 +78,20 @@ def save_event(db_id: str, ev: dict, newsletter: str,
     if not dates_display and ev.get("all_dates"):
         dates_display = ", ".join(d.isoformat() for d in sorted(ev["all_dates"]))
 
+    # `city` is the venue's normalized city name (lowercase, single word
+    # or "two words" — e.g. "roswell" / "sandy springs"). Scrapers extract
+    # from JSON-LD addressLocality / hardcode for single-city sources.
+    # Consumed by utilities/normalize_city_tags.py to flip rows to ECC_PP
+    # when the city falls in a shared coverage area.
+    city = (ev.get("city") or "").strip().lower()
+
     content = {
         "Event Name":     {"rich_text": [{"text": {"content": ev["event_name"][:200]}}]},
         "Description":    {"rich_text": [{"text": {"content": ev["description"][:2000]}}]},
         "Image URL":      {"url": ev["image_url"] or None},
         "Location":       {"rich_text": [{"text": {"content": ev["location"][:200]}}]},
         "Address":        {"rich_text": [{"text": {"content": ev["address"][:200]}}]},
+        "City":           {"rich_text": [{"text": {"content": city[:80]}}]},
         "Time":           {"rich_text": [{"text": {"content": ev["time"][:80]}}]},
         "Dates":          {"rich_text": [{"text": {"content": dates_display[:500]}}]},
         "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},

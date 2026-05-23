@@ -126,25 +126,29 @@ def _normalize_image(image) -> str:
     return ""
 
 
-def _normalize_location(location) -> tuple[str, str]:
+def _normalize_location(location) -> tuple[str, str, str]:
+    """Returns (location_name, address, city). City is returned separately
+    for the Notion City column / shared-tag sweep."""
     if not location:
-        return "", ""
+        return "", "", ""
     if isinstance(location, str):
-        return _clean_html(location), ""
+        return _clean_html(location), "", ""
     if isinstance(location, dict):
         name = _clean_html(location.get("name", "") or "")
+        city = ""
         addr_obj = location.get("address", "")
         if isinstance(addr_obj, dict):
+            city = (addr_obj.get("addressLocality", "") or "").strip()
             parts = [
                 addr_obj.get("streetAddress", ""),
-                addr_obj.get("addressLocality", ""),
+                city,
                 addr_obj.get("addressRegion", ""),
             ]
             addr = _clean_html(", ".join(p for p in parts if p))
         else:
             addr = _clean_html(str(addr_obj or ""))
-        return name, addr
-    return "", ""
+        return name, addr, _clean_html(city).lower()
+    return "", "", ""
 
 
 def _fetch_event(url: str, today: date, window_end: date) -> dict | None:
@@ -196,7 +200,7 @@ def _build_event(item: dict, html: str, url: str,
     end = json_end if (json_end and json_end >= start
                        and (json_end - start).days <= 1) else None
 
-    loc_name, address = _normalize_location(item.get("location"))
+    loc_name, address, city = _normalize_location(item.get("location"))
     if is_inappropriate_event(name, desc, loc_name):
         return None
 
@@ -214,6 +218,7 @@ def _build_event(item: dict, html: str, url: str,
         "time":        "",
         "location":    loc_name,
         "address":     address,
+        "city":        city,
         "all_dates":   candidate_dates,
     }
 

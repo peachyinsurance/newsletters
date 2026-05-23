@@ -151,6 +151,17 @@ jobs:
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
         run: python "Weekend Events/Code/Perimeter_Post/eventbrite.py"
 
+      # ── Post-scrape sweep: retag shared-city rows ──────────────────────
+      # After all scrapers run, flip rows whose venue City matches a
+      # shared coverage area (e.g. Roswell) from their per-newsletter
+      # tag to ECC_PP so both newsletters' pickers see them.
+      - name: Normalize city tags (shared-city sweep)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+        run: python "Weekend Events/Code/utilities/normalize_city_tags.py"
+
       - name: Archive past events
         if: ${{ (github.event.inputs.mode || 'both') != 'scrape' }}
         env:

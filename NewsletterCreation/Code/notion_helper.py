@@ -620,6 +620,12 @@ def setup_notion_databases():
             "Time":             {"rich_text": {}},
             "Location":         {"rich_text": {}},
             "Address":          {"rich_text": {}},
+            # `City` is the venue's city (lowercased, normalized to one
+            # word like "roswell" / "sandy springs" / "marietta"). Set by
+            # every scraper; consumed by utilities/normalize_city_tags.py
+            # to flip rows tagged for one newsletter to ECC_PP when the
+            # city falls in a shared coverage area (Roswell, etc.).
+            "City":             {"rich_text": {}},
             "Source URL":       {"url": {}},
             "Image URL":        {"url": {}},
             "Status":           {"select": {"options": [
