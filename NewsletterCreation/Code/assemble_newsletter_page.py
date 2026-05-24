@@ -35,6 +35,7 @@ NOTION_WEEKEND_PLANNER_DB_ID = os.environ.get("NOTION_WEEKEND_PLANNER_DB_ID", ""
 NOTION_BUSINESS_BRIEF_DB_ID = os.environ.get("NOTION_BUSINESS_BRIEF_DB_ID", "")
 NOTION_TIPS_DB_ID        = os.environ.get("NOTION_TIPS_DB_ID", "")
 NOTION_MEMES_DB_ID       = os.environ.get("NOTION_MEMES_DB_ID", "")
+NOTION_IN_SEARCH_OF_DB_ID = os.environ.get("NOTION_IN_SEARCH_OF_DB_ID", "")
 NOTION_SPONSOR_DB_ID     = os.environ.get("NOTION_SPONSOR_DB_ID", "")
 NOTION_PARENT_PAGE_ID    = os.environ["NOTION_PARENT_PAGE_ID"]
 
@@ -1983,6 +1984,76 @@ def _build_sponsor(newsletter_name: str) -> list[dict]:
     return out
 
 
+def get_in_search_of(newsletter_name: str) -> list[dict]:
+    """Fetch In Search Of rows for this newsletter.
+
+    Approved-first: returns approved rows when any exist. Otherwise
+    falls back to pending so a missed approval still ships something
+    rather than nothing. Bonus rows are kept at the end of the result
+    list so the assembler renders them after employer rows."""
+    if not NOTION_IN_SEARCH_OF_DB_ID:
+        return []
+    try:
+        pages = query_database(NOTION_IN_SEARCH_OF_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name},
+        })
+    except Exception as e:
+        print(f"  In Search Of query failed: {e}")
+        return []
+    approved = [p for p in pages
+                if (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
+    pool = approved or [p for p in pages
+                        if (p["properties"].get("Status", {}).get("select") or {}).get("name") == "pending"]
+    out: list[dict] = []
+    for p in pool:
+        props = p["properties"]
+        out.append({
+            "employer":         "".join(c.get("text", {}).get("content", "")
+                                       for c in (props.get("Employer", {}).get("rich_text") or [])),
+            "description":      "".join(c.get("text", {}).get("content", "")
+                                        for c in (props.get("Description", {}).get("rich_text") or [])),
+            "job_listings_url": props.get("Job Listings URL", {}).get("url", "") or "",
+            "image_url":        props.get("Image URL", {}).get("url", "") or "",
+            "bonus":             bool((props.get("Bonus", {}) or {}).get("checkbox")),
+        })
+    # Regular rows first, bonus rows last (preserving relative order
+    # within each group).
+    out.sort(key=lambda r: (1 if r["bonus"] else 0))
+    return out
+
+
+def _build_in_search_of(newsletter_name: str) -> list[dict]:
+    """Render the In Search Of section: per-employer blurb (with bolded
+    name from inline markdown) followed by a clickable CTA. Bonus rows
+    render with a 'Visit [employer]' CTA; regular rows with 'Browse
+    openings'. Falls back to the static placeholder if nothing's been
+    written yet."""
+    rows = get_in_search_of(newsletter_name)
+    if not rows:
+        return [_placeholder("No In Search Of rows yet. Scrape job sources and run the In Search Of pipeline.")]
+    out: list[dict] = []
+    for r in rows:
+        blurb = (r.get("description") or "").strip()
+        if not blurb:
+            # Don't render a row with no AI-written blurb; the pipeline
+            # hasn't processed it yet.
+            continue
+        out.append(paragraph_block_with_markdown(blurb))
+        url = r.get("job_listings_url") or ""
+        if url:
+            if r.get("bonus"):
+                label = f"👉 Visit {r.get('employer', 'site')}"
+            else:
+                label = "👉 Browse openings"
+            out.append(link_block(label, url))
+        out.append(paragraph_block(""))  # spacer between rows
+    # Strip trailing spacer
+    if out and out[-1]["paragraph"]["rich_text"] == []:
+        out.pop()
+    return out
+
+
 def _build_meme_corner(newsletter_name: str) -> list[dict]:
     """Render up to 3 approved memes: image + 'r/<sub> • caption' caption
     line under each. Falls back to the static placeholder if nothing's
@@ -2019,7 +2090,7 @@ SECTIONS = {
     "weekend_planner": {"heading": "📅 Weekend Planner",        "builder": _build_weekend_planner},
     "free_events":    {"heading": "🆓 Free Event of the Week", "builder": _build_free_events},
     "tip":            {"heading": "🛡️ Insurance Tip",          "builder": _build_tip},
-    "in_search_of":   {"heading": "🔍 In Search Of",           "builder": _build_static_placeholder},
+    "in_search_of":   {"heading": "🔍 In Search Of",           "builder": _build_in_search_of},
     "meme":           {"heading": "😂 Meme Corner",            "builder": _build_meme_corner},
 }
 

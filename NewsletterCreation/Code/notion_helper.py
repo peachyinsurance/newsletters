@@ -61,6 +61,7 @@ NOTION_WEEKEND_PLANNER_DB_ID = os.environ.get("NOTION_WEEKEND_PLANNER_DB_ID", ""
 NOTION_WEEKEND_EVENTS_DB_ID  = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
 NOTION_BUSINESS_BRIEF_DB_ID = os.environ.get("NOTION_BUSINESS_BRIEF_DB_ID", "")
 NOTION_MEMES_DB_ID          = os.environ.get("NOTION_MEMES_DB_ID", "")
+NOTION_IN_SEARCH_OF_DB_ID   = os.environ.get("NOTION_IN_SEARCH_OF_DB_ID", "")
 NOTION_SPONSOR_DB_ID        = os.environ.get("NOTION_SPONSOR_DB_ID", "")
 
 HEADERS = {
@@ -514,6 +515,52 @@ def setup_notion_databases():
             print("✓ Meme Corner database schema created")
         else:
             print(f"✗ Meme Corner schema error: {r.text[:300]}")
+
+    # In Search Of database properties (local job listings)
+    if NOTION_IN_SEARCH_OF_DB_ID:
+        in_search_of_properties = {
+            "Name":             {"title": {}},
+            "Newsletter":       {"select": {"options": [
+                {"name": "East_Cobb_Connect", "color": "purple"},
+                {"name": "Perimeter_Post",    "color": "pink"},
+                {"name": "Lewisville_Lake_Lookout", "color": "blue"},
+            ]}},
+            "Employer":         {"rich_text": {}},
+            # Description = Claude-written neighborly blurb. Overwrites
+            # Scraped Snippet's raw content during the pipeline pass.
+            "Description":      {"rich_text": {}},
+            # Scraped Snippet = raw og:description / meta-description from
+            # the scrape, kept for reference + as Claude's source material.
+            "Scraped Snippet":  {"rich_text": {}},
+            "Job Listings URL": {"url": {}},
+            "Image URL":        {"url": {}},
+            # Optional: comma-separated role list parsed from the page or
+            # written by Claude (e.g. "line cooks, baristas, bus drivers").
+            "Roles":            {"rich_text": {}},
+            "City":             {"rich_text": {}},
+            # 'bonus' rows render with a "Bonus help (free):" prefix and
+            # come at the end of the section (e.g. WorkSource Cobb).
+            "Bonus":            {"checkbox": {}},
+            "Status":           {"select": {"options": [
+                {"name": "pending",        "color": "yellow"},
+                {"name": "approved",       "color": "green"},
+                {"name": "approved - old", "color": "gray"},
+                {"name": "rejected",       "color": "red"},
+                {"name": "archived",       "color": "default"},
+            ]}},
+            "Date Generated":   {"date": {}},
+            "Manually Edited":  {"checkbox": {}},
+        }
+        r = requests.patch(
+            f"https://api.notion.com/v1/databases/{NOTION_IN_SEARCH_OF_DB_ID}",
+            headers=HEADERS,
+            json={"properties": in_search_of_properties},
+            timeout=30,
+        )
+        if r.ok:
+            print("✓ In Search Of database schema created")
+        else:
+            print(f"✗ In Search Of schema error: {r.text[:300]}")
 
     # Reader Poll database properties
     if NOTION_POLLS_DB_ID:

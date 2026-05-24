@@ -1,0 +1,123 @@
+name: Generate In Search Of
+
+# Scrapes per-newsletter job sources, then runs Claude to rewrite each
+# scraped snippet into a neighborly hiring blurb. Saves to the In Search
+# Of Notion DB; the assembler renders approved (or pending fallback)
+# rows in the published section, positioned right before Meme Corner.
+
+on:
+  workflow_dispatch:
+    inputs:
+      newsletter:
+        description: 'Which newsletter to generate for. "all" = every newsletter. (East_Cobb_Connect / Perimeter_Post / Lewisville_Lake_Lookout / all)'
+        required: false
+        default: 'East_Cobb_Connect'
+        type: choice
+        options:
+          - 'all'
+          - 'East_Cobb_Connect'
+          - 'Perimeter_Post'
+          - 'Lewisville_Lake_Lookout'
+      mode:
+        description: 'scrape | write | both. scrape = refresh Notion DB only. write = run Claude over existing rows only. both = scrape then write.'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - 'both'
+          - 'scrape'
+          - 'write'
+      chain:
+        description: 'Trigger Meme Corner + newsletter rebuild after this finishes'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  in_search_of:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install requests anthropic curl_cffi
+
+      # ── Scrape: walks job_sources.py and upserts pending rows ─────────
+      - name: Scrape job sources (East Cobb Connect)
+        if: ${{ (github.event.inputs.mode || 'both') != 'write' &&
+                (github.event.inputs.newsletter == 'East_Cobb_Connect'
+                  || github.event.inputs.newsletter == 'all'
+                  || github.event.inputs.newsletter == '') }}
+        env:
+          NOTION_API_KEY:            ${{ secrets.NOTION_API_KEY }}
+          NOTION_IN_SEARCH_OF_DB_ID: ${{ secrets.NOTION_IN_SEARCH_OF_DB_ID }}
+          NEWSLETTER:                East_Cobb_Connect
+        run: python "In Search Of/Code/scrape_jobs.py"
+
+      - name: Scrape job sources (Perimeter Post)
+        if: ${{ (github.event.inputs.mode || 'both') != 'write' &&
+                (github.event.inputs.newsletter == 'Perimeter_Post'
+                  || github.event.inputs.newsletter == 'all') }}
+        env:
+          NOTION_API_KEY:            ${{ secrets.NOTION_API_KEY }}
+          NOTION_IN_SEARCH_OF_DB_ID: ${{ secrets.NOTION_IN_SEARCH_OF_DB_ID }}
+          NEWSLETTER:                Perimeter_Post
+        run: python "In Search Of/Code/scrape_jobs.py"
+
+      - name: Scrape job sources (Lewisville Lake Lookout)
+        if: ${{ (github.event.inputs.mode || 'both') != 'write' &&
+                (github.event.inputs.newsletter == 'Lewisville_Lake_Lookout'
+                  || github.event.inputs.newsletter == 'all') }}
+        env:
+          NOTION_API_KEY:            ${{ secrets.NOTION_API_KEY }}
+          NOTION_IN_SEARCH_OF_DB_ID: ${{ secrets.NOTION_IN_SEARCH_OF_DB_ID }}
+          NEWSLETTER:                Lewisville_Lake_Lookout
+        run: python "In Search Of/Code/scrape_jobs.py"
+
+      # ── Write: runs Claude to rewrite scraped snippets into blurbs ────
+      - name: Generate In Search Of blurbs
+        if: ${{ (github.event.inputs.mode || 'both') != 'scrape' }}
+        env:
+          CLAUDE_API_KEY:            ${{ secrets.CLAUDE_API_KEY }}
+          NOTION_API_KEY:            ${{ secrets.NOTION_API_KEY }}
+          NOTION_IN_SEARCH_OF_DB_ID: ${{ secrets.NOTION_IN_SEARCH_OF_DB_ID }}
+          NEWSLETTER:                ${{ github.event.inputs.newsletter || 'all' }}
+        run: python "In Search Of/Code/In_Search_Of.py"
+
+      # ── Trigger newsletter page rebuild (in_search_of section only) ───
+      - name: Trigger newsletter page rebuild
+        if: ${{ (github.event.inputs.chain || 'false') == 'false' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
+            -d '{"ref":"main","inputs":{"section":"in_search_of"}}'
+          echo "✓ Newsletter page rebuild triggered (in_search_of section)"
+
+      # ── Optional chain trigger to Meme Corner ─────────────────────────
+      - name: Trigger Meme Corner (chain)
+        if: ${{ (github.event.inputs.chain || 'false') == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/meme_corner.yml/dispatches \
+            -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"${{ github.event.inputs.newsletter || 'all' }}\"}}"
+          echo "→ Triggered Meme Corner"
