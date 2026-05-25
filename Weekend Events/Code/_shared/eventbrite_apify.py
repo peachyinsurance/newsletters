@@ -352,6 +352,10 @@ def run_eventbrite(newsletter_tag: str,
     skipped_dup_url  = 0
     skipped_dup_name = 0
     skipped_date     = 0
+    skipped_date_none   = 0   # diagnostic: how many had no parseable date
+    skipped_date_before = 0   # how many were earlier than target Friday
+    skipped_date_after  = 0   # how many were later than target Sunday
+    date_drop_samples: list[tuple[str, str, str]] = []  # (event_name, raw_field, parsed)
     skipped_price    = 0
     skipped_city     = 0
 
@@ -376,6 +380,26 @@ def run_eventbrite(newsletter_tag: str,
             seen_name_keys.add(nd_key)
 
         sd = ev["start_date"]
+        # Diagnostic: split date-drop into None vs out-of-window so the
+        # log shows whether parsing failed or filter is over-aggressive.
+        if not sd:
+            skipped_date_none += 1
+            if len(date_drop_samples) < 5:
+                raw_start = (raw.get("startDate") or raw.get("start")
+                             or raw.get("starts") or raw.get("dateStart")
+                             or (raw.get("dates") or {}).get("start"))
+                date_drop_samples.append(
+                    (ev.get("event_name", "?")[:50], f"{raw_start!r}", "<NONE>"))
+        elif sd < start:
+            skipped_date_before += 1
+            if len(date_drop_samples) < 5:
+                date_drop_samples.append(
+                    (ev.get("event_name", "?")[:50], "", sd.isoformat()))
+        elif sd > end:
+            skipped_date_after += 1
+            if len(date_drop_samples) < 5:
+                date_drop_samples.append(
+                    (ev.get("event_name", "?")[:50], "", sd.isoformat()))
         if not sd or sd < start or sd > end:
             skipped_date += 1
             continue
@@ -394,7 +418,16 @@ def run_eventbrite(newsletter_tag: str,
     print(f"\n  Filtered to {len(candidates)} keep for {newsletter_tag}:")
     print(f"    {skipped_dup_url:>3} dropped — duplicate URL across categories")
     print(f"    {skipped_dup_name:>3} dropped — duplicate (name, date) across categories")
-    print(f"    {skipped_date:>3} dropped — out-of-window date (Eventbrite filter slop)")
+    print(f"    {skipped_date:>3} dropped — date scrub  "
+          f"(none={skipped_date_none}, before-window={skipped_date_before}, "
+          f"after-window={skipped_date_after})")
+    if date_drop_samples:
+        print(f"        first {len(date_drop_samples)} date-drop sample(s):")
+        for name, raw_field, parsed in date_drop_samples:
+            if raw_field:
+                print(f"          · {name}  raw startDate={raw_field}  parsed={parsed}")
+            else:
+                print(f"          · {name}  parsed={parsed}")
     print(f"    {skipped_price:>3} dropped — price > ${price_cap_usd:.0f}")
     print(f"    {skipped_city:>3} dropped — venue city not in allow-list")
     print(f"    {skipped_no_data:>3} dropped — unparseable / cancelled / adult-NSFW")
