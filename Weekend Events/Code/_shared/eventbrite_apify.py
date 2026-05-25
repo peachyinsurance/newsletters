@@ -444,6 +444,8 @@ def run_eventbrite(newsletter_tag: str,
     city_drop_reasons: dict[str, int] = {}   # extracted city → count (cities NOT in allow-list)
     skipped_state    = 0
     state_drop_reasons: dict[str, int] = {}  # extracted state → count (states != required_state)
+    series_recovered = 0                     # series-parent date-rescues that worked
+    series_probe_samples: list[str] = []     # raw childEvents shape when fix didn't apply
 
     for raw in all_raw:
         ev = normalize_event(raw)
@@ -466,6 +468,42 @@ def run_eventbrite(newsletter_tag: str,
             seen_name_keys.add(nd_key)
 
         sd = ev["start_date"]
+
+        # Series-parent rescue. hypebridge returns the original/parent
+        # start date for recurring events ("Sewing 101" series created
+        # 2024-06-02), not the next-upcoming occurrence. Eventbrite's
+        # URL date filter is permissive — it returns series that have
+        # at least one occurrence in the window even if the parent
+        # start is years old. If we're about to drop a series parent
+        # because of its (irrelevant) parent date, peek at childEvents
+        # for an occurrence in our window.
+        if (sd is None or sd < start or sd > end) and raw.get("isSeriesParent"):
+            children = raw.get("childEvents") or []
+            picked = None
+            if isinstance(children, list):
+                for child in children:
+                    if not isinstance(child, dict):
+                        continue
+                    ct = child.get("timing") or {}
+                    cs = _parse_date(ct.get("start") or child.get("start")
+                                     or child.get("startDate"))
+                    if cs and start <= cs <= end:
+                        picked = (cs, _parse_date(ct.get("end") or child.get("end")))
+                        break
+            if picked:
+                sd = picked[0]
+                ev["start_date"] = picked[0]
+                if picked[1]:
+                    ev["end_date"] = picked[1]
+                series_recovered += 1
+            elif len(series_probe_samples) < 3:
+                # Couldn't find a child in window. Log what childEvents
+                # actually contains so we can see the shape next run.
+                sample = (f"{ev['event_name'][:40]} | "
+                          f"childEvents type={type(children).__name__} "
+                          f"len={len(children) if isinstance(children, list) else 'n/a'} | "
+                          f"first={json.dumps(children[0], default=str)[:300] if (isinstance(children, list) and children) else '<empty>'}")
+                series_probe_samples.append(sample)
         # Diagnostic: split date-drop into None vs out-of-window so the
         # log shows whether parsing failed or filter is over-aggressive.
         if not sd:
@@ -524,6 +562,12 @@ def run_eventbrite(newsletter_tag: str,
     print(f"    {skipped_date:>3} dropped — date scrub  "
           f"(none={skipped_date_none}, before-window={skipped_date_before}, "
           f"after-window={skipped_date_after})")
+    if series_recovered:
+        print(f"        ↻ {series_recovered} series-parent date(s) rescued via childEvents")
+    if series_probe_samples:
+        print(f"        ⚠ {len(series_probe_samples)} series parent(s) had unusable childEvents:")
+        for s in series_probe_samples:
+            print(f"          · {s}")
     if date_drop_samples:
         print(f"        first {len(date_drop_samples)} date-drop sample(s):")
         for name, raw_field, parsed in date_drop_samples:
