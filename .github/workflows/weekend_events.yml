@@ -186,6 +186,37 @@ jobs:
       # this workflow stays free / no-cost. Trigger that one separately
       # to refresh Eventbrite for any newsletter.
 
+      # ── LLL group ──────────────────────────────────────────────────────
+      - name: Scrape visitlewisville.com (Lewisville Lake Lookout)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","Lewisville_Lake_Lookout"]'),
+                         github.event.inputs.newsletter || 'all') }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  Lewisville_Lake_Lookout
+        run: python "Weekend Events/Code/Lewisville_Lake_Lookout/visit_lewisville.py"
+
+      - name: Scrape cityoflewisville.com (Lewisville Lake Lookout)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","Lewisville_Lake_Lookout"]'),
+                         github.event.inputs.newsletter || 'all') }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  Lewisville_Lake_Lookout
+        run: python "Weekend Events/Code/Lewisville_Lake_Lookout/city_of_lewisville.py"
+
+      - name: Scrape Denton County calendar (Lewisville Lake Lookout)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","Lewisville_Lake_Lookout"]'),
+                         github.event.inputs.newsletter || 'all') }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  Lewisville_Lake_Lookout
+        run: python "Weekend Events/Code/Lewisville_Lake_Lookout/denton_county.py"
+
       # ── Post-scrape sweep: retag shared-city rows ──────────────────────
       # After all scrapers run, flip rows whose venue City matches a
       # shared coverage area (e.g. Roswell) from their per-newsletter
