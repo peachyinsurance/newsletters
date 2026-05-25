@@ -3,33 +3,29 @@ Meme Corner scraper. Pulls top-of-the-week posts from a curated list of
 subreddits, filters for SFW image memes, and writes candidates to the
 Notion Meme Corner DB for editorial review.
 
-Reddit API access notes:
-  - PREFERRED: app-only OAuth (oauth.reddit.com). Needs
-    REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET env vars (register a
-    "script" app at https://www.reddit.com/prefs/apps — no user
-    account required for client_credentials grant). Gives ~600 req/
-    10min and works from cloud IPs.
-  - FALLBACK: unauthenticated www.reddit.com endpoints. 60 req/min
-    per IP and Reddit aggressively blocks cloud IPs (GitHub Actions,
-    AWS, GCP, etc.) with 403, so this path is for local dev only.
-  - Reddit requires a descriptive User-Agent; generic ones (Mozilla,
-    python-requests) get 403'd. We use "peachy-newsletter-bot/1.0".
-  - Empty payloads on hot subs occasionally; we retry once.
+Reddit access via Apify (was app-only OAuth). Reddit's OAuth endpoints
+started throttling/blocking our GitHub Actions IP ranges even with
+valid client_credentials, so we switched to the same Apify pattern we
+use for Eventbrite. Apify's trudax/reddit-scraper-lite actor walks
+each subreddit through residential proxies and returns post data.
+
+Cost: ~$4 per 1000 posts at Apify list price. Our run pulls ~75 posts
+(3 subs × 25 each), so ~$0.30 per scrape. Cheap.
 
 Filters per sub:
-  - over_18 == False        (SFW)
+  - over_18 == False        (SFW; also enforced by includeNSFW=False)
   - score >= MIN_SCORE
   - post_hint == "image" OR url ends in jpg/jpeg/png/gif/gifv
-  - not removed (removed_by_category is None)
-  - For r/Atlanta only: flair must match ALLOWED_FLAIRS (not every
-    Atlanta post is a meme, so we lean on flair for that one).
+  - not removed
+  - For r/Atlanta only: flair must match ALLOWED_FLAIRS
 
 Env vars:
+  APIFY_API_KEY            (replaces REDDIT_CLIENT_ID/SECRET)
   NOTION_API_KEY
   NOTION_MEMES_DB_ID
   NEWSLETTER  — East_Cobb_Connect | Perimeter_Post | Lewisville_Lake_Lookout | all
+  MEME_DEBUG=1             (optional, dumps first Apify item's keys)
 """
-import base64
 import os
 import sys
 import time
@@ -65,83 +61,139 @@ MIN_SCORE = 500       # ≥ N upvotes
 PER_SUB_LIMIT = 25    # how many top-of-week to ask for
 ACCEPT_PER_SUB = 6    # max candidates we'll save per sub per run
 
-USER_AGENT = "peachy-newsletter-bot/1.0 (by /u/peachy-newsletters)"
-
-REDDIT_CLIENT_ID     = os.environ.get("REDDIT_CLIENT_ID", "").strip()
-REDDIT_CLIENT_SECRET = os.environ.get("REDDIT_CLIENT_SECRET", "").strip()
+APIFY_API_KEY = os.environ.get("APIFY_API_KEY", "").strip()
+APIFY_ACTOR_ID = "trudax~reddit-scraper-lite"
+DEBUG = os.environ.get("MEME_DEBUG", "") == "1"
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".gifv", ".webp")
 
 
-def get_oauth_token() -> str | None:
-    """Fetch an app-only OAuth token (client_credentials grant). Returns
-    the bearer token on success, or None if credentials aren't set or
-    Reddit refuses. Token TTL is ~1 hour, plenty for one run."""
-    if not REDDIT_CLIENT_ID or not REDDIT_CLIENT_SECRET:
-        return None
-    auth = base64.b64encode(
-        f"{REDDIT_CLIENT_ID}:{REDDIT_CLIENT_SECRET}".encode()
-    ).decode()
-    try:
-        r = requests.post(
-            "https://www.reddit.com/api/v1/access_token",
-            headers={
-                "Authorization": f"Basic {auth}",
-                "User-Agent":    USER_AGENT,
-            },
-            data={"grant_type": "client_credentials"},
-            timeout=15,
-        )
-        if r.status_code != 200:
-            print(f"  ⚠ Reddit OAuth failed: HTTP {r.status_code} {r.text[:200]}")
-            return None
-        token = (r.json() or {}).get("access_token")
-        if token:
-            print("  ✓ Got Reddit OAuth token (app-only)")
-        return token
-    except Exception as e:
-        print(f"  ⚠ Reddit OAuth error: {e}")
-        return None
-
-
-def fetch_top(subreddit: str, token: str | None,
+def fetch_top(subreddit: str, _ignored=None,
               limit: int = PER_SUB_LIMIT,
               window: str = "week") -> list[dict]:
-    """Fetch the top posts from a sub for the given time window. Uses
-    oauth.reddit.com when a token is present (works from cloud IPs);
-    falls back to www.reddit.com which routinely returns 403 from
-    GitHub Actions / AWS / GCP IP ranges. Returns the raw `data`
-    payload of each child post, or [] on failure. Retries once on
-    empty payload (hot subs sometimes return partial responses)."""
-    if token:
-        url = f"https://oauth.reddit.com/r/{subreddit}/top"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "User-Agent":    USER_AGENT,
-        }
-    else:
-        url = f"https://www.reddit.com/r/{subreddit}/top.json"
-        headers = {"User-Agent": USER_AGENT}
-    params = {"t": window, "limit": limit}
+    """Pull top posts for one subreddit via Apify Reddit scraper.
 
-    for attempt in range(2):
-        try:
-            r = requests.get(url, params=params, headers=headers, timeout=20)
-            if r.status_code != 200:
-                print(f"    ✗ r/{subreddit} HTTP {r.status_code}")
-                time.sleep(3)
-                continue
-            payload = r.json()
-            children = (payload.get("data") or {}).get("children") or []
-            posts = [c.get("data", {}) for c in children if c.get("data")]
-            if posts:
-                return posts
-            print(f"    · r/{subreddit} empty payload, retrying…")
-            time.sleep(3)
-        except Exception as e:
-            print(f"    ✗ r/{subreddit} fetch error: {e}")
-            time.sleep(3)
-    return []
+    `_ignored` is a leftover token-shaped param from the old OAuth
+    code path — kept so the signature doesn't break callers. Returns
+    a list of dicts shaped like the old Reddit JSON `data` payloads
+    (title, url, score, over_18, post_hint, permalink, ...) so the
+    existing filter and save logic works unchanged.
+
+    Empty list on Apify error or no posts. We rely on Apify's
+    residential proxies to bypass Reddit's IP block on cloud egress."""
+    if not APIFY_API_KEY:
+        print(f"    ✗ APIFY_API_KEY not set in env")
+        return []
+
+    # `time` filter knob ('day' | 'week' | 'month' | 'year') — pass our
+    # `window` through. `sort=top` is implicit because the startUrl
+    # already includes /top/.
+    payload = {
+        "startUrls":      [{"url": f"https://www.reddit.com/r/{subreddit}/top/?t={window}"}],
+        "skipComments":   True,
+        "skipUserPosts":  True,
+        "skipCommunity":  True,
+        "maxItems":       limit,
+        "maxPostCount":   limit,
+        "includeNSFW":    False,
+        "sort":           "top",
+        "time":           window,
+        "proxy":          {"useApifyProxy": True,
+                           "apifyProxyGroups": ["RESIDENTIAL"]},
+    }
+    try:
+        r = requests.post(
+            f"https://api.apify.com/v2/acts/{APIFY_ACTOR_ID}/run-sync-get-dataset-items",
+            headers={"Authorization": f"Bearer {APIFY_API_KEY}",
+                     "Content-Type":  "application/json"},
+            json=payload, timeout=600,
+        )
+    except Exception as e:
+        print(f"    ✗ r/{subreddit} Apify error: {e}")
+        return []
+    if r.status_code not in (200, 201):
+        print(f"    ✗ r/{subreddit} Apify HTTP {r.status_code}: {r.text[:200]}")
+        return []
+    items = r.json() or []
+    print(f"    → {len(items)} item(s) from Apify")
+    if DEBUG and items:
+        print(f"    [DEBUG] first item keys: {sorted(items[0].keys())}")
+        print(f"    [DEBUG] sample: {str(items[0])[:600]}")
+
+    posts = [_normalize_apify_post(it, subreddit) for it in items]
+    return [p for p in posts if p]
+
+
+def _normalize_apify_post(item: dict, subreddit: str) -> dict | None:
+    """Map an Apify Reddit item to the dict shape the rest of
+    Meme_Corner.py expects (title / url / score / over_18 / post_hint /
+    permalink / link_flair_text). Defensive on field names since the
+    Apify actor's schema is undocumented — multiple key fallbacks per
+    field. First real run with MEME_DEBUG=1 prints the actual keys for
+    verification.
+
+    Returns None for posts missing title or url (filtered out)."""
+    if not isinstance(item, dict):
+        return None
+
+    title = (item.get("title") or item.get("name")
+             or item.get("postTitle") or "").strip()
+
+    # URL: the image / media URL we render as the meme. Falls back to
+    # post URL if no image-shaped URL is present.
+    url = (item.get("url") or item.get("mediaUrl") or item.get("imageUrl")
+           or item.get("image") or item.get("thumbnail") or "")
+    if isinstance(url, dict):
+        url = url.get("url") or url.get("src") or ""
+
+    if not title or not url:
+        return None
+
+    score = (item.get("score") or item.get("ups") or item.get("upvotes")
+             or item.get("upVotes") or item.get("upvoteCount") or 0)
+    try:
+        score = int(score)
+    except (TypeError, ValueError):
+        score = 0
+
+    nsfw = bool(item.get("over18") or item.get("over_18") or item.get("nsfw")
+                or item.get("isNsfw") or item.get("isOver18"))
+    is_video = bool(item.get("isVideo") or item.get("video")
+                    or item.get("is_video"))
+
+    permalink = (item.get("permalink") or item.get("url")
+                 or item.get("postUrl") or "")
+    # Reddit-API used to return permalinks as relative paths
+    # (/r/foo/comments/xyz/...). Apify may return absolute URLs — strip
+    # the host if so to match the legacy shape expected downstream.
+    if permalink.startswith("http"):
+        permalink = "/" + permalink.split("/", 3)[-1] if "/" in permalink else permalink
+
+    flair = (item.get("linkFlairText") or item.get("flair")
+             or item.get("flairText") or item.get("postFlair") or "")
+    if isinstance(flair, dict):
+        flair = flair.get("text") or flair.get("name") or ""
+
+    # post_hint: 'image' tells the existing filter the URL is renderable
+    # as an image. Apify might not set this; infer from extension.
+    post_hint = item.get("postHint") or item.get("post_hint") or ""
+    if not post_hint and url:
+        bare = url.lower().split("?", 1)[0]
+        if bare.endswith(IMAGE_EXTS):
+            post_hint = "image"
+
+    return {
+        "title":              title,
+        "url":                url,
+        "score":              score,
+        "over_18":            nsfw,
+        "removed_by_category": item.get("removedBy") or item.get("removed_by_category"),
+        "post_hint":          post_hint,
+        "is_video":           is_video,
+        "permalink":          permalink,
+        "link_flair_text":    flair,
+        "subreddit":          item.get("subreddit") or subreddit,
+    }
 
 
 def is_image_post(post: dict) -> bool:
@@ -223,15 +275,15 @@ def save_candidate(newsletter_name: str, post: dict, sub_label: str) -> bool:
         return False
 
 
-def scrape_for_newsletter(newsletter_name: str, token: str | None) -> int:
+def scrape_for_newsletter(newsletter_name: str) -> int:
     print(f"\n{'=' * 60}")
     print(f"  Scraping memes for {newsletter_name}")
     print(f"{'=' * 60}")
     if not NOTION_MEMES_DB_ID:
         print("  ⚠ NOTION_MEMES_DB_ID is empty — saves will be skipped")
-    if not token:
-        print("  ⚠ No Reddit OAuth token — falling back to unauthenticated "
-              "endpoints (likely to 403 from cloud IPs)")
+    if not APIFY_API_KEY:
+        print("  ✗ APIFY_API_KEY not set — no scrapes will succeed")
+        return 0
 
     already_saved = existing_permalinks(newsletter_name)
     print(f"  {len(already_saved)} existing permalinks to skip")
@@ -239,7 +291,7 @@ def scrape_for_newsletter(newsletter_name: str, token: str | None) -> int:
     saved_total = 0
     for sub_url_name, sub_label in SUBREDDITS:
         print(f"\n  → r/{sub_url_name}")
-        posts = fetch_top(sub_url_name, token)
+        posts = fetch_top(sub_url_name)
         if not posts:
             print(f"    · no posts returned")
             continue
@@ -267,13 +319,12 @@ def scrape_for_newsletter(newsletter_name: str, token: str | None) -> int:
 
 
 def main() -> int:
-    token = get_oauth_token()
     if NEWSLETTER.lower() == "all":
         targets = ["East_Cobb_Connect", "Perimeter_Post", "Lewisville_Lake_Lookout"]
     else:
         targets = [NEWSLETTER]
     for nl in targets:
-        scrape_for_newsletter(nl, token)
+        scrape_for_newsletter(nl)
     return 0
 
 

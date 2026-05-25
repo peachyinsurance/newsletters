@@ -39,8 +39,9 @@ jobs:
           NOTION_API_KEY:        ${{ secrets.NOTION_API_KEY }}
           NOTION_MEMES_DB_ID:    ${{ secrets.NOTION_MEMES_DB_ID }}
           NOTION_PARENT_PAGE_ID: ${{ secrets.NOTION_PARENT_PAGE_ID }}
-          REDDIT_CLIENT_ID:      ${{ secrets.REDDIT_CLIENT_ID }}
-          REDDIT_CLIENT_SECRET:  ${{ secrets.REDDIT_CLIENT_SECRET }}
+          # Was REDDIT_CLIENT_ID/SECRET — Reddit's OAuth started blocking
+          # our GitHub Actions IPs. Now via Apify residential proxies.
+          APIFY_API_KEY:         ${{ secrets.APIFY_API_KEY }}
           NEWSLETTER:            ${{ github.event.inputs.newsletter || 'all' }}
         run: python "Meme Corner/Code/Meme_Corner.py"
 
