@@ -99,6 +99,14 @@ jobs:
           NEWSLETTER:                  Perimeter_Post
         run: python "Weekend Events/Code/Perimeter_Post/dunwoody_gov.py"
 
+      - name: Refresh patch.com/georgia/dunwoody (Perimeter Post)
+        if: ${{ github.event.inputs.data_source == 'scrape' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  Perimeter_Post
+        run: python "Weekend Events/Code/Perimeter_Post/patch_dunwoody.py"
+
       - name: Refresh visitroswellga.com (ECC_PP shared)
         if: ${{ github.event.inputs.data_source == 'scrape' }}
         env:

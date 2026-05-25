@@ -161,6 +161,16 @@ jobs:
           NEWSLETTER:                  Perimeter_Post
         run: python "Weekend Events/Code/Perimeter_Post/dunwoody_gov.py"
 
+      - name: Scrape patch.com/georgia/dunwoody calendar (Perimeter Post)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","Perimeter_Post"]'),
+                         github.event.inputs.newsletter || 'all') }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  Perimeter_Post
+        run: python "Weekend Events/Code/Perimeter_Post/patch_dunwoody.py"
+
       - name: Scrape visitroswellga.com (ECC_PP shared — runs with PP)
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","Perimeter_Post"]'),
