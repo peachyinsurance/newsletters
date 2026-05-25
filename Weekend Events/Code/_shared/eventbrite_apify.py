@@ -373,6 +373,8 @@ def run_eventbrite(newsletter_tag: str,
     date_drop_samples: list[tuple[str, str, str]] = []  # (event_name, raw_field, parsed)
     skipped_price    = 0
     skipped_city     = 0
+    skipped_city_none = 0          # had no city extracted (field-name miss)
+    city_drop_reasons: dict[str, int] = {}   # extracted city → count (cities NOT in allow-list)
 
     for raw in all_raw:
         ev = normalize_event(raw)
@@ -427,6 +429,10 @@ def run_eventbrite(newsletter_tag: str,
         city = ev.get("city", "")
         if not city or city not in allowed_cities:
             skipped_city += 1
+            if not city:
+                skipped_city_none += 1
+            else:
+                city_drop_reasons[city] = city_drop_reasons.get(city, 0) + 1
             continue
 
         candidates.append(ev)
@@ -445,7 +451,13 @@ def run_eventbrite(newsletter_tag: str,
             else:
                 print(f"          · {name}  parsed={parsed}")
     print(f"    {skipped_price:>3} dropped — price > ${price_cap_usd:.0f}")
-    print(f"    {skipped_city:>3} dropped — venue city not in allow-list")
+    print(f"    {skipped_city:>3} dropped — venue city not in allow-list  "
+          f"(no-city-extracted={skipped_city_none}, wrong-city={skipped_city - skipped_city_none})")
+    if city_drop_reasons:
+        top = sorted(city_drop_reasons.items(), key=lambda kv: -kv[1])[:8]
+        print(f"        top extracted cities NOT in allow-list:")
+        for city_name, n in top:
+            print(f"          · {city_name!r}: {n}")
     print(f"    {skipped_no_data:>3} dropped — unparseable / cancelled / adult-NSFW")
 
     filled = backfill_images(candidates)
