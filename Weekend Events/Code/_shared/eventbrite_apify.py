@@ -60,8 +60,16 @@ DEBUG                = os.environ.get("EVENTBRITE_DEBUG", "") == "1"
 ACTOR_ID  = "hypebridge~eventbrite-search"   # tilde-form for the API path
 COUNTRY   = "US"
 # `maxEvents` is per-Apify-call. We loop categories so this is per-category.
-# Bump if you want broader coverage at higher cost.
-MAX_EVENTS_PER_CATEGORY = 25
+# Kept low (10) because hypebridge with `scrapeEventDetails: true` fires
+# a second HTTP request per event to fetch the detail page — at 25/cat we
+# saw 13+ minute runs and brushed against Apify's 5-min sync timeout.
+# 7 categories × 10 events = 70 raw, ~5-6 min total. Bump if (and only if)
+# the city allow-list is leaving us starved AND we can stomach the time.
+MAX_EVENTS_PER_CATEGORY = 10
+# Per-category Apify call timeout. The sync endpoint blocks until the
+# run finishes or this fires. 5 min is generous for maxEvents=10 but
+# guards against one stuck category eating the whole workflow.
+APIFY_CALL_TIMEOUT_SECS = 300
 
 # Eventbrite-only: target THIS coming weekend (Fri-Sun), not the broader
 # 14-day window the other scrapers use.
@@ -122,8 +130,12 @@ def fetch_category(anchor_city: str, state: str, category: str,
             f"https://api.apify.com/v2/acts/{ACTOR_ID}/run-sync-get-dataset-items",
             headers={"Authorization": f"Bearer {APIFY_API_KEY}",
                      "Content-Type":  "application/json"},
-            json=payload, timeout=600,
+            json=payload, timeout=APIFY_CALL_TIMEOUT_SECS,
         )
+    except requests.Timeout:
+        print(f"    ✗ Apify call timed out after {APIFY_CALL_TIMEOUT_SECS}s "
+              f"(skipping this category, run continues)")
+        return []
     except Exception as e:
         print(f"    ✗ Apify request error: {e}")
         return []
