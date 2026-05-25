@@ -115,6 +115,14 @@ jobs:
           NEWSLETTER:                  ECC_PP
         run: python "Weekend Events/Code/Perimeter_Post/roswell_365.py"
 
+      - name: Refresh chattnaturecenter.org (ECC_PP shared)
+        if: ${{ github.event.inputs.data_source == 'scrape' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ECC_PP
+        run: python "Weekend Events/Code/Perimeter_Post/chatt_nature_center.py"
+
       - name: Refresh cobbcounty.gov
         if: ${{ github.event.inputs.data_source == 'scrape' }}
         env:

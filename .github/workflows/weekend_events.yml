@@ -181,6 +181,16 @@ jobs:
           NEWSLETTER:                  ECC_PP
         run: python "Weekend Events/Code/Perimeter_Post/roswell_365.py"
 
+      - name: Scrape chattnaturecenter.org (ECC_PP shared — runs with PP)
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","Perimeter_Post"]'),
+                         github.event.inputs.newsletter || 'all') }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ECC_PP
+        run: python "Weekend Events/Code/Perimeter_Post/chatt_nature_center.py"
+
       # ── LLL group ──────────────────────────────────────────────────────
       - name: Scrape visitlewisville.com (Lewisville Lake Lookout)
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
