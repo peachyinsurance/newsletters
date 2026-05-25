@@ -1,10 +1,10 @@
 name: Scrape Weekend Events
 
 # Free scrapers only — every step in this workflow is a direct HTTP
-# fetch with no per-event cost. Paid Eventbrite passes live in the
-# separate `Scrape Eventbrite (Apify, paid)` workflow so the two
-# pricing tiers stay clearly distinct. To do a "full" refresh, trigger
-# both workflows (this one + the Eventbrite one).
+# fetch with no per-event cost. We previously had a paid Apify
+# Eventbrite layer; it was removed because the spend / yield ratio
+# wasn't worth it. If you ever want to re-add a paid source, give it
+# its own workflow file so the cost is visible from the workflow name.
 
 on:
   # schedule:  # ── PAUSED for the week. Uncomment to resume auto-runs. ──
@@ -180,11 +180,6 @@ jobs:
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
           NEWSLETTER:                  ECC_PP
         run: python "Weekend Events/Code/Perimeter_Post/roswell_365.py"
-
-      # NOTE: paid Eventbrite scrapers used to live here. They've moved
-      # to the dedicated `Scrape Eventbrite (Apify, paid)` workflow so
-      # this workflow stays free / no-cost. Trigger that one separately
-      # to refresh Eventbrite for any newsletter.
 
       # ── LLL group ──────────────────────────────────────────────────────
       - name: Scrape visitlewisville.com (Lewisville Lake Lookout)

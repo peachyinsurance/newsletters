@@ -1,7 +1,7 @@
 """
 Shared og:image / JSON-LD fallback image scraper for event sources.
 
-Used by Weekend Events scrapers (Cobb County, Sandy Springs, Eventbrite,
+Used by Weekend Events scrapers (Cobb County, Sandy Springs,
 travelcobb/visitmariettaga/kennesaw) when their structured-data path
 returns no image_url. Also used by Free Events directly.
 

@@ -4,13 +4,13 @@ the venue's City.
 
 Every scraper saves rows with a single newsletter tag matching its
 file location (East_Cobb_Connect/cobb_county.py → East_Cobb_Connect,
-Perimeter_Post/eventbrite.py → Perimeter_Post). For events whose
+Perimeter_Post/dunwoody_gov.py → Perimeter_Post). For events whose
 venue city falls in a shared coverage area, we then flip the tag to
 the ECC_PP shared tag so both newsletters' pickers see them.
 
-Without this sweep, an Eventbrite event held in Roswell would only
-show up in Perimeter Post (since the PP wrapper tagged it), even
-though ECC readers would also want it. The sandy_springs, visit_roswell,
+Without this sweep, a Cobb County event held in Roswell would only
+show up in East Cobb Connect (since the ECC wrapper tagged it), even
+though PP readers would also want it. The sandy_springs, visit_roswell,
 and roswell_365 wrappers tag ECC_PP at write time; this sweep extends
 the same logic to anything scraped elsewhere whose City happens to
 be shared.

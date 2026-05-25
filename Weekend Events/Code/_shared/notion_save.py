@@ -5,9 +5,10 @@ functions:
 
   existing_source_urls(db_id, newsletter=None)
       Returns dict[url -> page_id]. Per-newsletter scope when
-      `newsletter` is provided — essential for the multi-newsletter
-      Eventbrite scraper which needs to upsert into separate rows for
-      each newsletter even when scraping the same source URL.
+      `newsletter` is provided — essential when the same source URL
+      can land under multiple newsletters (e.g. a Roswell event that
+      ECC and PP both cover) so the upsert keys off (newsletter, url)
+      rather than url alone.
 
   save_event(db_id, ev, newsletter, page_id=None)
       Create a new row, OR refresh an existing row when page_id is
@@ -40,11 +41,11 @@ def existing_source_urls(db_id: str,
     Weekend Events DB.
 
     `newsletter` scopes the lookup to rows tagged with that newsletter.
-    Crucial for the multi-newsletter Eventbrite scraper — without
-    scoping, an East_Cobb_Connect run that encounters a URL already
-    saved under Perimeter_Post would update the PP row in place,
-    corrupting cross-newsletter state. Defaults to None (all
-    newsletters) for the single-newsletter scrapers."""
+    Crucial when the same source URL can legitimately surface under
+    multiple newsletters — without scoping, an East_Cobb_Connect run
+    that encountered a URL already saved under Perimeter_Post would
+    update the PP row in place, corrupting cross-newsletter state.
+    Defaults to None (all newsletters) for single-newsletter scrapers."""
     filters = None
     if newsletter:
         filters = {"property": "Newsletter", "select": {"equals": newsletter}}
