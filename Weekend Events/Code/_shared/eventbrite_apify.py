@@ -38,7 +38,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
 from html_utils  import _clean_html, _normalize_title  # noqa: E402
 from notion_save import existing_source_urls, save_event  # noqa: E402
-from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
+from event_date_filter import (upcoming_friday as _upcoming_friday,  # noqa: E402
+                               effective_today as _effective_today)
 from event_image_scraper import (is_cancelled_event,           # noqa: E402
                                  is_inappropriate_event,
                                  backfill_images)
@@ -314,7 +315,10 @@ def run_eventbrite(newsletter_tag: str,
 
     cats = categories if categories is not None else CATEGORIES
 
-    today = date.today()
+    # `effective_today()` honors the ISSUE_DATE env override (MM/DD/YYYY).
+    # Lets the dedicated Eventbrite workflow's `issue_date` input target
+    # a future weekend, matching the pattern used by the other workflows.
+    today = _effective_today()
     start = _upcoming_friday(today)
     end   = start + timedelta(days=window_end_offset_days)
 
