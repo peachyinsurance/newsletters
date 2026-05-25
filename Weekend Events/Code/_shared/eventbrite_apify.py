@@ -36,6 +36,7 @@ $3-4. Running ECC + PP + LLL = ~$9-12/scrape, weekly ≈ $35-50/month.
 import json
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 
 import requests
@@ -417,11 +418,24 @@ def run_eventbrite(newsletter_tag: str,
     existing = existing_source_urls(WEEKEND_EVENTS_DB_ID, newsletter=newsletter_tag)
     print(f"  Dedup vs Notion ({newsletter_tag}): {len(existing)} URLs already saved\n")
 
-    # Pull all categories, accumulate raw items.
+    # Pull all categories IN PARALLEL — Apify cost is per-event, not
+    # per-time, so concurrent calls cost the same but the wall clock
+    # collapses to ~the slowest single category instead of the sum.
+    # Each Apify run pays ~30-90s of cold-start overhead before it
+    # scrapes anything; doing 7 categories sequentially meant ~10 min
+    # of pure startup. Concurrent execution amortizes that to ~1 min.
+    # Log lines from the workers will interleave — that's fine for
+    # CI logs; the per-category counters print at the end anyway.
     all_raw: list[dict] = []
-    for cat in cats:
-        all_raw.extend(fetch_category(anchor_city, required_state, cat,
-                                      start, end, max_events))
+    with ThreadPoolExecutor(max_workers=len(cats)) as pool:
+        futures = {pool.submit(fetch_category, anchor_city, required_state,
+                               cat, start, end, max_events): cat
+                   for cat in cats}
+        for fut in as_completed(futures):
+            try:
+                all_raw.extend(fut.result())
+            except Exception as e:
+                print(f"    ✗ Category {futures[fut]!r} failed: {e}")
     print(f"\n  Total raw items across {len(cats)} categories: {len(all_raw)}")
 
     # Filter pipeline. Per-filter counters surface in the run log so it's
