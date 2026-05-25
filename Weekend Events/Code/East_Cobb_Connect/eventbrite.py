@@ -11,6 +11,8 @@ if __name__ == "__main__":
     sys.exit(run_eventbrite(
         newsletter_tag="East_Cobb_Connect",
         anchor_city="marietta",
-        allowed_cities={"marietta", "east cobb"},
+        # Kennesaw is directly adjacent and already a direct-scrape
+        # source (kennesaw-ga.gov), so include Eventbrite hits too.
+        allowed_cities={"marietta", "east cobb", "kennesaw"},
         required_state="GA",
     ))
