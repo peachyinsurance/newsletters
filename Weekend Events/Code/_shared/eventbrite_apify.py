@@ -251,40 +251,56 @@ def normalize_event(item: dict) -> dict | None:
         except Exception:
             pass
 
-    venue = item.get("venue") or item.get("location") or {}
+    # aitorsm/eventbrite uses `primary_venue` (Eventbrite's full schema
+    # name), with address nested as `primary_venue.address.city` /
+    # `primary_venue.address.region`. Kept `venue` / `location` as
+    # fallbacks for any future actor version.
+    venue = (item.get("primary_venue") or item.get("venue")
+             or item.get("location") or {})
     if isinstance(venue, dict):
         loc_name = _first_str(venue, "name", "title")
-        addr_parts = []
-        for k in ("address", "streetAddress", "address1", "addressLine1"):
-            v = venue.get(k)
-            if isinstance(v, dict):
-                v = _first_str(v, "localizedAddressDisplay", "address1",
-                                  "streetAddress", "line1")
-            if isinstance(v, str) and v.strip() and v.strip() not in addr_parts:
-                addr_parts.append(v.strip())
-        city_str = _first_str(venue, "city", "localityName", "town").lower()
-        # State / region. 2-letter abbreviations preferred (GA / TX) since
-        # that's what newsletter wrappers pass as `required_state`. Strip
-        # to first 2 chars uppercase for comparison (handles "Georgia" /
-        # "GA" / "Texas" mixed shapes).
-        region   = _first_str(venue, "region", "state", "stateName",
-                              "regionCode", "stateCode")
-        state_code = ""
+        # Address can be either a flat string OR a nested object with
+        # city/region/postal_code. aitorsm/eventbrite uses the nested
+        # form — `primary_venue.address.{city, region, address_1, ...}`.
+        addr_obj = venue.get("address")
+        if isinstance(addr_obj, dict):
+            city_str = (addr_obj.get("city") or addr_obj.get("localityName")
+                        or addr_obj.get("town") or "").lower().strip()
+            region   = (addr_obj.get("region") or addr_obj.get("state")
+                        or addr_obj.get("stateName")
+                        or addr_obj.get("regionCode")
+                        or addr_obj.get("stateCode") or "").strip()
+            address = _first_str(addr_obj,
+                                 "localized_address_display",
+                                 "localizedAddressDisplay",
+                                 "address_1", "address1",
+                                 "streetAddress", "line1")
+            # If no pre-formatted display string, compose one from parts.
+            if not address:
+                parts = [addr_obj.get("address_1") or "",
+                         city_str.title() if city_str else "",
+                         region]
+                address = ", ".join(p for p in parts if p)
+        else:
+            # Flat string address. Try to peel city/region from the venue
+            # directly (older actor versions / fallback shape).
+            city_str = (_first_str(venue, "city", "localityName", "town")
+                        .lower().strip())
+            region   = _first_str(venue, "region", "state", "stateName",
+                                  "regionCode", "stateCode").strip()
+            address  = (addr_obj if isinstance(addr_obj, str) else "")
+
+        # State / region. 2-letter abbreviations preferred (GA / TX) for
+        # required_state matching. Map common full-name forms to codes.
+        STATE_NAMES = {"georgia": "GA", "texas": "TX", "florida": "FL",
+                       "california": "CA", "new york": "NY",
+                       "illinois": "IL", "alabama": "AL",
+                       "tennessee": "TN", "north carolina": "NC",
+                       "south carolina": "SC"}
         if region:
-            r = region.strip()
-            # If full state name, drop to first 2 chars (rough but works
-            # for "Georgia" → "GE" — actually that's wrong, special-case).
-            STATE_NAMES = {"georgia": "GA", "texas": "TX", "florida": "FL",
-                           "california": "CA", "new york": "NY",
-                           "illinois": "IL", "alabama": "AL",
-                           "tennessee": "TN", "north carolina": "NC",
-                           "south carolina": "SC"}
-            state_code = STATE_NAMES.get(r.lower(), r[:2].upper())
-        if city_str:
-            addr_parts.append(city_str.title())
-        if region:
-            addr_parts.append(region)
-        address = ", ".join(addr_parts)
+            state_code = STATE_NAMES.get(region.lower(), region[:2].upper())
+        else:
+            state_code = ""
     else:
         loc_name = str(venue or "")
         address  = ""
