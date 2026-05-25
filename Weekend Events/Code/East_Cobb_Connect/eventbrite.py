@@ -12,4 +12,5 @@ if __name__ == "__main__":
         newsletter_tag="East_Cobb_Connect",
         anchor_city="marietta",
         allowed_cities={"marietta", "east cobb"},
+        required_state="GA",
     ))

@@ -24,4 +24,5 @@ if __name__ == "__main__":
             "brookhaven",
             "roswell",
         },
+        required_state="GA",
     ))

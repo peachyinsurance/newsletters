@@ -263,7 +263,23 @@ def normalize_event(item: dict) -> dict | None:
             if isinstance(v, str) and v.strip() and v.strip() not in addr_parts:
                 addr_parts.append(v.strip())
         city_str = _first_str(venue, "city", "localityName", "town").lower()
-        region   = _first_str(venue, "region", "state", "stateName")
+        # State / region. 2-letter abbreviations preferred (GA / TX) since
+        # that's what newsletter wrappers pass as `required_state`. Strip
+        # to first 2 chars uppercase for comparison (handles "Georgia" /
+        # "GA" / "Texas" mixed shapes).
+        region   = _first_str(venue, "region", "state", "stateName",
+                              "regionCode", "stateCode")
+        state_code = ""
+        if region:
+            r = region.strip()
+            # If full state name, drop to first 2 chars (rough but works
+            # for "Georgia" → "GE" — actually that's wrong, special-case).
+            STATE_NAMES = {"georgia": "GA", "texas": "TX", "florida": "FL",
+                           "california": "CA", "new york": "NY",
+                           "illinois": "IL", "alabama": "AL",
+                           "tennessee": "TN", "north carolina": "NC",
+                           "south carolina": "SC"}
+            state_code = STATE_NAMES.get(r.lower(), r[:2].upper())
         if city_str:
             addr_parts.append(city_str.title())
         if region:
@@ -273,6 +289,7 @@ def normalize_event(item: dict) -> dict | None:
         loc_name = str(venue or "")
         address  = ""
         city_str = ""
+        state_code = ""
 
     image = _first_str(item, "image", "imageUrl", "logo", "thumbnail", "imageURL")
     price = _max_price_usd(item)
@@ -288,6 +305,7 @@ def normalize_event(item: dict) -> dict | None:
         "location":    loc_name,
         "address":     address,
         "city":        city_str,
+        "state":       state_code,
         "price_usd":   price,
     }
 
@@ -299,6 +317,7 @@ def run_eventbrite(newsletter_tag: str,
                    anchor_city: str,
                    allowed_cities: set[str],
                    *,
+                   required_state: str | None = None,
                    categories: list[str] | None = None,
                    max_pages: int = MAX_PAGES,
                    price_cap_usd: float = PRICE_CAP_USD,
@@ -342,6 +361,7 @@ def run_eventbrite(newsletter_tag: str,
     print(f"= Newsletter:   {newsletter_tag}")
     print(f"= Anchor city:  {anchor_city}  (Apify search)")
     print(f"= Allow-list:   {sorted(allowed_cities)}")
+    print(f"= Req. state:   {required_state or '(none — state filter off)'}")
     print(f"= Categories:   {len(cats)}  ({', '.join(cats)})")
     print(f"= Price cap:    ${price_cap_usd:.0f}")
     print(f"= Date window:  {start} → {end}  (target weekend Fri-Sun only)")
@@ -375,6 +395,8 @@ def run_eventbrite(newsletter_tag: str,
     skipped_city     = 0
     skipped_city_none = 0          # had no city extracted (field-name miss)
     city_drop_reasons: dict[str, int] = {}   # extracted city → count (cities NOT in allow-list)
+    skipped_state    = 0
+    state_drop_reasons: dict[str, int] = {}  # extracted state → count (states != required_state)
 
     for raw in all_raw:
         ev = normalize_event(raw)
@@ -426,6 +448,19 @@ def run_eventbrite(newsletter_tag: str,
             skipped_price += 1
             continue
 
+        # State filter — catches cross-state false positives from
+        # Eventbrite's loose geo search (Lewisville TX vs. Lewisville NC,
+        # Atlanta GA vs. Atlanta IL, etc.). Skip if required_state is set
+        # AND the event has a state AND it doesn't match. Events with no
+        # extracted state pass through — we don't want to over-drop when
+        # the actor's schema is incomplete.
+        if required_state:
+            ev_state = (ev.get("state") or "").upper()
+            if ev_state and ev_state != required_state.upper():
+                skipped_state += 1
+                state_drop_reasons[ev_state] = state_drop_reasons.get(ev_state, 0) + 1
+                continue
+
         city = ev.get("city", "")
         if not city or city not in allowed_cities:
             skipped_city += 1
@@ -451,6 +486,10 @@ def run_eventbrite(newsletter_tag: str,
             else:
                 print(f"          · {name}  parsed={parsed}")
     print(f"    {skipped_price:>3} dropped — price > ${price_cap_usd:.0f}")
+    print(f"    {skipped_state:>3} dropped — venue state != {required_state or '(off)'}")
+    if state_drop_reasons:
+        for st, n in sorted(state_drop_reasons.items(), key=lambda kv: -kv[1])[:5]:
+            print(f"          · {st!r}: {n}")
     print(f"    {skipped_city:>3} dropped — venue city not in allow-list  "
           f"(no-city-extracted={skipped_city_none}, wrong-city={skipped_city - skipped_city_none})")
     if city_drop_reasons:

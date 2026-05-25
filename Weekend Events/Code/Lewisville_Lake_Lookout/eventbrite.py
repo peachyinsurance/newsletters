@@ -18,4 +18,5 @@ if __name__ == "__main__":
             "lewisville", "flower mound", "highland village",
             "lake dallas", "little elm", "the colony",
         },
+        required_state="TX",
     ))
