@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
-"""Eventbrite scraper — via Apify's aitorsm/eventbrite actor. LIBRARY.
+"""Eventbrite scraper — via Apify's hypebridge/eventbrite-search actor. LIBRARY.
 
 Per-newsletter wrappers (East_Cobb_Connect/eventbrite.py,
 Perimeter_Post/eventbrite.py, Lewisville_Lake_Lookout/eventbrite.py)
-call `run_eventbrite(newsletter_tag, anchor_city, allowed_cities)`
-with their config. The shared logic — Apify pagination, dedup, date /
-price / city / content filtering, Notion upsert — lives here so adding
-a new newsletter = one new wrapper file in that newsletter's folder.
+call `run_eventbrite(newsletter_tag, anchor_city, allowed_cities,
+required_state=...)` with their config. The shared logic — Apify
+pagination, dedup, date / price / city / content filtering, Notion
+upsert — lives here so adding a new newsletter = one new wrapper
+file in that newsletter's folder.
+
+We use hypebridge/eventbrite-search (not aitorsm/eventbrite) because
+it accepts a custom `startUrls` field. That lets us point the actor
+at a state-scoped Eventbrite search URL
+(`/d/ga--marietta/<category>/`) — Eventbrite's own geo search is
+loose, and the state-in-the-URL pattern dramatically cuts cross-state
+noise (Lewisville TX vs Lewisville NC, Atlanta GA vs Atlanta IL).
 
 Per-newsletter dedup is essential: a shared event scraped under both
 East_Cobb_Connect and Perimeter_Post should land as two rows (one per
@@ -17,12 +25,13 @@ Filters applied for every wrapper (Claude doesn't reject anything):
   1. Category allow-list — 7 chosen categories per Apify run.
   2. Date scrub — Eventbrite's date filter is loose; re-verify in window.
   3. Price ≤ $50 — best-effort parse; unknown price kept.
-  4. City allow-list — only events whose venue city is in coverage.
-  5. Cancelled / adult-NSFW / hookah via shared helpers.
-  6. Cross-category dedup by (normalized_name, start_date) per wrapper.
+  4. State match — drops events whose state ≠ required_state.
+  5. City allow-list — only events whose venue city is in coverage.
+  6. Cancelled / adult-NSFW / hookah via shared helpers.
+  7. Cross-category dedup by (normalized_name, start_date) per wrapper.
 
-Cost (per wrapper run): 7 categories × $0.02/event × maxPages=1 ≈
-$2-3. Running ECC + PP + LLL = ~$6-9/scrape, weekly ≈ $25-35/month.
+Cost (per wrapper run): 7 categories × ~$0.02/event × 25 events ≈
+$3-4. Running ECC + PP + LLL = ~$9-12/scrape, weekly ≈ $35-50/month.
 """
 import json
 import os
@@ -48,9 +57,11 @@ APIFY_API_KEY        = os.environ.get("APIFY_API_KEY", "")
 WEEKEND_EVENTS_DB_ID = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
 DEBUG                = os.environ.get("EVENTBRITE_DEBUG", "") == "1"
 
-ACTOR_ID  = "aitorsm~eventbrite"   # tilde-form for the API path
-COUNTRY   = "united-states"
-MAX_PAGES = 1                      # caps cost — Apify charges $0.02/event
+ACTOR_ID  = "hypebridge~eventbrite-search"   # tilde-form for the API path
+COUNTRY   = "US"
+# `maxEvents` is per-Apify-call. We loop categories so this is per-category.
+# Bump if you want broader coverage at higher cost.
+MAX_EVENTS_PER_CATEGORY = 25
 
 # Eventbrite-only: target THIS coming weekend (Fri-Sun), not the broader
 # 14-day window the other scrapers use.
@@ -78,20 +89,34 @@ PRICE_CAP_USD = 50.0
 # ---------------------------------------------------------------------------
 # Apify call (one per category)
 # ---------------------------------------------------------------------------
-def fetch_category(anchor_city: str, category: str,
+def fetch_category(anchor_city: str, state: str, category: str,
                    start: date, end: date,
-                   max_pages: int = MAX_PAGES) -> list[dict]:
-    """Trigger an Apify sync run for one (anchor_city, category)."""
+                   max_events: int = MAX_EVENTS_PER_CATEGORY) -> list[dict]:
+    """Trigger one Apify sync run via hypebridge/eventbrite-search.
+
+    Passes a tight Eventbrite URL via `startUrls`:
+      https://www.eventbrite.com/d/<state>--<city>/<category>/
+        ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+
+    State + city are in the URL slug, so Eventbrite's geo search is
+    centered properly (instead of the loose "city only" search the
+    old aitorsm actor did). Category is in the URL path, so we
+    don't waste calls on excluded categories.
+    """
+    city_slug  = anchor_city.lower().replace(" ", "-")
+    state_slug = state.lower()
+    url = (f"https://www.eventbrite.com/d/{state_slug}--{city_slug}/{category}/"
+           f"?start_date={start.isoformat()}&end_date={end.isoformat()}")
     payload = {
-        "country":   COUNTRY,
-        "city":      anchor_city,
-        "category":  category,
-        "startDate": start.isoformat(),
-        "endDate":   end.isoformat(),
-        "maxPages":  max_pages,
+        "startUrls":          [{"url": url}],
+        "scrapeEventDetails": True,
+        "maxEvents":          max_events,
+        "country":            COUNTRY,
+        "state":              state,    # fallback; URL is the primary driver
+        "city":               anchor_city,
     }
-    print(f"  Apify run: city={anchor_city}, category={category!r}, "
-          f"window={start}..{end}, maxPages={max_pages}")
+    print(f"  Apify run: {state_slug}--{city_slug}/{category}, "
+          f"window={start}..{end}, maxEvents={max_events}")
     try:
         r = requests.post(
             f"https://api.apify.com/v2/acts/{ACTOR_ID}/run-sync-get-dataset-items",
@@ -198,43 +223,45 @@ def _max_price_usd(item: dict) -> float | None:
 # Normalize one Apify event → standard event dict
 # ---------------------------------------------------------------------------
 def normalize_event(item: dict) -> dict | None:
-    """Returns None if the event is missing essentials, cancelled, or
-    matches the adult/NSFW filter."""
-    name = _first_str(item, "name", "title", "eventName")
-    url  = _first_str(item, "url", "eventUrl", "link", "permalink")
+    """Map a hypebridge/eventbrite-search item to our standard event dict.
+
+    hypebridge has a clean structured output: eventTitle / eventUrl,
+    timing.start/end (ISO datetimes), location.{venueName, city, state,
+    address, postalCode, country}, pricing.maxPrice.value (in cents),
+    images.hero, and status flags (isCanceled, isPostponed, isSoldOut).
+
+    Returns None for missing essentials, cancelled / sold-out / postponed
+    events, or anything caught by the adult-NSFW filter."""
+    name = _first_str(item, "eventTitle", "name", "title")
+    url  = _first_str(item, "eventUrl", "url", "link", "permalink")
     if not name or not url:
         return None
 
     description = _clean_html(_first_str(item, "description", "summary",
                                          "fullDescription", "shortDescription"))[:2000]
+
+    # Status flags — drop cancelled / postponed / sold-out / ended events.
+    if (item.get("isCanceled") or item.get("isCancelled")
+            or item.get("isPostponed") or item.get("isEnded")):
+        return None
     if is_cancelled_event(name, description):
         return None
-    venue_str = _first_str(item.get("venue"), "name") if isinstance(item.get("venue"), dict) else ""
-    if is_inappropriate_event(name, description, venue_str):
+
+    loc = item.get("location") or {}
+    loc_name = _first_str(loc, "venueName", "name") if isinstance(loc, dict) else ""
+
+    if is_inappropriate_event(name, description, loc_name):
         return None
 
-    # aitorsm/eventbrite actor returns `start_date` / `end_date` as
-    # YYYY-MM-DD strings with separate `start_time` / `end_time` as HH:MM.
-    # camelCase variants kept as fallbacks for future actor versions.
-    start_raw = (_first_str(item, "start_date", "startDate", "start",
-                            "starts", "dateStart")
-                 or (item.get("dates") or {}).get("start"))
-    end_raw   = (_first_str(item, "end_date", "endDate", "end",
-                            "ends", "dateEnd")
-                 or (item.get("dates") or {}).get("end"))
-    # If date is bare YYYY-MM-DD, compose with the separate time field
-    # so downstream time-of-day extraction still works.
-    if start_raw and "T" not in str(start_raw):
-        st = _first_str(item, "start_time", "startTime")
-        if st:
-            start_raw = f"{start_raw}T{st}"
-    if end_raw and "T" not in str(end_raw):
-        et = _first_str(item, "end_time", "endTime")
-        if et:
-            end_raw = f"{end_raw}T{et}"
+    # Timing — hypebridge gives us ISO datetimes directly under timing.
+    timing = item.get("timing") or {}
+    start_raw = _first_str(timing, "start") or _first_str(item, "start_date", "startDate")
+    end_raw   = _first_str(timing, "end")   or _first_str(item, "end_date", "endDate")
+
     start = _parse_date(start_raw)
     end   = _parse_date(end_raw) or start
 
+    # Time-of-day display from the ISO datetime.
     time_str = ""
     if start_raw and "T" in str(start_raw):
         try:
@@ -251,63 +278,48 @@ def normalize_event(item: dict) -> dict | None:
         except Exception:
             pass
 
-    # aitorsm/eventbrite uses `primary_venue` (Eventbrite's full schema
-    # name), with address nested as `primary_venue.address.city` /
-    # `primary_venue.address.region`. Kept `venue` / `location` as
-    # fallbacks for any future actor version.
-    venue = (item.get("primary_venue") or item.get("venue")
-             or item.get("location") or {})
-    if isinstance(venue, dict):
-        loc_name = _first_str(venue, "name", "title")
-        # Address can be either a flat string OR a nested object with
-        # city/region/postal_code. aitorsm/eventbrite uses the nested
-        # form — `primary_venue.address.{city, region, address_1, ...}`.
-        addr_obj = venue.get("address")
-        if isinstance(addr_obj, dict):
-            city_str = (addr_obj.get("city") or addr_obj.get("localityName")
-                        or addr_obj.get("town") or "").lower().strip()
-            region   = (addr_obj.get("region") or addr_obj.get("state")
-                        or addr_obj.get("stateName")
-                        or addr_obj.get("regionCode")
-                        or addr_obj.get("stateCode") or "").strip()
-            address = _first_str(addr_obj,
-                                 "localized_address_display",
-                                 "localizedAddressDisplay",
-                                 "address_1", "address1",
-                                 "streetAddress", "line1")
-            # If no pre-formatted display string, compose one from parts.
-            if not address:
-                parts = [addr_obj.get("address_1") or "",
-                         city_str.title() if city_str else "",
-                         region]
-                address = ", ".join(p for p in parts if p)
-        else:
-            # Flat string address. Try to peel city/region from the venue
-            # directly (older actor versions / fallback shape).
-            city_str = (_first_str(venue, "city", "localityName", "town")
-                        .lower().strip())
-            region   = _first_str(venue, "region", "state", "stateName",
-                                  "regionCode", "stateCode").strip()
-            address  = (addr_obj if isinstance(addr_obj, str) else "")
-
-        # State / region. 2-letter abbreviations preferred (GA / TX) for
-        # required_state matching. Map common full-name forms to codes.
-        STATE_NAMES = {"georgia": "GA", "texas": "TX", "florida": "FL",
-                       "california": "CA", "new york": "NY",
-                       "illinois": "IL", "alabama": "AL",
-                       "tennessee": "TN", "north carolina": "NC",
-                       "south carolina": "SC"}
-        if region:
-            state_code = STATE_NAMES.get(region.lower(), region[:2].upper())
-        else:
-            state_code = ""
+    # Location — hypebridge already has flat city / state / address fields.
+    if isinstance(loc, dict):
+        city_str = (loc.get("city") or "").lower().strip()
+        state_raw = (loc.get("state") or "").strip()
+        address  = (loc.get("address") or "").strip()
+        country  = (loc.get("country") or "").strip().upper()
     else:
-        loc_name = str(venue or "")
-        address  = ""
-        city_str = ""
-        state_code = ""
+        city_str  = ""
+        state_raw = ""
+        address   = ""
+        country   = ""
 
-    image = _first_str(item, "image", "imageUrl", "logo", "thumbnail", "imageURL")
+    # Drop non-US events entirely if country is set (Eventbrite is global;
+    # state filter would be the right answer for US, but we never want
+    # ES / DE / etc. in a US local newsletter).
+    if country and country != "US":
+        return None
+
+    # State as 2-letter code. hypebridge usually already returns "GA" /
+    # "TX" but fall back to a full-name → code map for safety.
+    STATE_NAMES = {"georgia": "GA", "texas": "TX", "florida": "FL",
+                   "california": "CA", "new york": "NY",
+                   "illinois": "IL", "alabama": "AL",
+                   "tennessee": "TN", "north carolina": "NC",
+                   "south carolina": "SC"}
+    state_code = STATE_NAMES.get(state_raw.lower(), state_raw[:2].upper()) \
+                 if state_raw else ""
+
+    # Image — hypebridge gives `images.hero` as the primary URL.
+    images = item.get("images") or {}
+    image = ""
+    if isinstance(images, dict):
+        image = (images.get("hero") or "").strip()
+        if not image:
+            sizes = images.get("heroSizes") or {}
+            if isinstance(sizes, dict):
+                image = (sizes.get("medium") or sizes.get("large")
+                         or sizes.get("small") or "").strip()
+    if not image:
+        image = _first_str(item, "image", "imageUrl", "eventImage")
+
+    # Price — hypebridge gives pricing.maxPrice.value in CENTS.
     price = _max_price_usd(item)
 
     return {
@@ -333,22 +345,25 @@ def run_eventbrite(newsletter_tag: str,
                    anchor_city: str,
                    allowed_cities: set[str],
                    *,
-                   required_state: str | None = None,
+                   required_state: str,
                    categories: list[str] | None = None,
-                   max_pages: int = MAX_PAGES,
+                   max_events: int = MAX_EVENTS_PER_CATEGORY,
                    price_cap_usd: float = PRICE_CAP_USD,
                    window_end_offset_days: int = WINDOW_END_OFFSET_DAYS) -> int:
     """End-to-end Eventbrite scrape for ONE newsletter.
 
     Per-newsletter folders contain thin wrappers that call this with
-    their config (tag, anchor city, allowed cities). The shared logic
-    — Apify pagination, dedup, date/price/city/content filtering,
-    Notion upsert — all lives here so adding a new newsletter is one
-    new wrapper file in that newsletter's folder.
+    their config (tag, anchor city, allowed cities, required state).
+    The shared logic — Apify pagination, dedup, date/price/state/city/
+    content filtering, Notion upsert — all lives here so adding a new
+    newsletter is one new wrapper file in that newsletter's folder.
 
-    `anchor_city` is what we pass to Apify's Eventbrite location search
-    (e.g. 'marietta', 'sandy-springs', 'lewisville'). Eventbrite resolves
-    loosely, so `allowed_cities` post-filters by actual venue city.
+    `anchor_city` + `required_state` together form the Eventbrite search
+    URL slug ('/d/ga--marietta/...'). Eventbrite's geo search is loose
+    so `allowed_cities` post-filters by actual venue city and the state
+    filter catches cross-state false positives. `required_state` is the
+    2-letter postal code (e.g. 'GA', 'TX') and is REQUIRED — the URL
+    can't be built without it.
 
     `newsletter_tag` is the Notion DB tag for saved rows. Use ECC_PP
     for a row that should be visible in both East_Cobb_Connect and
@@ -361,6 +376,9 @@ def run_eventbrite(newsletter_tag: str,
         return 1
     if not WEEKEND_EVENTS_DB_ID:
         print("✗ NOTION_WEEKEND_EVENTS_DB_ID is not set in env.")
+        return 1
+    if not required_state:
+        print("✗ required_state is mandatory (URL construction needs it).")
         return 1
 
     cats = categories if categories is not None else CATEGORIES
@@ -375,13 +393,13 @@ def run_eventbrite(newsletter_tag: str,
     print(f"\n{'='*70}")
     print(f"= Eventbrite scraper (via Apify)")
     print(f"= Newsletter:   {newsletter_tag}")
-    print(f"= Anchor city:  {anchor_city}  (Apify search)")
+    print(f"= Anchor city:  {anchor_city}  ({required_state})")
     print(f"= Allow-list:   {sorted(allowed_cities)}")
-    print(f"= Req. state:   {required_state or '(none — state filter off)'}")
+    print(f"= Req. state:   {required_state}")
     print(f"= Categories:   {len(cats)}  ({', '.join(cats)})")
     print(f"= Price cap:    ${price_cap_usd:.0f}")
     print(f"= Date window:  {start} → {end}  (target weekend Fri-Sun only)")
-    print(f"= Actor:        {ACTOR_ID}, maxPages={max_pages}")
+    print(f"= Actor:        {ACTOR_ID}, maxEvents={max_events}/category")
     print(f"{'='*70}")
 
     existing = existing_source_urls(WEEKEND_EVENTS_DB_ID, newsletter=newsletter_tag)
@@ -390,7 +408,8 @@ def run_eventbrite(newsletter_tag: str,
     # Pull all categories, accumulate raw items.
     all_raw: list[dict] = []
     for cat in cats:
-        all_raw.extend(fetch_category(anchor_city, cat, start, end, max_pages))
+        all_raw.extend(fetch_category(anchor_city, required_state, cat,
+                                      start, end, max_events))
     print(f"\n  Total raw items across {len(cats)} categories: {len(all_raw)}")
 
     # Filter pipeline. Per-filter counters surface in the run log so it's
@@ -466,16 +485,15 @@ def run_eventbrite(newsletter_tag: str,
 
         # State filter — catches cross-state false positives from
         # Eventbrite's loose geo search (Lewisville TX vs. Lewisville NC,
-        # Atlanta GA vs. Atlanta IL, etc.). Skip if required_state is set
-        # AND the event has a state AND it doesn't match. Events with no
-        # extracted state pass through — we don't want to over-drop when
-        # the actor's schema is incomplete.
-        if required_state:
-            ev_state = (ev.get("state") or "").upper()
-            if ev_state and ev_state != required_state.upper():
-                skipped_state += 1
-                state_drop_reasons[ev_state] = state_drop_reasons.get(ev_state, 0) + 1
-                continue
+        # Atlanta GA vs. Atlanta IL, etc.). Events with no extracted
+        # state pass through — we don't want to over-drop when the
+        # actor's schema is incomplete; the city allow-list below is
+        # the second line of defense.
+        ev_state = (ev.get("state") or "").upper()
+        if ev_state and ev_state != required_state.upper():
+            skipped_state += 1
+            state_drop_reasons[ev_state] = state_drop_reasons.get(ev_state, 0) + 1
+            continue
 
         city = ev.get("city", "")
         if not city or city not in allowed_cities:
@@ -502,7 +520,7 @@ def run_eventbrite(newsletter_tag: str,
             else:
                 print(f"          · {name}  parsed={parsed}")
     print(f"    {skipped_price:>3} dropped — price > ${price_cap_usd:.0f}")
-    print(f"    {skipped_state:>3} dropped — venue state != {required_state or '(off)'}")
+    print(f"    {skipped_state:>3} dropped — venue state != {required_state}")
     if state_drop_reasons:
         for st, n in sorted(state_drop_reasons.items(), key=lambda kv: -kv[1])[:5]:
             print(f"          · {st!r}: {n}")
