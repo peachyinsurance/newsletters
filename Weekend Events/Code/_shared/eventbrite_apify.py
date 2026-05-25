@@ -213,10 +213,25 @@ def normalize_event(item: dict) -> dict | None:
     if is_inappropriate_event(name, description, venue_str):
         return None
 
-    start_raw = (_first_str(item, "startDate", "start", "starts", "dateStart")
+    # aitorsm/eventbrite actor returns `start_date` / `end_date` as
+    # YYYY-MM-DD strings with separate `start_time` / `end_time` as HH:MM.
+    # camelCase variants kept as fallbacks for future actor versions.
+    start_raw = (_first_str(item, "start_date", "startDate", "start",
+                            "starts", "dateStart")
                  or (item.get("dates") or {}).get("start"))
-    end_raw   = (_first_str(item, "endDate", "end", "ends", "dateEnd")
+    end_raw   = (_first_str(item, "end_date", "endDate", "end",
+                            "ends", "dateEnd")
                  or (item.get("dates") or {}).get("end"))
+    # If date is bare YYYY-MM-DD, compose with the separate time field
+    # so downstream time-of-day extraction still works.
+    if start_raw and "T" not in str(start_raw):
+        st = _first_str(item, "start_time", "startTime")
+        if st:
+            start_raw = f"{start_raw}T{st}"
+    if end_raw and "T" not in str(end_raw):
+        et = _first_str(item, "end_time", "endTime")
+        if et:
+            end_raw = f"{end_raw}T{et}"
     start = _parse_date(start_raw)
     end   = _parse_date(end_raw) or start
 
@@ -385,8 +400,9 @@ def run_eventbrite(newsletter_tag: str,
         if not sd:
             skipped_date_none += 1
             if len(date_drop_samples) < 5:
-                raw_start = (raw.get("startDate") or raw.get("start")
-                             or raw.get("starts") or raw.get("dateStart")
+                raw_start = (raw.get("start_date") or raw.get("startDate")
+                             or raw.get("start") or raw.get("starts")
+                             or raw.get("dateStart")
                              or (raw.get("dates") or {}).get("start"))
                 date_drop_samples.append(
                     (ev.get("event_name", "?")[:50], f"{raw_start!r}", "<NONE>"))
