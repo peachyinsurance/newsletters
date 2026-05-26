@@ -88,11 +88,37 @@ def notion_create_page(title: str, parent_id: str) -> str:
 
 
 def notion_clear_page(page_id: str) -> None:
-    """Delete all blocks from a page (to overwrite content)."""
+    """Delete all blocks from a page (to overwrite content).
+
+    We used to fire 10 parallel deletes per batch with no rate limiting
+    and no failure handling. That meant: (a) silent partial-clear bugs
+    when Notion 429-throttled a few of the parallel requests, leaving
+    stale blocks behind that the next append-phase would layer on top
+    of; and (b) GitHub Actions started flagging full rebuild runs as
+    "disruptive" because of the API burst pattern across 3 newsletters.
+
+    Now: 3 workers (still parallel, much less burst-y), explicit 429
+    retry with exponential backoff, raise_for_status() on the final
+    attempt so unrecoverable deletes surface in the logs instead of
+    silently leaving orphaned blocks."""
+    import time as _time
     from concurrent.futures import ThreadPoolExecutor
 
     def delete_block(block_id):
-        requests.delete(f"https://api.notion.com/v1/blocks/{block_id}", headers=HEADERS, timeout=30)
+        for attempt in range(4):
+            r = requests.delete(
+                f"https://api.notion.com/v1/blocks/{block_id}",
+                headers=HEADERS, timeout=30,
+            )
+            if r.status_code == 200:
+                return
+            if r.status_code == 429 and attempt < 3:
+                # Notion sends Retry-After (seconds). Honor it; otherwise back off.
+                wait = float(r.headers.get("Retry-After", 0)) or (1.5 ** (attempt + 1))
+                _time.sleep(wait)
+                continue
+            # Non-429 error or out of retries — surface it
+            r.raise_for_status()
 
     while True:
         r = requests.get(
@@ -105,9 +131,13 @@ def notion_clear_page(page_id: str) -> None:
         if not blocks:
             break
         block_ids = [b["id"] for b in blocks]
-        with ThreadPoolExecutor(max_workers=10) as pool:
-            pool.map(delete_block, block_ids)
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            list(pool.map(delete_block, block_ids))   # list() forces exceptions to surface
         print(f"    Cleared {len(block_ids)} blocks")
+        # Brief breather between batches so the next paginated GET +
+        # delete-wave doesn't pile on top of the previous wave's
+        # in-flight requests at the Notion edge.
+        _time.sleep(0.5)
 
 
 def notion_get_blocks(page_id: str) -> list[dict]:
