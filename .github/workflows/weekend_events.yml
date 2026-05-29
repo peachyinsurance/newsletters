@@ -81,6 +81,7 @@ jobs:
 
       # ── ECC group ──────────────────────────────────────────────────────
       - name: Scrape travelcobb.org (East Cobb Connect)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","East_Cobb_Connect"]'),
                          github.event.inputs.newsletter || 'all') }}
@@ -91,6 +92,7 @@ jobs:
         run: python "Weekend Events/Code/East_Cobb_Connect/travel_cobb.py"
 
       - name: Scrape visitmariettaga.com (East Cobb Connect)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","East_Cobb_Connect"]'),
                          github.event.inputs.newsletter || 'all') }}
@@ -101,6 +103,7 @@ jobs:
         run: python "Weekend Events/Code/East_Cobb_Connect/visit_marietta.py"
 
       - name: Scrape kennesaw-ga.gov (East Cobb Connect)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","East_Cobb_Connect"]'),
                          github.event.inputs.newsletter || 'all') }}
@@ -111,6 +114,7 @@ jobs:
         run: python "Weekend Events/Code/East_Cobb_Connect/kennesaw.py"
 
       - name: Scrape cobbcounty.gov (East Cobb Connect)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","East_Cobb_Connect"]'),
                          github.event.inputs.newsletter || 'all') }}
@@ -121,6 +125,7 @@ jobs:
         run: python "Weekend Events/Code/East_Cobb_Connect/cobb_county.py"
 
       - name: Scrape The Battery Atlanta (East Cobb Connect)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","East_Cobb_Connect"]'),
                          github.event.inputs.newsletter || 'all') }}
@@ -131,6 +136,7 @@ jobs:
         run: python "Weekend Events/Code/East_Cobb_Connect/battery_atlanta.py"
 
       - name: Scrape visitsandysprings.org (ECC_PP shared — runs with ECC)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","East_Cobb_Connect"]'),
                          github.event.inputs.newsletter || 'all') }}
@@ -142,6 +148,7 @@ jobs:
 
       # ── PP group ───────────────────────────────────────────────────────
       - name: Scrape discoverdunwoody.com (Perimeter Post)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","Perimeter_Post"]'),
                          github.event.inputs.newsletter || 'all') }}
@@ -152,6 +159,7 @@ jobs:
         run: python "Weekend Events/Code/Perimeter_Post/discover_dunwoody.py"
 
       - name: Scrape dunwoodyga.gov city calendar (Perimeter Post)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","Perimeter_Post"]'),
                          github.event.inputs.newsletter || 'all') }}
@@ -162,6 +170,7 @@ jobs:
         run: python "Weekend Events/Code/Perimeter_Post/dunwoody_gov.py"
 
       - name: Scrape patch.com/georgia/dunwoody calendar (Perimeter Post)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","Perimeter_Post"]'),
                          github.event.inputs.newsletter || 'all') }}
@@ -172,6 +181,7 @@ jobs:
         run: python "Weekend Events/Code/Perimeter_Post/patch_dunwoody.py"
 
       - name: Scrape visitroswellga.com (ECC_PP shared — runs with PP)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","Perimeter_Post"]'),
                          github.event.inputs.newsletter || 'all') }}
@@ -182,6 +192,7 @@ jobs:
         run: python "Weekend Events/Code/Perimeter_Post/visit_roswell.py"
 
       - name: Scrape roswell365.com (ECC_PP shared — runs with PP)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","Perimeter_Post"]'),
                          github.event.inputs.newsletter || 'all') }}
@@ -192,6 +203,7 @@ jobs:
         run: python "Weekend Events/Code/Perimeter_Post/roswell_365.py"
 
       - name: Scrape chattnaturecenter.org (ECC_PP shared — runs with PP)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","Perimeter_Post"]'),
                          github.event.inputs.newsletter || 'all') }}
@@ -203,6 +215,7 @@ jobs:
 
       # ── LLL group ──────────────────────────────────────────────────────
       - name: Scrape visitlewisville.com (Lewisville Lake Lookout)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","Lewisville_Lake_Lookout"]'),
                          github.event.inputs.newsletter || 'all') }}
@@ -213,6 +226,7 @@ jobs:
         run: python "Weekend Events/Code/Lewisville_Lake_Lookout/visit_lewisville.py"
 
       - name: Scrape cityoflewisville.com (Lewisville Lake Lookout)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","Lewisville_Lake_Lookout"]'),
                          github.event.inputs.newsletter || 'all') }}
@@ -223,6 +237,7 @@ jobs:
         run: python "Weekend Events/Code/Lewisville_Lake_Lookout/city_of_lewisville.py"
 
       - name: Scrape Denton County calendar (Lewisville Lake Lookout)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
              && contains(fromJson('["all","Lewisville_Lake_Lookout"]'),
                          github.event.inputs.newsletter || 'all') }}
@@ -237,6 +252,7 @@ jobs:
       # shared coverage area (e.g. Roswell) from their per-newsletter
       # tag to ECC_PP so both newsletters' pickers see them.
       - name: Normalize city tags (shared-city sweep)
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
@@ -244,6 +260,7 @@ jobs:
         run: python "Weekend Events/Code/utilities/normalize_city_tags.py"
 
       - name: Archive past events
+        continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'scrape' }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
