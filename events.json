@@ -1,5 +1,37 @@
 [
   {
+    "source_url": "https://www.cityoflewisville.com/Home/Components/Calendar/Event/87217/668",
+    "event_name": "Lunch and Learn: Safe at Home",
+    "date": "Tuesday, June 09",
+    "time": "4:00 PM",
+    "venue": "Thrive, Lewisville",
+    "price": "Free",
+    "blurb": "Thrive in Lewisville is hosting a \"Safe at Home\" Lunch and Learn on Tuesday, June 9. The session runs an hour and focuses on home safety, which is a topic that hits differently when you're a homeowner with kids in the house.\n\nThis one's more niche than a festival or a concert, but for the right reader, it's worth knowing about. If you've been putting off a conversation about home safety or want practical information without a sales pitch, this is a low-commitment way to get it.\n\nFree, an hour long, and right in Lewisville. RSVP if you plan to attend.",
+    "ticket_url": "",
+    "date_generated": "2026-05-30",
+    "status": "pending",
+    "newsletter_name": "Lewisville_Lake_Lookout",
+    "total_score": "17",
+    "demographic_fit_score": "6",
+    "uniqueness_score": "5",
+    "audience_match_score": "6",
+    "scoring_notes": "65% homeownership rate and strong family skew make home safety content relevant. However, the 4pm time listed as 'Lunch and Learn' is an inconsistency that suggests possible data error. Lower scores reflect narrower appeal and lower uniqueness. Included as a utility pick for the right reader segment.",
+    "image_url": "https://i0.wp.com/texaskidsadventures.com/wp-content/uploads/2020/03/8V0A4150.jpg?fit=1024,683&ssl=1",
+    "image_candidates": [
+      "https://i0.wp.com/texaskidsadventures.com/wp-content/uploads/2020/03/8V0A4150.jpg?fit=1024,683&ssl=1",
+      "https://i0.wp.com/texaskidsadventures.com/wp-content/uploads/2020/03/8V0A4183.jpg?fit=683,1024&ssl=1",
+      "https://shmarinas.com/wp-content/uploads/2020/01/safe-harbor-121-slider-4@2x.jpg",
+      "https://i0.wp.com/texaskidsadventures.com/wp-content/uploads/2020/03/8V0A4186.jpg?fit=1024,683&ssl=1",
+      "https://i0.wp.com/texaskidsadventures.com/wp-content/uploads/2020/03/8V0A4114.jpg?fit=1024,683&ssl=1",
+      "https://i0.wp.com/texaskidsadventures.com/wp-content/uploads/2020/03/8V0A4192.jpg?fit=1024,683&ssl=1",
+      "https://upload.wikimedia.org/wikipedia/commons/f/f5/USA_Texas_location_map.svg",
+      "https://images.squarespace-cdn.com/content/v1/56b27b49555986e12be70232/1704132563907-2BGDEA43J9X5YT0WFAT1/636154922732970000.jpeg"
+    ],
+    "header_image_url": "https://peachyinsurance.github.io/newsletters/gifs/Newsletter_Header_image_Lewisville_Lake_Lookout_Lunch_and_Learn__Safe_at_Home.png?v=1780101591",
+    "gif_url": "https://peachyinsurance.github.io/newsletters/gifs/event_gif_Lewisville_Lake_Lookout_Lunch_and_Learn__Safe_at_Home.gif?v=1780101592",
+    "default_winner": "yes"
+  },
+  {
     "source_url": "https://www.visitroswellga.com/events/roswell-lavender-festival/",
     "event_name": "Roswell Lavender Festival",
     "date": "Saturday, June 6",
