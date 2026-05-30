@@ -20,7 +20,7 @@ import requests
 from datetime import datetime, timedelta
 
 sys.path.append(os.path.dirname(__file__))
-from newsletters_config import newsletter_names
+from newsletters_config import newsletter_names, get_newsletter
 
 NOTION_API_KEY           = os.environ["NOTION_API_KEY"]
 NOTION_PETS_DB_ID        = os.environ["NOTION_PETS_DB_ID"]
@@ -2216,8 +2216,13 @@ if __name__ == "__main__":
         print(f"  {page_title}")
         print(f"{'='*60}")
 
-        # Find or create the page
-        page_id = notion_search_page(page_title)
+        # Prefer the pinned canonical page ID from config — Notion's global
+        # /v1/search is eventually-consistent and was failing to return
+        # existing pages, so each run created a duplicate. A pinned ID makes
+        # the assembler update the same page in place every time. Fall back to
+        # search only for newsletters that don't have a landing_page_id yet.
+        cfg = get_newsletter(newsletter_name) or {}
+        page_id = cfg.get("landing_page_id") or notion_search_page(page_title)
         if not page_id:
             print(f"  Creating new page...")
             page_id = notion_create_page(page_title, NOTION_PARENT_PAGE_ID)

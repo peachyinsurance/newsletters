@@ -12,6 +12,13 @@ ADDING A NEW NEWSLETTER
 Every per-newsletter knob in the pipeline reads from this dict. Field reference:
 
   name                        Notion Newsletter select value + filename slug
+  landing_page_id             Notion page ID of the canonical "Current Edition"
+                              landing page. The assembler updates this exact page
+                              in place instead of searching by title (Notion's
+                              /v1/search is eventually-consistent and was missing
+                              existing pages, causing duplicate pages each run).
+                              Omit for a new newsletter; the assembler will create
+                              the page and print its ID to paste in here.
   display_area                Human-readable area name (used in prompts + UI)
   notion_color                Notion select-option color (purple/pink/blue/red/…)
   state                       2-letter US state code (Pets, geo queries)
@@ -56,6 +63,7 @@ STANDARD_RE_TIERS = [
 NEWSLETTERS_DICT = {
     "East_Cobb_Connect": {
         "name":                 "East_Cobb_Connect",
+        "landing_page_id":      "370bf42b-7fd6-81a2-aab6-f4d6925fdec2",
         "display_area":         "East Cobb",
         "notion_color":         "purple",
         "state":                "GA",
@@ -83,6 +91,7 @@ NEWSLETTERS_DICT = {
 
     "Perimeter_Post": {
         "name":                 "Perimeter_Post",
+        "landing_page_id":      "370bf42b-7fd6-810e-83a2-d8e7dc54fe3a",
         "display_area":         "Perimeter",
         "notion_color":         "pink",
         "state":                "GA",
@@ -123,6 +132,7 @@ NEWSLETTERS_DICT = {
 
     "Lewisville_Lake_Lookout": {
         "name":                 "Lewisville_Lake_Lookout",
+        "landing_page_id":      "370bf42b-7fd6-81b1-969e-efbd366bbc42",
         "display_area":         "Lewisville Lake",
         "notion_color":         "blue",
         "state":                "TX",
