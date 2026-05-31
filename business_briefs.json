@@ -208,7 +208,7 @@
     "hours": "Hours vary, see website",
     "address": "135 Interstate N Pkwy, Atlanta, GA 30339",
     "source_domain": "midtown.com",
-    "image_url": "https://lh3.googleusercontent.com/place-photos/AJRVUZMwylHtkUd0Yr5OuGYvv0K6MY-wLzNfhGoVu2fOjVTAl-Arxr5_w9o7iwxKrnEE269iHd7yvI7uM3u4OTHXMu-fawLIif8UtmD6uH_wPVwSbFy5EVvO-fnU-EuLzLnbsnVFqaW5MfXMj_VxYA=s4800-h576",
+    "image_url": "https://peachyinsurance.github.io/newsletters/gifs/business_brief_gif_East_Cobb_Connect_Windy_Hill_Athletic_Club.gif?v=1780249322",
     "image_candidates": [
       "https://lh3.googleusercontent.com/place-photos/AJRVUZMwylHtkUd0Yr5OuGYvv0K6MY-wLzNfhGoVu2fOjVTAl-Arxr5_w9o7iwxKrnEE269iHd7yvI7uM3u4OTHXMu-fawLIif8UtmD6uH_wPVwSbFy5EVvO-fnU-EuLzLnbsnVFqaW5MfXMj_VxYA=s4800-h576",
       "https://lh3.googleusercontent.com/place-photos/AJRVUZMx7LkuD90AKxuT_W18nbKTFuGXOIODoSCmDtr-WEKAuBtg8Xrz_HCH-M2VeA5GhFs65qVuPishiX1PK3A9MZmY168cnBYLO3d96UBnhsDcUnf-k3-CPt2hpSGtZfXoTYh4CNlNgYbYOxs0yg=s4800-h729",
@@ -222,7 +222,7 @@
     "date_generated": "2026-05-28",
     "status": "approved",
     "newsletter_name": "East_Cobb_Connect",
-    "default_winner": ""
+    "default_winner": "yes"
   },
   {
     "source_url": "http://www.foxparts.com/",
@@ -270,7 +270,7 @@
     "relevance_score": "7",
     "total_score": "7",
     "date_generated": "2026-05-22",
-    "status": "rejected",
+    "status": "approved",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -297,6 +297,6 @@
     "date_generated": "2026-05-22",
     "status": "rejected",
     "newsletter_name": "East_Cobb_Connect",
-    "default_winner": ""
+    "default_winner": "yes"
   }
 ]
