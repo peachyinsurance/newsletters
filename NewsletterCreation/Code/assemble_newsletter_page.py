@@ -795,8 +795,20 @@ def _restaurant_row_to_dict(props: dict, status: str) -> dict:
     }
 
 
+# How many restaurants the published newsletter features. The review app
+# still tiers up to 5 candidates in Notion (1 Tier 1 Winner + N Tier 2), but
+# only this many — the top, Tier-1-first — are rendered into the Notion page,
+# the Beehiiv email, the subject-line context, and the "In Today's Connect"
+# teaser. Bump this if you ever want to surface runner-ups again.
+FEATURED_RESTAURANT_COUNT = 1
+
+
 def get_restaurants(newsletter_name: str) -> list[dict]:
-    """Get this week's restaurants for a newsletter.
+    """Get this week's featured restaurant(s) for a newsletter.
+
+    Returns at most FEATURED_RESTAURANT_COUNT rows (1 today — the Tier 1
+    Winner). The review app may approve a Tier 1 Winner plus several Tier 2
+    runner-ups in Notion, but only the top pick(s) are published.
 
     Priority order:
       1. Tier 1/Tier 2 Winners — explicitly approved by the user
@@ -804,8 +816,9 @@ def get_restaurants(newsletter_name: str) -> list[dict]:
          Default Winner=True (auto-flagged by the pipeline) plus the next
          couple highest-scored rows from the most recent batch as Tier 2 stand-ins
 
-    The fallback ensures Send-to-Beehiiv always has restaurants to feature
-    even when no one approved manually this week.
+    The fallback ensures Send-to-Beehiiv always has a restaurant to feature
+    even when no one approved manually this week. The list is always sorted
+    Tier-1-first, so the published feature is the intended winner.
     """
     try:
         pages = query_database(NOTION_RESTAURANTS_DB_ID)
@@ -830,7 +843,7 @@ def get_restaurants(newsletter_name: str) -> list[dict]:
             latest_date = max(dates)
             winners = [r for r in winners if r.get("date") == latest_date]
         winners.sort(key=lambda x: (0 if x["tier"] == "Tier 1 Winner" else 1, -(x["score"] or 0)))
-        return winners
+        return winners[:FEATURED_RESTAURANT_COUNT]
 
     # Fallback: no Tier 1/2 Winners exist. Use Default Winner + top scorers
     # from the most recent batch.
@@ -879,8 +892,9 @@ def get_restaurants(newsletter_name: str) -> list[dict]:
         fallback_results.append(fb)
 
     if fallback_results:
-        print(f"  ⓘ Restaurants fallback total: {len(fallback_results)} (default + top-scored)")
-    return fallback_results
+        print(f"  ⓘ Restaurants fallback total: {len(fallback_results)} (default + top-scored), "
+              f"publishing top {FEATURED_RESTAURANT_COUNT}")
+    return fallback_results[:FEATURED_RESTAURANT_COUNT]
 
 
 def get_latest_lowdown(newsletter_name: str) -> str | None:
