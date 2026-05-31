@@ -1040,6 +1040,122 @@ Candidates:
     return validated
 
 
+# ---------------------------------------------------------------------------
+# Pre-Claude title dedup
+# ---------------------------------------------------------------------------
+# The Notion pool routinely contains the SAME real-world event scraped from
+# two different sources: identical or near-identical titles but different
+# URLs — e.g. "Watch PAWty" vs "Watch PAWty Presented by Boehringer
+# Ingelheim", or the same exhibit listed twice with slightly different venue
+# text. URL-based dedup misses these because the URLs differ. We collapse
+# them to a single candidate BEFORE Claude generation so duplicates never
+# reach the newsletter (Claude can't be trusted to dedup reliably, and it's
+# cheaper to drop them pre-call).
+
+_TITLE_STOPWORDS = {
+    "the", "a", "an", "at", "in", "of", "for", "to", "and", "on",
+    "presented", "sponsored", "by", "with", "featuring", "feat", "ft",
+}
+
+
+def _normalize_title_for_dedup(title: str) -> str:
+    """Lowercase; strip emoji, accents, and punctuation; collapse whitespace."""
+    import unicodedata
+    import re as _re
+    if not title:
+        return ""
+    t = unicodedata.normalize("NFKD", title)
+    # Drop emoji, symbol, and combining-mark codepoints; keep letters/digits.
+    t = "".join(ch for ch in t
+                if not unicodedata.category(ch).startswith(("So", "Sk", "Mn", "Cs")))
+    t = t.lower()
+    t = _re.sub(r"[^\w\s]", " ", t)      # punctuation → space
+    t = _re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def _title_signature(title: str) -> tuple[str, frozenset]:
+    """Return (normalized_string, significant_token_set) for a title."""
+    norm = _normalize_title_for_dedup(title)
+    tokens = frozenset(w for w in norm.split() if w not in _TITLE_STOPWORDS)
+    return norm, tokens
+
+
+def _titles_are_duplicate(a_norm, a_tok, b_norm, b_tok, ratio_threshold: float = 0.90) -> bool:
+    """True if two titles refer to the same event (same/very similar name)."""
+    if not a_norm or not b_norm:
+        return False
+    if a_norm == b_norm:
+        return True
+    # Token containment: every significant token of the shorter title also
+    # appears in the longer one ("watch pawty" ⊂ "watch pawty boehringer
+    # ingelheim"). Require ≥2 tokens so one-word titles don't over-match.
+    if a_tok and b_tok:
+        small, big = (a_tok, b_tok) if len(a_tok) <= len(b_tok) else (b_tok, a_tok)
+        if len(small) >= 2 and small <= big:
+            return True
+        inter = small & big
+        if len(small) >= 3 and len(inter) / len(small) >= 0.8:
+            return True
+    # Sequence similarity catches minor wording / typo variants.
+    import difflib
+    return difflib.SequenceMatcher(None, a_norm, b_norm).ratio() >= ratio_threshold
+
+
+def _candidate_richness(c: dict) -> float:
+    """Higher = more complete. Decides which of two duplicates to keep."""
+    score = 0.0
+    d = (c.get("date") or "").strip().lower()
+    if d and d not in ("check website", "tbd", "tba"):
+        score += 2.0
+    desc = (c.get("description") or "").strip()
+    score += min(len(desc), 600) / 600.0
+    if (c.get("image_url") or "").strip():
+        score += 1.0
+    if (c.get("address") or "").strip():
+        score += 0.5
+    return score
+
+
+def dedup_candidates_by_title(candidates: list[dict]) -> list[dict]:
+    """Collapse same / near-same-title events (regardless of URL) to one
+    candidate, keeping the richer of each duplicate pair and merging their
+    target-weekend days so a multi-day event isn't truncated."""
+    kept: list[dict] = []
+    sigs: list[tuple[str, frozenset]] = []  # parallel signatures for `kept`
+    dropped = 0
+    for c in candidates:
+        c_norm, c_tok = _title_signature(c.get("title", ""))
+        match_idx = None
+        for i, (k_norm, k_tok) in enumerate(sigs):
+            if _titles_are_duplicate(c_norm, c_tok, k_norm, k_tok):
+                match_idx = i
+                break
+        if match_idx is None:
+            kept.append(c)
+            sigs.append((c_norm, c_tok))
+            continue
+        # Duplicate of an already-kept event.
+        dropped += 1
+        winner = kept[match_idx]
+        merged = set(winner.get("days") or []) | set(c.get("days") or [])
+        merged_days = [d for d in DAYS if d in merged]
+        if _candidate_richness(c) > _candidate_richness(winner):
+            print(f"    title-dedup: replacing '{winner.get('title','')[:45]}' "
+                  f"with richer '{c.get('title','')[:45]}'")
+            c["days"] = merged_days or c.get("days")
+            kept[match_idx] = c
+            sigs[match_idx] = (c_norm, c_tok)
+        else:
+            print(f"    title-dedup: dropping '{c.get('title','')[:45]}' "
+                  f"(duplicate of '{winner.get('title','')[:45]}')")
+            winner["days"] = merged_days or winner.get("days")
+    if dropped:
+        print(f"    Title dedup: {len(candidates)} → {len(kept)} candidates "
+              f"({dropped} near-duplicate(s) removed)")
+    return kept
+
+
 def process_pool(
     newsletter: dict,
     target_weekend: dict,
@@ -1053,6 +1169,9 @@ def process_pool(
     if not candidates:
         print(f"    No Notion candidates for this weekend")
         return []
+
+    # Collapse same / near-same-title events (different URLs) BEFORE Claude.
+    candidates = dedup_candidates_by_title(candidates)
 
     pool_per_day = {d: sum(1 for c in candidates if d in (c.get("days") or []))
                     for d in DAYS}
