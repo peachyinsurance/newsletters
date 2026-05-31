@@ -422,7 +422,15 @@ def call_claude_for_pool(
     if not candidates:
         return []
 
-    indexed = [{**c, "candidate_index": i} for i, c in enumerate(candidates, 1)]
+    # Strip private/internal keys (e.g. `_day_group`, which references the
+    # representative itself → a circular reference json.dumps can't encode,
+    # and which Claude doesn't need anyway). candidates_by_index below keeps
+    # the full candidates for the per-day fan-out.
+    indexed = [
+        {k: v for k, v in c.items() if not k.startswith("_")}
+        | {"candidate_index": i}
+        for i, c in enumerate(candidates, 1)
+    ]
     candidates_json = json.dumps(indexed, indent=2)
 
     d = newsletter["demographics"]
