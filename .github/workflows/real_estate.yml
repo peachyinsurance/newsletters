@@ -81,7 +81,16 @@ jobs:
             mkdir -p gifs
             echo "Files in /tmp/re_images/:"
             ls -la /tmp/re_images/ 2>/dev/null || echo "  /tmp/re_images/ not found"
-            rm -f gifs/re_*.gif gifs/re_*.png gifs/re_*.webp 2>/dev/null || true
+            # Remove only the stale RE images for the newsletter(s) in THIS
+            # run, so other newsletters' already-published images aren't wiped.
+            # (A blanket `rm -f gifs/re_*` used to delete every newsletter's RE
+            # images each run, leaving only the most-recent newsletter's URLs
+            # live and 404-ing the rest in Notion.)
+            for f in /tmp/re_images/re_*; do
+              [ -e "$f" ] || continue
+              prefix=$(basename "$f" | sed -E 's/_(starter|sweet_spot|showcase)_template_[0-9]+\.(gif|png|webp)$//')
+              rm -f gifs/"$prefix"_* 2>/dev/null || true
+            done
             cp /tmp/re_images/*.gif gifs/ 2>/dev/null || true
             cp /tmp/re_images/*.png gifs/ 2>/dev/null || true
             cp /tmp/re_images/*.webp gifs/ 2>/dev/null || true
