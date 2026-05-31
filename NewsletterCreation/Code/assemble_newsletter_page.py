@@ -238,8 +238,17 @@ def update_section(page_id: str, heading_text: str, new_blocks: list[dict], appe
 
 def notion_append_blocks(page_id: str, blocks: list[dict]) -> None:
     """Append blocks to a page. Notion limits to 100 blocks per call."""
-    for i in range(0, len(blocks), 100):
+    total = len(blocks)
+    n_batches = (total + 99) // 100
+    for bi, i in enumerate(range(0, total, 100), 1):
         chunk = blocks[i:i + 100]
+        # DEBUG: show batch index, block-range, and the block-type histogram
+        # so a rejected batch can be traced to the section that produced it.
+        from collections import Counter as _Counter
+        types = _Counter(b.get("type", "?") for b in chunk)
+        type_summary = ", ".join(f"{t}×{c}" for t, c in types.most_common())
+        print(f"    → append batch {bi}/{n_batches}: blocks {i}–{i + len(chunk) - 1} "
+              f"({len(chunk)} blocks) [{type_summary}]")
         r = requests.patch(
             f"https://api.notion.com/v1/blocks/{page_id}/children",
             headers=HEADERS,
@@ -247,7 +256,12 @@ def notion_append_blocks(page_id: str, blocks: list[dict]) -> None:
             timeout=30,
         )
         if not r.ok:
-            print(f"  Block append error: {r.text[:300]}")
+            # DEBUG: dump the failing batch's block types AND Notion's full
+            # rejection reason so we can pinpoint the offending block.
+            print(f"  ✗ Block append FAILED on batch {bi}/{n_batches} "
+                  f"(blocks {i}–{i + len(chunk) - 1})")
+            print(f"    HTTP {r.status_code}: {r.text[:600]}")
+            print(f"    batch block types: {dict(types)}")
         r.raise_for_status()
 
 
@@ -1684,15 +1698,88 @@ def _build_lowdown(newsletter_name: str) -> list[dict]:
     lowdown_text = get_latest_lowdown(newsletter_name)
     if not lowdown_text:
         return [callout_block("No Local Lowdown generated yet. Run the Local Lowdown pipeline.", emoji="⏳")]
-    out = []
-    for para in lowdown_text.split("\n"):
-        para = para.strip()
-        if not para:
-            continue
-        if para.startswith("### "):
-            out.append(paragraph_block(para.replace("### ", ""), bold=True))
+
+    # Lazy-import the shared og:image scraper (same one Free Events / Weekend
+    # Planner use) so each story can carry a lead image pulled from its first
+    # source article. Best-effort: if the import or any fetch fails, the
+    # section still renders text-only.
+    try:
+        import sys as _sys, os as _os
+        _sys.path.append(_os.path.join(_os.path.dirname(__file__), '..', '..',
+                                       'Free Events', 'Code'))
+        from Free_Events import fetch_event_image as _fetch_img  # noqa: E402
+    except Exception as e:
+        print(f"  ⚠ [lowdown] image scraper unavailable ({e}) — rendering text-only")
+        _fetch_img = None
+
+    # The Full Section blob is markdown: each story is a '### {emoji} {headline}'
+    # heading, a body, then an optional 'More: [label](url) | …' sources line.
+    # Group lines into per-story blocks so we can insert the image right under
+    # each headline (before its body).
+    lines = lowdown_text.split("\n")
+    stories: list[list[str]] = []
+    preamble: list[str] = []
+    cur: list[str] = []
+    for line in lines:
+        if line.strip().startswith("### "):
+            if cur:
+                stories.append(cur)
+            cur = [line]
+        elif cur:
+            cur.append(line)
         else:
+            preamble.append(line)
+    if cur:
+        stories.append(cur)
+
+    out: list[dict] = []
+    for para in preamble:
+        para = para.strip()
+        if para:
             out.append(paragraph_block(para))
+
+    seen_imgs: set[str] = set()
+    img_count = 0
+    for story in stories:
+        headline = story[0].strip().replace("### ", "")
+        out.append(paragraph_block(headline, bold=True))
+
+        # Extract source URLs from the markdown links in this story's body
+        # (the 'More: [label](url)' line, mainly).
+        source_urls: list[str] = []
+        for ln in story[1:]:
+            for m in re.finditer(r"\]\((https?://[^)\s]+)\)", ln):
+                source_urls.append(m.group(1))
+
+        # Scrape a lead image from the first source that yields one. Dedup on
+        # the normalized URL so two stories never show the same publisher hero.
+        if _fetch_img:
+            for url in source_urls:
+                try:
+                    img = _fetch_img(url)
+                except Exception:
+                    img = ""
+                if not img or not img.lower().startswith(("http://", "https://")):
+                    continue
+                norm = img.split("?")[0].rstrip("/").lower()
+                if norm in seen_imgs:
+                    continue
+                seen_imgs.add(norm)
+                out.append(image_block(img))
+                img_count += 1
+                print(f"  [lowdown] image for '{headline[:50]}': {img[:80]}")
+                break
+
+        for ln in story[1:]:
+            ln = ln.strip()
+            if not ln:
+                continue
+            if ln.startswith("### "):
+                out.append(paragraph_block(ln.replace("### ", ""), bold=True))
+            else:
+                out.append(paragraph_block(ln))
+
+    print(f"  [lowdown] {len(stories)} story(ies), {img_count} image(s) attached")
     return out
 
 
@@ -2197,9 +2284,15 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
     blocks = []
 
     # Hero: featured event Canva-style header composite at the very top
-    _ev = get_featured_event(newsletter_name)
-    if _ev and _ev.get("header_image_url"):
-        blocks.append(image_block(_ev["header_image_url"]))
+    try:
+        _ev = get_featured_event(newsletter_name)
+        if _ev and _ev.get("header_image_url"):
+            blocks.append(image_block(_ev["header_image_url"]))
+            print(f"  [build] hero header image: 1 block")
+    except Exception as e:
+        import traceback
+        print(f"  ⚠ [build] hero header image failed: {e}")
+        traceback.print_exc()
 
     blocks.extend([
         callout_block(
@@ -2208,12 +2301,30 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
         ),
         divider_block(),
     ])
+    # DEBUG: build each section under its own guard so ONE failing builder
+    # surfaces its traceback and is skipped, instead of aborting the whole
+    # rebuild after the page has already been cleared (which would leave the
+    # page partially/empty). Per-section block counts make it obvious which
+    # sections rendered content vs came back empty.
+    section_counts: list[tuple[str, int]] = []
     for key in SECTION_ORDER:
         cfg = SECTIONS[key]
         blocks.append(heading_block(cfg["heading"]))
-        blocks.extend(cfg["builder"](newsletter_name))
+        try:
+            body = cfg["builder"](newsletter_name)
+        except Exception as e:
+            import traceback
+            print(f"  ⚠ [build] section '{key}' ({cfg['heading']}) FAILED: {e}")
+            traceback.print_exc()
+            body = []
+        blocks.extend(body)
         blocks.append(divider_block())
+        section_counts.append((key, len(body)))
+        flag = "" if body else "  ← EMPTY"
+        print(f"  [build] {key:<16} {cfg['heading']:<28} {len(body):>4} body block(s){flag}")
     # The last section's trailing divider is harmless; keeps consistency
+    print(f"  [build] TOTAL {len(blocks)} blocks across {len(SECTION_ORDER)} sections "
+          f"({sum(1 for _, n in section_counts if n == 0)} empty)")
     return blocks
 
 

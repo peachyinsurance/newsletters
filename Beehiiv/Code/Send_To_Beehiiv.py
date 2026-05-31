@@ -710,6 +710,32 @@ def _lowdown_story_to_card(story: dict, slot_key: str) -> dict[str, str]:
     }
 
 
+def _lowdown_image_mutator(clone_soup, story: dict) -> None:
+    """Per-card hook: point the cloned Local Lowdown card's image at this
+    story's scraped photo. If the template card already has an <img>
+    placeholder (like the Meme Corner card), swap its src. Otherwise insert
+    a responsive <img> at the top of the card so images still render even
+    when the Beehiiv lowdown card has no image placeholder yet."""
+    img_url = (story.get("image_url") or "").strip()
+    if not img_url:
+        return
+    alt = (story.get("heading") or "news photo")[:120]
+    img = clone_soup.find("img")
+    if img is not None:
+        img["src"] = img_url
+        img["alt"] = alt
+        return
+    # No placeholder in the template card — insert one above the headline.
+    new_img = clone_soup.new_tag("img", src=img_url, alt=alt)
+    new_img["style"] = ("max-width:100%;height:auto;display:block;"
+                        "margin:0 auto 12px;border-radius:6px;")
+    first = clone_soup.find(True)
+    if first is not None:
+        first.insert_before(new_img)
+    else:
+        clone_soup.append(new_img)
+
+
 def _meme_to_card(meme: dict, slot_key: str) -> dict[str, str]:
     """Map a meme dict to title/message/link placeholders. The "title"
     is just the caption (the meme's Reddit post title); message is the
@@ -846,7 +872,8 @@ def expand_lowdown_slots(html: str, stories: list[dict]) -> str:
         return html
 
     soup = BeautifulSoup(html, "html.parser")
-    n, width = _expand_one_slot(soup, "local_lowdown", stories, _lowdown_story_to_card)
+    n, width = _expand_one_slot(soup, "local_lowdown", stories, _lowdown_story_to_card,
+                                item_dom_mutator=_lowdown_image_mutator)
     if n == -1:
         print(f"    · local_lowdown — no {{local_lowdown_title}} in template, "
               f"skipping ({len(stories)} parsed stories will not render)")
@@ -1106,6 +1133,43 @@ def build_replacements(client: BeehiivClient, publication_id: str,
                     "body":    body,
                     "url":     story_url,
                 })
+    # Scrape a lead image per story (og:image from its source URL), upload to
+    # Beehiiv's media library, and stash the hosted URL on the story so
+    # expand_lowdown_slots can swap it into each cloned card. Mirrors how the
+    # assembler attaches Local Lowdown images to the Notion landing page.
+    # Best-effort: any failure leaves that story text-only.
+    if lowdown_stories:
+        try:
+            import sys as _sys, os as _os
+            _sys.path.append(_os.path.join(_os.path.dirname(__file__), '..', '..',
+                                           'Free Events', 'Code'))
+            from Free_Events import fetch_event_image as _fetch_img  # noqa: E402
+        except Exception as e:
+            print(f"  ⚠ [lowdown] image scraper unavailable ({e})")
+            _fetch_img = None
+        if _fetch_img:
+            seen_imgs: set[str] = set()
+            for story in lowdown_stories:
+                src = (story.get("url") or "").strip()
+                if not src:
+                    continue
+                try:
+                    img = _fetch_img(src)
+                except Exception:
+                    img = ""
+                if not img or not img.lower().startswith(("http://", "https://")):
+                    continue
+                norm = img.split("?")[0].rstrip("/").lower()
+                if norm in seen_imgs:
+                    continue
+                seen_imgs.add(norm)
+                hosted = upload_remote_image(client, publication_id, img)
+                story["image_url"] = hosted or img
+                print(f"  [lowdown] image for '{story.get('heading','')[:50]}': "
+                      f"{(hosted or img)[:80]}")
+            n_imgs = sum(1 for s in lowdown_stories if s.get("image_url"))
+            print(f"  [lowdown] {n_imgs}/{len(lowdown_stories)} story(ies) have an image")
+
     # Keep `story_count` for the existing return-tuple contract; callers
     # (currently just subject-line generation) use it as a presence flag.
     story_count = len(lowdown_stories)
