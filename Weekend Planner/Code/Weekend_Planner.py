@@ -675,12 +675,21 @@ def _titles_are_duplicate(a_norm, a_tok, b_norm, b_tok, ratio_threshold: float =
     return difflib.SequenceMatcher(None, a_norm, b_norm).ratio() >= ratio_threshold
 
 
-def _candidate_richness(c: dict) -> float:
-    """Higher = more complete. Decides which of two duplicates to keep."""
+def _candidate_richness(c: dict, weekend_isos: frozenset = frozenset()) -> float:
+    """Higher = more complete. Decides which of two duplicates to keep.
+
+    `weekend_isos` is the set of target-weekend ISO dates. A candidate whose
+    primary date actually lands inside the target weekend gets a dominating
+    bonus: for a recurring event with one Notion row per occurrence (each
+    with its own dated URL, e.g. .../2026-05-29... vs .../2026-06-05...), we
+    MUST keep the in-weekend occurrence's row so the published URL matches
+    the day it's filed under — not just the row with the longest blurb."""
     score = 0.0
     d = (c.get("date") or "").strip().lower()
     if d and d not in ("check website", "tbd", "tba"):
         score += 2.0
+    if d[:10] in weekend_isos:
+        score += 100.0   # in-weekend occurrence wins the URL, decisively
     desc = (c.get("description") or "").strip()
     score += min(len(desc), 600) / 600.0
     if (c.get("image_url") or "").strip():
@@ -690,10 +699,18 @@ def _candidate_richness(c: dict) -> float:
     return score
 
 
-def dedup_candidates_by_title(candidates: list[dict]) -> list[dict]:
+def dedup_candidates_by_title(candidates: list[dict],
+                              target_weekend: dict | None = None) -> list[dict]:
     """Collapse same / near-same-title events (regardless of URL) to one
     candidate, keeping the richer of each duplicate pair and merging their
-    target-weekend days so a multi-day event isn't truncated."""
+    target-weekend days so a multi-day event isn't truncated.
+
+    When two same-titled rows are different dated occurrences of a recurring
+    event (different URLs, different dates), the one whose date falls inside
+    the target weekend wins — see `_candidate_richness`."""
+    weekend_isos = frozenset(
+        (target_weekend or {}).get(d, "")[:10] for d in DAYS
+    ) - {""}
     kept: list[dict] = []
     sigs: list[tuple[str, frozenset]] = []  # parallel signatures for `kept`
     dropped = 0
@@ -713,7 +730,7 @@ def dedup_candidates_by_title(candidates: list[dict]) -> list[dict]:
         winner = kept[match_idx]
         merged = set(winner.get("days") or []) | set(c.get("days") or [])
         merged_days = [d for d in DAYS if d in merged]
-        if _candidate_richness(c) > _candidate_richness(winner):
+        if _candidate_richness(c, weekend_isos) > _candidate_richness(winner, weekend_isos):
             print(f"    title-dedup: replacing '{winner.get('title','')[:45]}' "
                   f"with richer '{c.get('title','')[:45]}'")
             c["days"] = merged_days or c.get("days")
@@ -744,7 +761,7 @@ def process_pool(
         return []
 
     # Collapse same / near-same-title events (different URLs) BEFORE Claude.
-    candidates = dedup_candidates_by_title(candidates)
+    candidates = dedup_candidates_by_title(candidates, target_weekend)
 
     pool_per_day = {d: sum(1 for c in candidates if d in (c.get("days") or []))
                     for d in DAYS}
