@@ -269,11 +269,17 @@ def run_simpleview_tempest(sitemap_url: str, newsletter: str,
         if not name_key:
             skipped_no_data += 1
             continue
+        # Tempest has ONE detail page per event, so every in-window date
+        # maps to the same URL. date_urls still lets the Weekend Planner
+        # resolve a per-day link uniformly with the other scrapers.
+        ev["date_urls"] = {d.isoformat(): ev["source_url"]
+                           for d in (ev.get("all_dates") or set())}
         entry = by_name.get(name_key)
         if entry is None:
             by_name[name_key] = ev
         else:
             entry["all_dates"] = (entry.get("all_dates") or set()) | (ev.get("all_dates") or set())
+            entry.setdefault("date_urls", {}).update(ev["date_urls"])
             # Keep the canonical URL/time aligned with the earliest occurrence:
             # if this ev starts earlier than the one we kept, adopt its URL too,
             # so the link points at the occurrence the row is dated to.

@@ -21,6 +21,7 @@ property retry loop in `_send_with_heal`.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -79,6 +80,17 @@ def save_event(db_id: str, ev: dict, newsletter: str,
     if not dates_display and ev.get("all_dates"):
         dates_display = ", ".join(d.isoformat() for d in sorted(ev["all_dates"]))
 
+    # `Source URLs` is a JSON {iso_date: url} map of every in-window
+    # occurrence to its own detail-page URL. The Weekend Planner reads it
+    # so each per-day row links to the exact day it features, not the
+    # earliest in-window occurrence. Fall back to mapping every known date
+    # to the canonical source_url when a scraper didn't populate date_urls
+    # (single-page sources, legacy rows) — keeps the canonical-URL behavior.
+    date_urls = ev.get("date_urls") or {}
+    if not date_urls and ev.get("all_dates"):
+        date_urls = {d.isoformat(): ev["source_url"] for d in ev["all_dates"]}
+    source_urls_json = json.dumps(date_urls, separators=(",", ":")) if date_urls else ""
+
     # `city` is the venue's normalized city name (lowercase, single word
     # or "two words" — e.g. "roswell" / "sandy springs"). Scrapers extract
     # from JSON-LD addressLocality / hardcode for single-city sources.
@@ -95,6 +107,7 @@ def save_event(db_id: str, ev: dict, newsletter: str,
         "City":           {"rich_text": [{"text": {"content": city[:80]}}]},
         "Time":           {"rich_text": [{"text": {"content": ev["time"][:80]}}]},
         "Dates":          {"rich_text": [{"text": {"content": dates_display[:500]}}]},
+        "Source URLs":    {"rich_text": [{"text": {"content": source_urls_json[:2000]}}]},
         "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
     }
     if ev.get("start_date"):

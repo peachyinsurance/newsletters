@@ -247,6 +247,18 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
             # was saved in the legacy human format ("May 22, 23, ...") —
             # those will get rewritten with ISO dates on the next scrape.
             continue
+        # date_urls: JSON {iso_date: url} map of each occurrence to its own
+        # detail-page URL. Lets the per-day expansion link each row to the
+        # exact day it features rather than the earliest in-window occurrence.
+        date_urls: dict[str, str] = {}
+        src_urls_text = _rich_text_value(props.get("Source URLs"))
+        if src_urls_text:
+            try:
+                parsed = json.loads(src_urls_text)
+                if isinstance(parsed, dict):
+                    date_urls = {str(k)[:10]: str(v) for k, v in parsed.items() if v}
+            except (ValueError, TypeError):
+                date_urls = {}
         out.append({
             "title":       title,
             "url":         url,
@@ -260,6 +272,7 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
             "notion_page_id": p.get("id"),
             "_from_notion": True,
             "days":        days,
+            "date_urls":   date_urls,
         })
     status_label = (f"status={status_equals}" if status_equals
                     else f"status not in {status_excludes}" if status_excludes
@@ -837,10 +850,19 @@ if __name__ == "__main__":
                       f"{weekend['Friday']}..{weekend['Sunday']}): "
                       f"{pick.get('event_name','?')[:60]}")
                 continue
+            date_urls = source_cand.get("date_urls") or {}
             for day_name in days:
                 row = dict(pick)  # shallow copy per day
                 row["day"]  = day_name
                 row["date"] = weekend[day_name]
+                # Link this row to the occurrence URL for the day it's
+                # featured (recurring events on sources that mint one page
+                # per date). Falls back to the canonical source_url when the
+                # map has no entry for this day (single-page sources, legacy
+                # rows) — identical to the previous behavior.
+                day_url = date_urls.get(weekend[day_name])
+                if day_url:
+                    row["source_url"] = day_url
                 all_events.append(row)
             print(f"      ↳ {pick.get('event_name','?')[:50]} runs: {days}")
 

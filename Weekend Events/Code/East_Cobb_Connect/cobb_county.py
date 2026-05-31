@@ -245,9 +245,15 @@ def main() -> int:
         entry = by_name.get(name_key)
         if entry is None:
             ev["all_dates"] = {sd}
+            # date_urls maps each occurrence's ISO date → its own detail-page
+            # URL. cobbcounty mints one page per occurrence, so the Weekend
+            # Planner can later link the row to the exact day it features
+            # instead of the earliest in-window occurrence.
+            ev["date_urls"] = {sd.isoformat(): ev["source_url"]}
             by_name[name_key] = ev
         else:
             entry["all_dates"].add(sd)
+            entry.setdefault("date_urls", {})[sd.isoformat()] = ev["source_url"]
             if sd < entry["start_date"]:
                 # Adopt the earliest occurrence's date AND its URL/time so the
                 # row's link points at the occurrence it's dated to. cobbcounty

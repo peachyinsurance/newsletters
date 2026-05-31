@@ -664,6 +664,12 @@ def setup_notion_databases():
             # scraper aggregated under one title. `Date` stays as the
             # earliest in-window occurrence so date filtering still works.
             "Dates":            {"rich_text": {}},
+            # `Source URLs` is a JSON {iso_date: url} map of each in-window
+            # occurrence to its own detail-page URL (recurring events on
+            # sources like cobbcounty that mint one page per occurrence).
+            # Weekend_Planner reads it to link each per-day row to the exact
+            # day it features instead of the earliest in-window occurrence.
+            "Source URLs":      {"rich_text": {}},
             "Time":             {"rich_text": {}},
             "Location":         {"rich_text": {}},
             "Address":          {"rich_text": {}},

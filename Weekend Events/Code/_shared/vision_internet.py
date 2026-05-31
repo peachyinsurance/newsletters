@@ -238,9 +238,14 @@ def run_vision_internet_tiles(
         entry = by_name.get(name_key)
         if entry is None:
             ev["all_dates"] = {sd}
+            # date_urls maps each occurrence's ISO date → its own URL so the
+            # Weekend Planner can link the day it features, not just the
+            # earliest in-window occurrence.
+            ev["date_urls"] = {sd.isoformat(): ev["source_url"]}
             by_name[name_key] = ev
         else:
             entry["all_dates"].add(sd)
+            entry.setdefault("date_urls", {})[sd.isoformat()] = ev["source_url"]
             if sd < entry["start_date"]:
                 # Keep the canonical URL/time aligned with the earliest
                 # occurrence so the link matches the date we cite.
