@@ -212,15 +212,24 @@ def update_section(page_id: str, heading_text: str, new_blocks: list[dict], appe
         insert_after_id = heading_id
 
     if new_blocks:
-        r = requests.patch(
-            f"https://api.notion.com/v1/blocks/{page_id}/children",
-            headers=HEADERS,
-            json={"children": new_blocks, "after": insert_after_id},
-            timeout=30,
-        )
-        if not r.ok:
-            print(f"  Failed to insert blocks: {r.text[:300]}")
-            return False
+        # Notion caps children at 100 per request, so insert in batches.
+        # Thread the `after` cursor: each batch is inserted after the last
+        # block created by the previous batch (the PATCH response returns the
+        # created blocks in order), so the section stays correctly ordered.
+        for i in range(0, len(new_blocks), 100):
+            chunk = new_blocks[i:i + 100]
+            r = requests.patch(
+                f"https://api.notion.com/v1/blocks/{page_id}/children",
+                headers=HEADERS,
+                json={"children": chunk, "after": insert_after_id},
+                timeout=30,
+            )
+            if not r.ok:
+                print(f"  Failed to insert blocks: {r.text[:300]}")
+                return False
+            created = (r.json() or {}).get("results", [])
+            if created:
+                insert_after_id = created[-1]["id"]
 
     action = "Appended to" if append else "Updated"
     print(f"  ✓ {action} '{heading_text}' section ({len(new_blocks)} blocks)")
