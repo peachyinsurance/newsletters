@@ -702,12 +702,16 @@ def _candidate_richness(c: dict, weekend_isos: frozenset = frozenset()) -> float
 def dedup_candidates_by_title(candidates: list[dict],
                               target_weekend: dict | None = None) -> list[dict]:
     """Collapse same / near-same-title events (regardless of URL) to one
-    candidate, keeping the richer of each duplicate pair and merging their
-    target-weekend days so a multi-day event isn't truncated.
+    candidate, keeping the richer of each duplicate pair.
 
-    When two same-titled rows are different dated occurrences of a recurring
-    event (different URLs, different dates), the one whose date falls inside
-    the target weekend wins — see `_candidate_richness`."""
+    The survivor keeps its OWN day tags — we do NOT union the dropped row's
+    days onto it. There is only one URL per survivor, so borrowing a day from
+    a discarded occurrence would tag a day whose real link we just threw away.
+    Each Notion row already derives its `days` from its own Date/Dates fields,
+    so a genuine multi-day event's surviving row already carries its full
+    range. When two same-titled rows are different dated occurrences of a
+    recurring event (different URLs, different dates), the one whose date
+    falls inside the target weekend wins — see `_candidate_richness`."""
     weekend_isos = frozenset(
         (target_weekend or {}).get(d, "")[:10] for d in DAYS
     ) - {""}
@@ -725,21 +729,18 @@ def dedup_candidates_by_title(candidates: list[dict],
             kept.append(c)
             sigs.append((c_norm, c_tok))
             continue
-        # Duplicate of an already-kept event.
+        # Duplicate of an already-kept event. Keep the richer one and discard
+        # the other outright — the survivor retains its OWN days (no merge).
         dropped += 1
         winner = kept[match_idx]
-        merged = set(winner.get("days") or []) | set(c.get("days") or [])
-        merged_days = [d for d in DAYS if d in merged]
         if _candidate_richness(c, weekend_isos) > _candidate_richness(winner, weekend_isos):
             print(f"    title-dedup: replacing '{winner.get('title','')[:45]}' "
                   f"with richer '{c.get('title','')[:45]}'")
-            c["days"] = merged_days or c.get("days")
             kept[match_idx] = c
             sigs[match_idx] = (c_norm, c_tok)
         else:
             print(f"    title-dedup: dropping '{c.get('title','')[:45]}' "
                   f"(duplicate of '{winner.get('title','')[:45]}')")
-            winner["days"] = merged_days or winner.get("days")
     if dropped:
         print(f"    Title dedup: {len(candidates)} → {len(kept)} candidates "
               f"({dropped} near-duplicate(s) removed)")
