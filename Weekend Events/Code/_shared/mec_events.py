@@ -285,9 +285,9 @@ def run_mec_source(site_url: str,
 
     inserted = 0
     updated  = 0
-    print(f"\n━━ Saving {len(candidates)} unique event(s) ━━")
+    print(f"\n━━ Saving {len(candidates)} occurrence(s) ━━")
     for ev in sorted(candidates, key=lambda e: e["start_date"] or date.max):
-        page_id = existing.get(ev["source_url"])
+        page_id = existing.get((ev["source_url"], ev["start_date"].isoformat()))
         if save_event(db_id, ev, newsletter, page_id=page_id):
             label = "↻" if page_id else "✓"
             if page_id:

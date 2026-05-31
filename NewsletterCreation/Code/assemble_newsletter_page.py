@@ -1019,6 +1019,40 @@ def get_latest_free_event_image(newsletter_name: str) -> str:
     return pages[0]["properties"].get("Image URL", {}).get("url", "") or ""
 
 
+def get_latest_free_event_images(newsletter_name: str) -> list[str]:
+    """Return up to 3 image URLs for the latest approved Free Event row.
+
+    Reads the `Image URLs` rich_text column (" | "-separated, written by
+    save_free_events_to_notion). Falls back to the single `Image URL` field
+    for legacy rows that predate the gallery column. Returns [] if none."""
+    if not NOTION_FREE_EVENTS_DB_ID:
+        return []
+    try:
+        pages = query_database(NOTION_FREE_EVENTS_DB_ID, filters={
+            "property": "Newsletter",
+            "select":   {"equals": newsletter_name}
+        })
+    except Exception:
+        return []
+    pages = [p for p in pages if
+             (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
+    if not pages:
+        return []
+    pages.sort(
+        key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+        reverse=True,
+    )
+    props = pages[0]["properties"]
+    raw = "".join(t.get("plain_text", "") for t in
+                  props.get("Image URLs", {}).get("rich_text", []))
+    urls = [u.strip() for u in raw.split("|") if u.strip()]
+    if not urls:
+        single = props.get("Image URL", {}).get("url", "") or ""
+        if single:
+            urls = [single]
+    return urls[:3]
+
+
 def get_latest_poll(newsletter_name: str) -> dict | None:
     """Get the most recent approved poll for this newsletter."""
     if not NOTION_POLLS_DB_ID:
@@ -1808,6 +1842,9 @@ def _build_free_events(newsletter_name: str) -> list[dict]:
     if not free_events_text:
         return [callout_block("No Free Events generated yet. Run the Free Events pipeline.", emoji="⏳")]
     out = []
+    # Lead with up to 3 pictures scraped from the featured event's source page.
+    for img_url in get_latest_free_event_images(newsletter_name):
+        out.append(image_block(img_url))
     for para in free_events_text.split("\n\n"):
         para = para.strip()
         if not para:

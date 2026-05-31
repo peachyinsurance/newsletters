@@ -41,6 +41,7 @@ from assemble_newsletter_page import (
     get_approved_pet,
     get_latest_free_events,
     get_latest_free_event_image,
+    get_latest_free_event_images,
     get_latest_poll,
     get_weekend_events,
     get_business_brief,
@@ -765,6 +766,74 @@ def expand_meme_slots(html: str, memes: list[dict]) -> str:
     return str(soup)
 
 
+def expand_free_event_images(html: str, image_urls: list[str]) -> str:
+    """Dynamically render 1-3 free-event pictures by cloning the template's
+    single free-event image block once per image — the same duplicate-a-unit
+    approach the Weekend Planner / Meme slots use. This means the Beehiiv
+    template only needs ONE free-event <img> placeholder; we repeat it as
+    many times as there are images instead of relying on static free-pic-2/3
+    placeholders.
+
+    The template placeholder is the <img> whose src contains the 'free-event'
+    token. With 0 images the block is removed; with 1 its src is retargeted;
+    with 2-3 the enclosing image-only block is cloned per URL."""
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        print("  ⚠ beautifulsoup4 not installed; skipping Free Event image expansion")
+        return html
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Locate the template free-event <img> by its 'free-event' filename token.
+    target = None
+    for img in soup.find_all("img"):
+        if "free-event" in (img.get("src") or ""):
+            target = img
+            break
+    if target is None:
+        print("    · free-event images — no placeholder <img> in template")
+        return str(soup)
+
+    # Walk up from the <img> to the largest block-level ancestor that still
+    # wraps ONLY this image (no text, no sibling images). That image-only cell
+    # is the repeatable unit — cloning it (rather than the bare <img>) keeps
+    # the email-safe table/spacing markup so the pictures stack cleanly.
+    BLOCK_TAGS = {"tr", "table", "div", "td", "p", "figure", "center"}
+    unit = target
+    node = target.parent
+    while node is not None and getattr(node, "name", None):
+        text = (node.get_text() or "").replace("\xa0", " ").strip()
+        imgs = node.find_all("img")
+        if text or len(imgs) > 1:
+            break
+        if node.name in BLOCK_TAGS:
+            unit = node
+        node = node.parent
+
+    if not image_urls:
+        unit.decompose()
+        print("    · free-event images — 0 images, placeholder removed")
+        return str(soup)
+
+    template_html = str(unit)
+    chunks: list[str] = []
+    for url in image_urls[:3]:
+        clone = BeautifulSoup(template_html, "html.parser")
+        cimg = clone.find("img")
+        if cimg is not None:
+            cimg["src"] = url
+            cimg["alt"] = "Free event photo"
+        chunks.append(str(clone))
+
+    new_fragment = BeautifulSoup("".join(chunks), "html.parser")
+    for n in list(new_fragment.children):
+        unit.insert_before(n)
+    unit.decompose()
+    print(f"    ✓ free-event images — rendered {len(image_urls[:3])} picture(s)")
+    return str(soup)
+
+
 def expand_lowdown_slots(html: str, stories: list[dict]) -> str:
     """Duplicate the Local Lowdown template card once per parsed story.
     Slot key: `local_lowdown`. The template should contain ONE card with
@@ -793,11 +862,11 @@ def expand_lowdown_slots(html: str, stories: list[dict]) -> str:
 # 4. SECTION DATA → REPLACEMENT MAP
 # ---------------------------------------------------------------------------
 def build_replacements(client: BeehiivClient, publication_id: str,
-                      newsletter_name: str) -> tuple[dict, dict, dict, int, list, list, dict, list]:
+                      newsletter_name: str) -> tuple[dict, dict, dict, int, list, list, dict, list, list]:
     """Pull section data, upload images, return:
       (text_replacements, image_url_swaps, alt_image_swaps,
        lowdown_story_count, weekend_events, lowdown_stories,
-       paragraph_prose, memes)
+       paragraph_prose, memes, free_event_images)
 
     text_replacements: {placeholder_key: string_value}
     image_url_swaps:   {original_url: beehiiv_hosted_url}  — used as fallback string-find
@@ -808,10 +877,15 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     paragraph_prose:   {placeholder_key: raw_text} for fields whose wrapping
                        <p> needs DOM-level splitting into per-paragraph <p>s
                        (Beehiiv strips injected `<br><br>` / `</p><p>`)
+    free_event_images: list of 1-3 hosted free-event picture URLs (in render
+                       order) for dynamic image-block duplication
     """
     repl: dict[str, str] = {}
     image_swaps: dict[str, str] = {}
     alt_swaps: dict[str, str] = {}
+    # Hosted URLs of the 1-3 free-event pictures, in render order. Consumed by
+    # expand_free_event_images() to dynamically clone the template image block.
+    free_event_images: list[str] = []
     # Raw multi-paragraph text for fields that need DOM-level paragraph
     # expansion (real sibling <p> blocks so Beehiiv doesn't collapse them
     # into one wall of text).
@@ -1225,17 +1299,17 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             # Alias: template URL fields sometimes drop the trailing `_1`
             repl["free_event_link"]          = link
 
-            # Hero image scraped from the source page (og:image / twitter:image).
-            # If present, set up the alt-swap so the placeholder image gets
-            # replaced with the real event photo. If absent, do NOT add to
-            # alt_swaps — prune_image_when_missing() will then strip the
-            # <img> from the final body.
-            free_img = get_latest_free_event_image(newsletter_name)
-            if free_img:
+            # Up to 3 images scraped from the source page (og:image /
+            # twitter:image / article gallery). Upload each to Beehiiv and
+            # collect the hosted URLs; expand_free_event_images() later clones
+            # the template's single free-event <img> block once per URL (the
+            # same dynamic-duplication approach the Weekend Planner / Meme
+            # slots use), so we don't need static free-pic-2/3 placeholders.
+            for free_img in get_latest_free_event_images(newsletter_name)[:3]:
                 hosted = upload_remote_image(client, publication_id, free_img)
                 if hosted:
                     image_swaps[free_img] = hosted
-                alt_swaps["free_event_image_1"] = hosted or free_img
+                free_event_images.append(hosted or free_img)
 
     # ---- Poll (inline HTML, click-tracked via Beehiiv's link analytics) ----
     # Beehiiv polls API is plan-locked — POST /polls returns 404 on this account.
@@ -1297,7 +1371,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     for day, friendly in weekend_dates_seen.items():
         repl[f"{day.lower()}_date"] = friendly
 
-    return repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose, memes
+    return repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose, memes, free_event_images
 
 
 def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
@@ -1569,7 +1643,7 @@ def main():
 
     # Gather all section data + upload images
     print("\n  Gathering section data + uploading images…")
-    repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose_fields, memes = build_replacements(
+    repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose_fields, memes, free_event_images = build_replacements(
         client, cfg["publication_id"], NEWSLETTER,
     )
 
@@ -1584,6 +1658,8 @@ def main():
     body_html = expand_lowdown_slots(body_html, lowdown_stories)
     print("\n  Expanding Meme Corner slots…")
     body_html = expand_meme_slots(body_html, memes)
+    print("\n  Expanding Free Event images…")
+    body_html = expand_free_event_images(body_html, free_event_images)
 
     # Long-form prose fields: split each into real sibling <p> blocks via
     # DOM ops so Beehiiv renders paragraph spacing. Done here (vs. inside

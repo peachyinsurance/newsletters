@@ -256,42 +256,37 @@ def run_simpleview_tempest(sitemap_url: str, newsletter: str,
     existing = existing_source_urls(db_id, newsletter=newsletter)
     print(f"Dedup: {len(existing)} URLs already in DB for {newsletter}\n")
 
-    # Group by normalized title so recurring series and duplicate URLs
-    # collapse into one Notion row with the union of in-window dates.
-    by_name: dict[str, dict] = {}
+    # Per-occurrence model: Tempest has ONE detail page per event that may
+    # span several in-window dates (recurring series). Emit one occurrence
+    # row per date — all sharing the single URL, each with its own Date — so
+    # the Weekend Planner links every per-day card to the correct day with no
+    # JSON date→url map. De-dupe within this run on (url, date).
+    candidates: list[dict] = []
+    seen_occ: set[tuple[str, str]] = set()
     skipped_no_data = 0
     for url in urls:
         ev = _fetch_event(url, today, window_end)
         if not ev:
             skipped_no_data += 1
             continue
-        name_key = _normalize_title(ev["event_name"])
-        if not name_key:
+        if not _normalize_title(ev["event_name"]):
             skipped_no_data += 1
             continue
-        # Tempest has ONE detail page per event, so every in-window date
-        # maps to the same URL. date_urls still lets the Weekend Planner
-        # resolve a per-day link uniformly with the other scrapers.
-        ev["date_urls"] = {d.isoformat(): ev["source_url"]
-                           for d in (ev.get("all_dates") or set())}
-        entry = by_name.get(name_key)
-        if entry is None:
-            by_name[name_key] = ev
-        else:
-            entry["all_dates"] = (entry.get("all_dates") or set()) | (ev.get("all_dates") or set())
-            entry.setdefault("date_urls", {}).update(ev["date_urls"])
-            # Keep the canonical URL/time aligned with the earliest occurrence:
-            # if this ev starts earlier than the one we kept, adopt its URL too,
-            # so the link points at the occurrence the row is dated to.
-            if ev.get("start_date") and (not entry.get("start_date")
-                                         or ev["start_date"] < entry["start_date"]):
-                entry["start_date"] = ev["start_date"]
-                entry["source_url"] = ev["source_url"]
-                entry["time"]       = ev.get("time", entry.get("time", ""))
+        for d in sorted(ev.get("all_dates") or {ev["start_date"]}):
+            occ_key = (ev["source_url"], d.isoformat())
+            if occ_key in seen_occ:
+                continue
+            seen_occ.add(occ_key)
+            occ = dict(ev)
+            occ["start_date"] = d
+            occ["all_dates"]  = {d}
+            # end_date (contiguous 2-day span) only applies to the row dated
+            # to the original start; other split occurrences are single-day.
+            occ["end_date"] = ev.get("end_date") if d == ev.get("start_date") else None
+            candidates.append(occ)
         time.sleep(0.3)   # be kind to the host
 
-    candidates = sorted(by_name.values(),
-                        key=lambda e: e["start_date"] or date.max)
+    candidates.sort(key=lambda e: e["start_date"] or date.max)
 
     filled = backfill_images(candidates)
     if filled:
@@ -299,22 +294,17 @@ def run_simpleview_tempest(sitemap_url: str, newsletter: str,
 
     inserted = 0
     updated  = 0
-    multi_date = 0
-    print(f"\n━━ Saving {len(candidates)} unique event(s) ━━")
+    print(f"\n━━ Saving {len(candidates)} occurrence(s) ━━")
     for ev in candidates:
-        if len(ev.get("all_dates") or {}) > 1:
-            multi_date += 1
-        page_id = existing.get(ev["source_url"])
+        page_id = existing.get((ev["source_url"], ev["start_date"].isoformat()))
         if save_event(db_id, ev, newsletter, page_id=page_id):
-            dates_disp = format_dates_human(ev.get("all_dates") or [])
             label = "↻" if page_id else "✓"
             if page_id:
                 updated += 1
             else:
                 inserted += 1
-            print(f"  {label} {dates_disp or ev['start_date']}  {ev['event_name'][:60]}")
+            print(f"  {label} {ev['start_date']}  {ev['event_name'][:60]}")
     print()
     print(f"✓ Done. Inserted {inserted}, refreshed {updated}, "
-          f"{skipped_no_data} unparseable  "
-          f"({multi_date} multi-date event(s))")
+          f"{skipped_no_data} unparseable")
     return 0

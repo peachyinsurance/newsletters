@@ -233,29 +233,27 @@ def main() -> int:
     existing = existing_source_urls(WEEKEND_EVENTS_DB_ID, newsletter=NEWSLETTER)
     print(f"Dedup: {len(existing)} URLs already in DB for {NEWSLETTER}\n")
 
-    by_name: dict[str, dict] = {}
+    # Per-occurrence model: one detail page per occurrence (own URL + date).
+    # Emit one row per occurrence; de-dupe within this run on (url, date).
+    candidates: list[dict] = []
+    seen_occ: set[tuple[str, str]] = set()
     skipped_no_data = 0
     for url in urls:
         ev = fetch_event(url, today, window_end)
         if not ev:
             skipped_no_data += 1
             continue
-        name_key = _normalize_title(ev["event_name"])
-        if not name_key:
+        if not _normalize_title(ev["event_name"]):
             skipped_no_data += 1
             continue
-        entry = by_name.get(name_key)
-        if entry is None:
+        occ_key = (ev["source_url"], ev["start_date"].isoformat())
+        if occ_key not in seen_occ:
+            seen_occ.add(occ_key)
             ev["all_dates"] = {ev["start_date"]}
-            by_name[name_key] = ev
-        else:
-            entry["all_dates"].add(ev["start_date"])
-            if ev["start_date"] < entry["start_date"]:
-                entry["start_date"] = ev["start_date"]
+            candidates.append(ev)
         time.sleep(DETAIL_THROTTLE_SEC)
 
-    candidates = sorted(by_name.values(),
-                        key=lambda e: e["start_date"] or date.max)
+    candidates.sort(key=lambda e: e["start_date"] or date.max)
 
     filled = backfill_images(candidates)
     if filled:
@@ -263,23 +261,19 @@ def main() -> int:
 
     inserted = 0
     updated  = 0
-    multi_date = 0
-    print(f"\n━━ Saving {len(candidates)} unique event(s) ━━")
+    print(f"\n━━ Saving {len(candidates)} occurrence(s) ━━")
     for ev in candidates:
-        if len(ev.get("all_dates") or {}) > 1:
-            multi_date += 1
-        page_id = existing.get(ev["source_url"])
+        page_id = existing.get((ev["source_url"], ev["start_date"].isoformat()))
         if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER, page_id=page_id):
-            dates_disp = format_dates_human(ev.get("all_dates") or [])
             label = "↻" if page_id else "✓"
             if page_id:
                 updated += 1
             else:
                 inserted += 1
-            print(f"  {label} {dates_disp or ev['start_date']}  {ev['event_name'][:60]}")
+            print(f"  {label} {ev['start_date']}  {ev['event_name'][:60]}")
     print()
     print(f"✓ Done. Inserted {inserted}, refreshed {updated}, "
-          f"{skipped_no_data} unparseable  ({multi_date} multi-date)")
+          f"{skipped_no_data} unparseable")
     return 0
 
 

@@ -659,16 +659,15 @@ def setup_notion_databases():
             "Event Name":       {"rich_text": {}},
             "Description":      {"rich_text": {}},
             "Date":             {"date": {}},
-            # `Dates` is the human-readable multi-occurrence display
-            # ("May 22nd, 29th, June 5th") for recurring events that the
-            # scraper aggregated under one title. `Date` stays as the
-            # earliest in-window occurrence so date filtering still works.
+            # `Dates` mirrors this row's single occurrence date in ISO form
+            # (per-occurrence model: one row per date). `Date` is the same
+            # date as a native date property so date filtering works.
             "Dates":            {"rich_text": {}},
-            # `Source URLs` is a JSON {iso_date: url} map of each in-window
-            # occurrence to its own detail-page URL (recurring events on
-            # sources like cobbcounty that mint one page per occurrence).
-            # Weekend_Planner reads it to link each per-day row to the exact
-            # day it features instead of the earliest in-window occurrence.
+            # `Source URLs` is LEGACY. The pool moved to one row per
+            # occurrence — each row carries its own native `Source URL` +
+            # `Date`, so the old JSON {iso_date: url} map is no longer written
+            # or read. The column is kept (harmless empty rich_text) only so
+            # existing rows don't error; new code ignores it.
             "Source URLs":      {"rich_text": {}},
             "Time":             {"rich_text": {}},
             "Location":         {"rich_text": {}},
@@ -1856,6 +1855,7 @@ def _ensure_free_events_schema():
         "Full Section":     {"rich_text": {}},
         "Event URLs":       {"rich_text": {}},
         "Image URL":        {"url": {}},
+        "Image URLs":       {"rich_text": {}},
         "Manually Edited":  {"checkbox": {}},
     }
     r = requests.patch(
@@ -1970,8 +1970,20 @@ def save_free_events_to_notion(result: dict, newsletter_name: str) -> None:
     event_urls = [ev.get("source_url", "") for ev in events if ev.get("source_url")]
     urls_text = " | ".join(event_urls)[:2000]  # respect Notion rich_text limit
 
-    # Image URL: take the first event's image (we currently only feature 1)
-    image_url = next((ev.get("image_url") for ev in events if ev.get("image_url")), "") or None
+    # Image URL(s): the Free Event of the Week is a single featured event, but
+    # we scrape up to 3 pictures off its source page. `Image URL` keeps the
+    # first (hero) for legacy single-image consumers; `Image URLs` holds the
+    # full 1-3 list as a " | "-separated string for the gallery renderers.
+    featured = next((ev for ev in events
+                     if ev.get("image_urls") or ev.get("image_url")), None)
+    if featured:
+        image_list = list(featured.get("image_urls")
+                          or ([featured["image_url"]] if featured.get("image_url") else []))
+    else:
+        image_list = []
+    image_list = [u for u in image_list if u][:3]
+    image_url   = image_list[0] if image_list else None
+    image_urls_text = " | ".join(image_list)[:2000]
 
     properties = {
         "Name":           {"title": [{"text": {"content": f"{newsletter_name.replace('_', ' ')} - Free Events - {datetime.today().strftime('%Y-%m-%d')}"}}]},
@@ -1983,6 +1995,7 @@ def save_free_events_to_notion(result: dict, newsletter_name: str) -> None:
         "Full Section":   {"rich_text": chunks},
         "Event URLs":     {"rich_text": [{"text": {"content": urls_text}}]},
         "Image URL":      {"url": image_url},
+        "Image URLs":     {"rich_text": [{"text": {"content": image_urls_text}}]},
         "Manually Edited": {"checkbox": False},
     }
 

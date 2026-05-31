@@ -774,6 +774,27 @@ if __name__ == "__main__":
             print(f"  All candidates were previously used for {newsletter['name']}. Skipping.")
             continue
 
+        # Per-occurrence pool: the Weekend Events DB now stores one row per
+        # occurrence, so a multi-day event surfaces as several candidates with
+        # the same title. Collapse to the earliest in-window occurrence per
+        # title (candidates are pre-sorted by start_date asc, so first-seen ==
+        # earliest) — restores the prior one-candidate-per-event input so
+        # Claude's Pass-1 picks aren't spent on duplicate days, and the chosen
+        # row's URL/date match the soonest occurrence.
+        _seen_titles: set[str] = set()
+        _collapsed: list[dict] = []
+        for c in candidates:
+            key = " ".join((c.get("title") or "").lower().split())
+            if key and key in _seen_titles:
+                continue
+            if key:
+                _seen_titles.add(key)
+            _collapsed.append(c)
+        if len(_collapsed) != len(candidates):
+            print(f"  Collapsed {len(candidates) - len(_collapsed)} duplicate "
+                  f"occurrence(s) to earliest per title")
+        candidates = _collapsed
+
         # Pass 1 — title-only Claude filter. Narrows the pool to the top
         # TOP_N_TITLES titles before pass 2 spends tokens on descriptions.
         print(f"\n  Pass 1 (titles only): sending {len(candidates)} titles to Claude → top {TOP_N_TITLES}")

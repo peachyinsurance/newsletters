@@ -1191,7 +1191,11 @@ Candidates:
     ev["time_sensitivity_score"] = winner["time_score"]
     ev["source_quality_score"]   = winner["source_score"]
     ev["total_score"]            = winner["total"]
-    ev["image_url"]              = fetch_event_image(ev["source_url"])
+    # Grab up to 3 images off the source page (gallery), keep the first as the
+    # canonical hero (`image_url`) for backward compatibility with consumers
+    # that still expect a single URL.
+    ev["image_urls"]             = fetch_event_images(ev["source_url"], max_results=3)
+    ev["image_url"]              = ev["image_urls"][0] if ev["image_urls"] else ""
 
     # Restore body_markdown from Claude's events[] (the all_scored entry we
     # built `ev` from doesn't carry it). If the pipeline's winner is the same
@@ -1431,6 +1435,8 @@ def fetch_evergreen_freebie(lat: float, lng: float, display_area: str,
     # Generate a Claude blurb so it reads like a real recommendation
     blurb = _claude_evergreen_blurb(pick, display_area)
 
+    _evergreen_imgs = fetch_event_images(pick["url"], max_results=3)
+
     return {
         "emoji":   "🌳",
         "name":    pick["name"],
@@ -1440,7 +1446,8 @@ def fetch_evergreen_freebie(lat: float, lng: float, display_area: str,
         "blurb":   blurb,
         "source":  "Google Places",
         "source_url":   pick["url"],
-        "image_url":    fetch_event_image(pick["url"]),
+        "image_urls":   _evergreen_imgs,
+        "image_url":    _evergreen_imgs[0] if _evergreen_imgs else "",
         "time_sensitivity_score": 0,  # not time-sensitive
         "source_quality_score":   8,  # primary, high quality
         "total_score":            8,

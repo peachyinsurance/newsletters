@@ -170,7 +170,7 @@ def run_tribe_source(source_url: str, newsletter: str,
     print(f"Dedup: {len(existing)} URLs already in DB\n")
 
     seen_occurrences: set[tuple[str, str]] = set()
-    by_name: dict[str, dict] = {}
+    candidates: list[dict] = []
     skipped_past   = 0
     skipped_future = 0
 
@@ -207,26 +207,13 @@ def run_tribe_source(source_url: str, newsletter: str,
             if sd < today:
                 skipped_past += 1
                 continue
-            name_key = _normalize_title(name)
-            if not name_key:
+            if not _normalize_title(name):
                 continue
-            entry = by_name.get(name_key)
-            if entry is None:
-                ev["all_dates"] = {sd}
-                # date_urls maps each occurrence's ISO date → its own URL so
-                # the Weekend Planner can link the day it features, not just
-                # the earliest in-window occurrence.
-                ev["date_urls"] = {sd.isoformat(): ev["source_url"]}
-                by_name[name_key] = ev
-            else:
-                entry["all_dates"].add(sd)
-                entry.setdefault("date_urls", {})[sd.isoformat()] = ev["source_url"]
-                if sd < entry["start_date"]:
-                    # Keep the canonical URL/time aligned with the earliest
-                    # occurrence so the link matches the date we cite.
-                    entry["start_date"] = sd
-                    entry["source_url"] = ev["source_url"]
-                    entry["time"]       = ev.get("time", entry.get("time", ""))
+            # Per-occurrence model: each occurrence already carries its own
+            # URL + date (the (url, date) de-dupe above guarantees uniqueness).
+            # Emit one row per occurrence — no title collapse.
+            ev["all_dates"] = {sd}
+            candidates.append(ev)
         print(f"  [page {page}] {len(events)} listings  "
               f"({new_occurrences} new occurrences)")
         if new_occurrences == 0:
@@ -238,8 +225,7 @@ def run_tribe_source(source_url: str, newsletter: str,
         page += 1
     print()
 
-    candidates = sorted(by_name.values(),
-                        key=lambda e: e["start_date"] or date.max)
+    candidates.sort(key=lambda e: e["start_date"] or date.max)
 
     filled = backfill_images(candidates)
     if filled:
@@ -247,23 +233,18 @@ def run_tribe_source(source_url: str, newsletter: str,
 
     inserted = 0
     updated  = 0
-    multi_date = 0
-    print(f"━━ Saving {len(candidates)} unique event(s) ━━")
+    print(f"━━ Saving {len(candidates)} occurrence(s) ━━")
     for ev in candidates:
-        if len(ev.get("all_dates") or {}) > 1:
-            multi_date += 1
-        page_id = existing.get(ev["source_url"])
+        page_id = existing.get((ev["source_url"], ev["start_date"].isoformat()))
         if save_event(db_id, ev, newsletter, page_id=page_id):
-            dates_disp = format_dates_human(ev.get("all_dates") or [])
             if page_id:
                 updated += 1
-                print(f"  ↻ {dates_disp or ev['start_date']}  {ev['event_name'][:60]}")
+                print(f"  ↻ {ev['start_date']}  {ev['event_name'][:60]}")
             else:
                 inserted += 1
-                print(f"  ✓ {dates_disp or ev['start_date']}  {ev['event_name'][:60]}")
+                print(f"  ✓ {ev['start_date']}  {ev['event_name'][:60]}")
     print()
     print(f"✓ Done. Inserted {inserted}, refreshed {updated}, "
           f"{skipped_past} past, "
-          f"{skipped_future} beyond {window_end}  "
-          f"({multi_date} multi-date event(s))")
+          f"{skipped_future} beyond {window_end}")
     return 0

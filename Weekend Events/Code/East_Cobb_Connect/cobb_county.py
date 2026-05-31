@@ -216,10 +216,13 @@ def main() -> int:
     if not raw_events:
         return 0
 
-    # Group by normalized title so recurring events / cross-source dupes
-    # collapse into one row with all in-window dates collected — same
-    # pattern as the JSON-LD scrapers.
-    by_name: dict[str, dict] = {}
+    # Per-occurrence model: emit one row per in-window occurrence. cobbcounty
+    # mints one detail page per date (…/2026-06-05<slug>), so each occurrence
+    # already carries its own URL + date — no grouping needed. De-dupe within
+    # this run on (source_url, date) so the same listing appearing twice in the
+    # API response doesn't produce two identical rows.
+    candidates: list[dict] = []
+    seen_occurrences: set[tuple[str, str]] = set()
     skipped_past   = 0
     skipped_future = 0
     skipped_no_data = 0
@@ -239,33 +242,18 @@ def main() -> int:
         if sd < today:
             skipped_past += 1
             continue
-        name_key = _normalize_title(ev["event_name"])
-        if not name_key:
+        if not _normalize_title(ev["event_name"]):
             continue
-        entry = by_name.get(name_key)
-        if entry is None:
-            ev["all_dates"] = {sd}
-            # date_urls maps each occurrence's ISO date → its own detail-page
-            # URL. cobbcounty mints one page per occurrence, so the Weekend
-            # Planner can later link the row to the exact day it features
-            # instead of the earliest in-window occurrence.
-            ev["date_urls"] = {sd.isoformat(): ev["source_url"]}
-            by_name[name_key] = ev
-        else:
-            entry["all_dates"].add(sd)
-            entry.setdefault("date_urls", {})[sd.isoformat()] = ev["source_url"]
-            if sd < entry["start_date"]:
-                # Adopt the earliest occurrence's date AND its URL/time so the
-                # row's link points at the occurrence it's dated to. cobbcounty
-                # mints one page per occurrence (…/2026-06-05<slug> vs
-                # …/2026-06-08<slug>); keeping the first-seen URL left the link
-                # pointing at a different (often later) day than start_date.
-                entry["start_date"] = sd
-                entry["source_url"] = ev["source_url"]
-                entry["time"]       = ev.get("time", entry.get("time", ""))
+        occ_key = (ev["source_url"], sd.isoformat())
+        if occ_key in seen_occurrences:
+            continue
+        seen_occurrences.add(occ_key)
+        # Single-occurrence row: Dates mirrors the one date for the
+        # Weekend Planner's ISO day-matcher.
+        ev["all_dates"] = {sd}
+        candidates.append(ev)
 
-    candidates = sorted(by_name.values(),
-                        key=lambda e: e["start_date"] or date.max)
+    candidates.sort(key=lambda e: e["start_date"] or date.max)
 
     # Backfill: Cobb County's listing API exposes no image, so EVERY
     # event reaches this point with image_url="". Scrape each detail
@@ -281,26 +269,21 @@ def main() -> int:
 
     inserted = 0
     updated = 0
-    multi_date = 0
-    print(f"━━ Saving {len(candidates)} unique event(s) ━━")
+    print(f"━━ Saving {len(candidates)} occurrence(s) ━━")
     for ev in candidates:
-        if len(ev.get("all_dates") or {}) > 1:
-            multi_date += 1
-        page_id = existing.get(ev["source_url"])
+        page_id = existing.get((ev["source_url"], ev["start_date"].isoformat()))
         if save_event(WEEKEND_EVENTS_DB_ID, ev, NEWSLETTER, page_id=page_id):
-            dates_disp = format_dates_human(ev.get("all_dates") or [])
             if page_id:
                 updated += 1
-                print(f"  ↻ {dates_disp or ev['start_date']}  {ev['event_name'][:60]}")
+                print(f"  ↻ {ev['start_date']}  {ev['event_name'][:60]}")
             else:
                 inserted += 1
-                print(f"  ✓ {dates_disp or ev['start_date']}  {ev['event_name'][:60]}")
+                print(f"  ✓ {ev['start_date']}  {ev['event_name'][:60]}")
     print()
     print(f"✓ Done. Inserted {inserted}, refreshed {updated}, "
           f"{skipped_past} past, "
           f"{skipped_future} beyond {window_end}, "
-          f"{skipped_no_data} unparseable  "
-          f"({multi_date} multi-date event(s))")
+          f"{skipped_no_data} unparseable")
     return 0
 
 

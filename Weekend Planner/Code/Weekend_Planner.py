@@ -223,42 +223,15 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
         if is_inappropriate_event(title, description, venue):
             dropped_inappropriate += 1
             continue
-        # Pre-fill `days` from structured Notion fields. Start with the
-        # row's primary Date, then merge any ISO dates parsed out of the
-        # `Dates` rich-text field (for recurring events).
-        days: list[str] = []
-        if start_str in weekend_day_by_iso:
-            days.append(weekend_day_by_iso[start_str])
-        dates_text = _rich_text_value(props.get("Dates"))
-        if dates_text:
-            import re as _re_iso
-            for iso in _re_iso.findall(r"\d{4}-\d{2}-\d{2}", dates_text):
-                label = weekend_day_by_iso.get(iso)
-                if label and label not in days:
-                    days.append(label)
-        if days:
-            order = ["Friday", "Saturday", "Sunday"]
-            days = sorted(days, key=order.index)
-        else:
-            # Row was pulled in by the broader Date query (lower bound =
-            # friday - 14 days) but neither its primary Date nor any ISO
-            # date in its `Dates` field falls in the target weekend. Skip.
-            # In practice this filters out recurring rows whose `Dates`
-            # was saved in the legacy human format ("May 22, 23, ...") —
-            # those will get rewritten with ISO dates on the next scrape.
+        # Per-occurrence model: each pool row is ONE occurrence on ONE date,
+        # so its day comes straight from its own primary Date. Recurring
+        # events are stored as multiple rows (one per date) — each maps to
+        # exactly one weekend day here. Rows pulled in by the broader Date
+        # query (lower bound = friday - 14d) whose Date isn't in the target
+        # weekend are skipped.
+        day = weekend_day_by_iso.get(start_str)
+        if not day:
             continue
-        # date_urls: JSON {iso_date: url} map of each occurrence to its own
-        # detail-page URL. Lets the per-day expansion link each row to the
-        # exact day it features rather than the earliest in-window occurrence.
-        date_urls: dict[str, str] = {}
-        src_urls_text = _rich_text_value(props.get("Source URLs"))
-        if src_urls_text:
-            try:
-                parsed = json.loads(src_urls_text)
-                if isinstance(parsed, dict):
-                    date_urls = {str(k)[:10]: str(v) for k, v in parsed.items() if v}
-            except (ValueError, TypeError):
-                date_urls = {}
         out.append({
             "title":       title,
             "url":         url,
@@ -271,8 +244,8 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
             "image_url":   (props.get("Image URL", {}).get("url") or "").strip(),
             "notion_page_id": p.get("id"),
             "_from_notion": True,
-            "days":        days,
-            "date_urls":   date_urls,
+            "day":         day,
+            "days":        [day],
         })
     status_label = (f"status={status_equals}" if status_equals
                     else f"status not in {status_excludes}" if status_excludes
@@ -714,25 +687,32 @@ def _candidate_richness(c: dict, weekend_isos: frozenset = frozenset()) -> float
     return score
 
 
-def dedup_candidates_by_title(candidates: list[dict],
+def group_candidates_by_title(candidates: list[dict],
                               target_weekend: dict | None = None) -> list[dict]:
-    """Collapse same / near-same-title events (regardless of URL) to one
-    candidate, keeping the richer of each duplicate pair.
+    """Group same / near-same-title occurrences into ONE representative for
+    Claude classification while preserving every occurrence as a group member.
 
-    The survivor keeps its OWN day tags — we do NOT union the dropped row's
-    days onto it. There is only one URL per survivor, so borrowing a day from
-    a discarded occurrence would tag a day whose real link we just threw away.
-    Each Notion row already derives its `days` from its own Date/Dates fields,
-    so a genuine multi-day event's surviving row already carries its full
-    range. When two same-titled rows are different dated occurrences of a
-    recurring event (different URLs, different dates), the one whose date
-    falls inside the target weekend wins — see `_candidate_richness`."""
+    Per-occurrence model: each pool row is a single occurrence (one date + its
+    own URL). Same-title rows are different days of the same logical event.
+    We send only the richest member (the *representative*) to Claude so it
+    writes one audience + blurb per logical event — then the per-day expansion
+    in the main loop fans that classification back across the representative's
+    `_day_group`, so every day links to its OWN occurrence URL.
+
+    This supersedes the older collapse-and-discard dedup: that flow kept one
+    survivor with a single URL and refused to union days, because borrowing a
+    day from a discarded occurrence would tag a day whose real link was thrown
+    away. Now we keep every occurrence (each with its own URL), so unioning the
+    days is correct — each day carries its own structurally-correct link.
+
+    Members are de-duped per day (richest wins) so a day never produces two
+    cards for the same event."""
     weekend_isos = frozenset(
         (target_weekend or {}).get(d, "")[:10] for d in DAYS
     ) - {""}
-    kept: list[dict] = []
-    sigs: list[tuple[str, frozenset]] = []  # parallel signatures for `kept`
-    dropped = 0
+    reps: list[dict] = []
+    sigs: list[tuple[str, frozenset]] = []   # parallel signatures for `reps`
+    groups: list[list[dict]] = []            # parallel member lists for `reps`
     for c in candidates:
         c_norm, c_tok = _title_signature(c.get("title", ""))
         match_idx = None
@@ -741,25 +721,39 @@ def dedup_candidates_by_title(candidates: list[dict],
                 match_idx = i
                 break
         if match_idx is None:
-            kept.append(c)
+            reps.append(c)
             sigs.append((c_norm, c_tok))
+            groups.append([c])
             continue
-        # Duplicate of an already-kept event. Keep the richer one and discard
-        # the other outright — the survivor retains its OWN days (no merge).
-        dropped += 1
-        winner = kept[match_idx]
-        if _candidate_richness(c, weekend_isos) > _candidate_richness(winner, weekend_isos):
-            print(f"    title-dedup: replacing '{winner.get('title','')[:45]}' "
-                  f"with richer '{c.get('title','')[:45]}'")
-            kept[match_idx] = c
+        groups[match_idx].append(c)
+        # Representative = richest member, so Claude sees the best metadata.
+        if _candidate_richness(c, weekend_isos) > _candidate_richness(reps[match_idx], weekend_isos):
+            reps[match_idx] = c
             sigs[match_idx] = (c_norm, c_tok)
-        else:
-            print(f"    title-dedup: dropping '{c.get('title','')[:45]}' "
-                  f"(duplicate of '{winner.get('title','')[:45]}')")
-    if dropped:
-        print(f"    Title dedup: {len(candidates)} → {len(kept)} candidates "
-              f"({dropped} near-duplicate(s) removed)")
-    return kept
+
+    grouped = 0
+    order = {d: i for i, d in enumerate(DAYS)}
+    for rep, members in zip(reps, groups):
+        # De-dupe members per day (richest wins) — one card per day per event.
+        by_day: dict[str, dict] = {}
+        for m in members:
+            d = m.get("day")
+            if not d:
+                continue
+            if (d not in by_day
+                    or _candidate_richness(m, weekend_isos)
+                    > _candidate_richness(by_day[d], weekend_isos)):
+                by_day[d] = m
+        rep["_day_group"] = [by_day[d] for d in sorted(by_day, key=lambda x: order.get(x, 9))]
+        rep["days"] = sorted(by_day.keys(), key=lambda x: order.get(x, 9))
+        if len(members) > 1:
+            grouped += 1
+            print(f"    title-group: '{rep.get('title','')[:45]}' → "
+                  f"{len(rep['_day_group'])} day(s) {rep['days']}")
+    if grouped:
+        print(f"    Title grouping: {len(candidates)} occurrence(s) → "
+              f"{len(reps)} event(s) ({grouped} multi-occurrence)")
+    return reps
 
 
 def process_pool(
@@ -776,8 +770,9 @@ def process_pool(
         print(f"    No Notion candidates for this weekend")
         return []
 
-    # Collapse same / near-same-title events (different URLs) BEFORE Claude.
-    candidates = dedup_candidates_by_title(candidates, target_weekend)
+    # Group same / near-same-title occurrences into one representative BEFORE
+    # Claude; each rep carries its full `_day_group` for per-day fan-out.
+    candidates = group_candidates_by_title(candidates, target_weekend)
 
     pool_per_day = {d: sum(1 for c in candidates if d in (c.get("days") or []))
                     for d in DAYS}
@@ -844,27 +839,40 @@ if __name__ == "__main__":
         all_events: list[dict] = []
         for pick in picks:
             source_cand = pick.pop("_source_candidate", {})
-            days = source_cand.get("days") or determine_event_days(source_cand, weekend)
-            if not days:
+            # Fan the single Claude classification back across every occurrence
+            # in this event's day-group. Each member is one occurrence with its
+            # OWN day, date, and URL — so a per-day card links to the exact day
+            # it features, structurally, with no date→url map or fallback.
+            members = source_cand.get("_day_group") or [source_cand]
+            emitted_days: list[str] = []
+            for m in members:
+                day_name = m.get("day")
+                if not day_name:
+                    # Legacy candidate without a per-occurrence day — derive
+                    # from its text as a last resort.
+                    md = determine_event_days(m, weekend)
+                    day_name = md[0] if md else None
+                if not day_name:
+                    continue
+                row = dict(pick)  # shallow copy per occurrence
+                row["day"]  = day_name
+                row["date"] = m.get("date") or weekend.get(day_name)
+                if m is source_cand and pick.get("source_url"):
+                    # Representative row: keep any aggregator→primary drilldown
+                    # that prefer_primary_source applied to the pick.
+                    row["source_url"] = pick["source_url"]
+                else:
+                    member_url = (m.get("url") or "").strip()
+                    if member_url:
+                        row["source_url"] = member_url
+                all_events.append(row)
+                emitted_days.append(day_name)
+            if not emitted_days:
                 print(f"      ✗ dropped (no date matches target weekend "
                       f"{weekend['Friday']}..{weekend['Sunday']}): "
                       f"{pick.get('event_name','?')[:60]}")
                 continue
-            date_urls = source_cand.get("date_urls") or {}
-            for day_name in days:
-                row = dict(pick)  # shallow copy per day
-                row["day"]  = day_name
-                row["date"] = weekend[day_name]
-                # Link this row to the occurrence URL for the day it's
-                # featured (recurring events on sources that mint one page
-                # per date). Falls back to the canonical source_url when the
-                # map has no entry for this day (single-page sources, legacy
-                # rows) — identical to the previous behavior.
-                day_url = date_urls.get(weekend[day_name])
-                if day_url:
-                    row["source_url"] = day_url
-                all_events.append(row)
-            print(f"      ↳ {pick.get('event_name','?')[:50]} runs: {days}")
+            print(f"      ↳ {pick.get('event_name','?')[:50]} runs: {emitted_days}")
 
         if not all_events:
             print(f"\n  No events accepted for {newsletter['name']}. Skipping save.")

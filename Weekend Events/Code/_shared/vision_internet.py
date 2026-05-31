@@ -212,7 +212,11 @@ def run_vision_internet_tiles(
     tiles = _TILE_RE.findall(html)
     print(f"Parsed {len(tiles)} event tile(s) from page\n")
 
-    by_name: dict[str, dict] = {}
+    # Per-occurrence model: each tile is one occurrence carrying its own URL
+    # + date. Emit one row per occurrence (no title collapse); de-dupe within
+    # this run on (url, date).
+    candidates: list[dict] = []
+    seen_occ: set[tuple[str, str]] = set()
     skipped_past    = 0
     skipped_future  = 0
     skipped_no_data = 0
@@ -232,29 +236,16 @@ def run_vision_internet_tiles(
         if sd < today:
             skipped_past += 1
             continue
-        name_key = _normalize_title(ev["event_name"])
-        if not name_key:
+        if not _normalize_title(ev["event_name"]):
             continue
-        entry = by_name.get(name_key)
-        if entry is None:
-            ev["all_dates"] = {sd}
-            # date_urls maps each occurrence's ISO date → its own URL so the
-            # Weekend Planner can link the day it features, not just the
-            # earliest in-window occurrence.
-            ev["date_urls"] = {sd.isoformat(): ev["source_url"]}
-            by_name[name_key] = ev
-        else:
-            entry["all_dates"].add(sd)
-            entry.setdefault("date_urls", {})[sd.isoformat()] = ev["source_url"]
-            if sd < entry["start_date"]:
-                # Keep the canonical URL/time aligned with the earliest
-                # occurrence so the link matches the date we cite.
-                entry["start_date"] = sd
-                entry["source_url"] = ev["source_url"]
-                entry["time"]       = ev.get("time", entry.get("time", ""))
+        occ_key = (ev["source_url"], sd.isoformat())
+        if occ_key in seen_occ:
+            continue
+        seen_occ.add(occ_key)
+        ev["all_dates"] = {sd}
+        candidates.append(ev)
 
-    candidates = sorted(by_name.values(),
-                        key=lambda e: e["start_date"] or date.max)
+    candidates.sort(key=lambda e: e["start_date"] or date.max)
 
     filled = backfill_images(candidates)
     if filled:
@@ -262,22 +253,18 @@ def run_vision_internet_tiles(
 
     inserted = 0
     updated  = 0
-    multi_date = 0
-    print(f"\n━━ Saving {len(candidates)} unique event(s) ━━")
+    print(f"\n━━ Saving {len(candidates)} occurrence(s) ━━")
     for ev in candidates:
-        if len(ev.get("all_dates") or {}) > 1:
-            multi_date += 1
-        page_id = existing.get(ev["source_url"])
+        page_id = existing.get((ev["source_url"], ev["start_date"].isoformat()))
         if save_event(db_id, ev, newsletter, page_id=page_id):
-            dates_disp = format_dates_human(ev.get("all_dates") or [])
             label = "↻" if page_id else "✓"
             if page_id:
                 updated += 1
             else:
                 inserted += 1
-            print(f"  {label} {dates_disp or ev['start_date']}  {ev['event_name'][:60]}")
+            print(f"  {label} {ev['start_date']}  {ev['event_name'][:60]}")
     print()
     print(f"✓ Done. Inserted {inserted}, refreshed {updated}, "
           f"{skipped_past} past, {skipped_future} beyond {window_end}, "
-          f"{skipped_no_data} unparseable  ({multi_date} multi-date)")
+          f"{skipped_no_data} unparseable")
     return 0

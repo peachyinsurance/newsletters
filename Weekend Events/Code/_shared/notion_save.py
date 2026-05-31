@@ -1,27 +1,34 @@
 """Notion upsert for Weekend Events DB rows.
 
-Used by every weekend-event scraper across newsletters. Two public
-functions:
+Per-occurrence-row model: each row represents ONE occurrence of an event
+on ONE date, carrying its own native `Source URL` and `Date`. Recurring
+events (a daily Cobb County exhibit, a Fri–Sun festival) are stored as
+multiple rows — one per in-window date — rather than a single row with a
+JSON {date: url} map. This guarantees a per-day card downstream links to
+the exact day's URL with no map lookup or earliest-occurrence fallback.
+
+Two public functions:
 
   existing_source_urls(db_id, newsletter=None)
-      Returns dict[url -> page_id]. Per-newsletter scope when
-      `newsletter` is provided — essential when the same source URL
-      can land under multiple newsletters (e.g. a Roswell event that
-      ECC and PP both cover) so the upsert keys off (newsletter, url)
-      rather than url alone.
+      Returns dict[(url, iso_date) -> page_id]. The dedup key is the
+      (Source URL, Date) pair, NOT url alone — single-page sources reuse
+      one URL across many dates, so url alone would collapse distinct
+      occurrences. Per-newsletter scope when `newsletter` is provided —
+      essential when the same source URL can land under multiple
+      newsletters (e.g. a Roswell event that ECC and PP both cover).
 
   save_event(db_id, ev, newsletter, page_id=None)
       Create a new row, OR refresh an existing row when page_id is
       given. Update mode preserves Source URL, Newsletter, Status,
       Manually Edited; refreshes Event Name, Description, Image URL,
-      Location, Address, Time, Dates (ISO format), Date, Date Generated.
+      Location, Address, Time, Dates (single ISO date), Date, Date
+      Generated. `ev` must be a single occurrence (one start_date).
 
 Both functions self-heal against Notion DB schema gaps via the missing-
 property retry loop in `_send_with_heal`.
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import sys
@@ -37,9 +44,15 @@ from notion_helper import HEADERS as NOTION_HEADERS, query_database  # noqa: E40
 
 
 def existing_source_urls(db_id: str,
-                         newsletter: str | None = None) -> dict[str, str]:
-    """Return mapping of Source URL → Notion page_id for rows in the
-    Weekend Events DB.
+                         newsletter: str | None = None
+                         ) -> dict[tuple[str, str], str]:
+    """Return mapping of (Source URL, Date ISO) → Notion page_id for rows
+    in the Weekend Events DB.
+
+    The key is the (url, date) pair so distinct occurrences that share one
+    detail page (single-page recurring sources) each get their own row
+    instead of clobbering one another. Rows with no Date are keyed
+    (url, "") so a legacy/dateless row still dedups by URL alone.
 
     `newsletter` scopes the lookup to rows tagged with that newsletter.
     Crucial when the same source URL can legitimately surface under
@@ -51,11 +64,14 @@ def existing_source_urls(db_id: str,
     if newsletter:
         filters = {"property": "Newsletter", "select": {"equals": newsletter}}
     pages = query_database(db_id, filters=filters) or []
-    out: dict[str, str] = {}
+    out: dict[tuple[str, str], str] = {}
     for p in pages:
-        url = (p.get("properties", {}).get("Source URL", {}).get("url") or "").strip()
-        if url:
-            out[url] = p.get("id", "")
+        props = p.get("properties", {})
+        url = (props.get("Source URL", {}).get("url") or "").strip()
+        if not url:
+            continue
+        iso = ((props.get("Date") or {}).get("date") or {}).get("start") or ""
+        out[(url, iso[:10])] = p.get("id", "")
     return out
 
 
@@ -69,27 +85,19 @@ def save_event(db_id: str, ev: dict, newsletter: str,
     leaving Newsletter, Status, Source URL, and Manually Edited intact
     so manual curation isn't clobbered on re-scrape.
 
-    The `Dates` field is written in ISO comma-separated format
-    (`2026-05-22, 2026-05-23, ...`) — Weekend_Planner.fetch parses ISO
-    matches out of it to determine which target-weekend days a recurring
-    event covers."""
+    Per-occurrence model: `ev` is a single occurrence with one
+    `start_date`. The `Dates` field holds that single ISO date — the
+    Weekend Planner parses the ISO match to map the row to its target-
+    weekend day. Recurring events are saved as multiple calls, one per
+    in-window date, by the scraper."""
     if not ev.get("source_url"):
         return False
 
+    # `Dates` mirrors the single occurrence date in ISO form so the
+    # Weekend Planner's ISO parser maps the row to its weekend day.
     dates_display = ev.get("dates_display") or ""
-    if not dates_display and ev.get("all_dates"):
-        dates_display = ", ".join(d.isoformat() for d in sorted(ev["all_dates"]))
-
-    # `Source URLs` is a JSON {iso_date: url} map of every in-window
-    # occurrence to its own detail-page URL. The Weekend Planner reads it
-    # so each per-day row links to the exact day it features, not the
-    # earliest in-window occurrence. Fall back to mapping every known date
-    # to the canonical source_url when a scraper didn't populate date_urls
-    # (single-page sources, legacy rows) — keeps the canonical-URL behavior.
-    date_urls = ev.get("date_urls") or {}
-    if not date_urls and ev.get("all_dates"):
-        date_urls = {d.isoformat(): ev["source_url"] for d in ev["all_dates"]}
-    source_urls_json = json.dumps(date_urls, separators=(",", ":")) if date_urls else ""
+    if not dates_display and ev.get("start_date"):
+        dates_display = ev["start_date"].isoformat()
 
     # `city` is the venue's normalized city name (lowercase, single word
     # or "two words" — e.g. "roswell" / "sandy springs"). Scrapers extract
@@ -107,7 +115,6 @@ def save_event(db_id: str, ev: dict, newsletter: str,
         "City":           {"rich_text": [{"text": {"content": city[:80]}}]},
         "Time":           {"rich_text": [{"text": {"content": ev["time"][:80]}}]},
         "Dates":          {"rich_text": [{"text": {"content": dates_display[:500]}}]},
-        "Source URLs":    {"rich_text": [{"text": {"content": source_urls_json[:2000]}}]},
         "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
     }
     if ev.get("start_date"):
