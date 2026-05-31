@@ -6,24 +6,29 @@ Builds the Weekend Planner section for each newsletter:
   - 3 newsletters (East Cobb Connect, Perimeter Post, Lewisville Lake Lookout)
   - 2 audiences (Family, Adult)
   - 3 days (Friday, Saturday, Sunday)
-  -> 18 (newsletter, audience, day) combos per run
 
-For each combo: Brave web search -> aggregator-domain blocklist filter ->
-URL-validate -> Claude evaluates with the weekend-planner skill as system
-prompt -> save 5-8 strong events as Notion rows. The assemble script later
-renders rows into the inline pipe-separated format.
+Single-pass "pool" flow per newsletter:
+  read the Notion event pool (populated upstream by the scrapers) ->
+  dedup candidates by title (collapse same/near-duplicate events that arrive
+  with different URLs, keeping the richer row and merging their days) ->
+  Claude evaluates the whole pool with the weekend-planner skill as system
+  prompt and assigns each kept event to an audience + day -> save the
+  selected events as Notion rows. The assemble script later renders rows
+  into the inline pipe-separated format.
+
+For any event Claude picks whose URL is on an aggregator host
+(AGGREGATOR_DRILL_HOSTS), we drill the article body for an embedded
+primary-source link and swap it in when one is found.
 """
 import json
 import os
 import sys
-import time
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import requests
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
-from brave_search import search_web, domain_of
 from claude_json import call_with_json_output
 from notion_helper import (
     save_weekend_events_to_notion,
@@ -31,14 +36,13 @@ from notion_helper import (
     update_page,
     NOTION_WEEKEND_EVENTS_DB_ID,
 )
-from newsletters_config import NEWSLETTERS, filter_by_env
-from event_date_filter import upcoming_friday, filter_candidates_by_date, filter_candidates_in_date_range, effective_today
+from newsletters_config import filter_by_env
+from event_date_filter import effective_today
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
 # ---------------------------------------------------------------------------
 CLAUDE_API_KEY     = os.environ["CLAUDE_API_KEY"]
-BRAVE_NEWS_API_KEY = os.environ["BRAVE_NEWS_API_KEY"]
 
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-weekend-planner-skill_auto.md"
 
@@ -48,71 +52,6 @@ MIN_PER_AUDIENCE    = 20     # now (Claude can't reject), so this is information
 MIN_PER_DAY         = 5      # Surfaced as a warning when the scraper pool is thin on a given
                              # day. Not enforced (no gap-fill anymore) — surfacing is the
                              # signal to add scraper coverage upstream.
-MAX_RESULTS_PER_QUERY = 15
-PAUSE_BETWEEN_BRAVE = 0.5    # rate-limit buffer
-
-# Backfill if Claude returns fewer than MIN_PER_AUDIENCE picks for an audience.
-RETRY_RESULTS_PER_QUERY = 20      # Brave hard-caps `count` at 20; sending >20 gets HTTP 422
-CANDIDATE_CAP            = 120    # max candidates sent to Claude per audience (pooled across 3 days)
-
-AGGREGATOR_BLOCKLIST = {
-    # Kept blocked: review sites, social, listicles, real-estate noise.
-    # Removed in May 2026: eventbrite.com, allevents.in, meetup.com —
-    # those are where 60-80% of legitimate small-venue events live.
-    # We now accept them as candidates and drill the picked event for a
-    # primary-source URL in `prefer_primary_source()` below.
-    "patch.com",
-    "yelp.com",
-    "tripadvisor.com",
-    "facebook.com",
-    "reddit.com",
-    "groupon.com",
-    "youtube.com",
-    "instagram.com",
-    "tiktok.com",
-    "twitter.com",
-    "x.com",
-    "yellowpages.com",
-    "thingstodo.com",
-    "10best.com",
-    "viator.com",
-    "events12.com",
-    "eventcrazy.com",
-    # Listicle / "things to do this weekend" roundup hubs. These pages list
-    # many events in one article — when Claude picks an event mentioned
-    # inside, the candidate_index URL points to the roundup, not the
-    # actual event, so the event text and link end up disconnected.
-    "mommypoppins.com",
-    "thrillist.com",
-    "timeout.com",
-    "365atlanta.com",
-    "accessatlanta.com",
-    "365thingsindallas.com",
-    # Real-estate domains pollute area-based queries
-    "redfin.com",
-    "zillow.com",
-    "trulia.com",
-}
-
-# URL-path patterns that signal a listicle/roundup even on a domain we
-# don't blanket-block. Same problem as the listicle hubs above: candidate
-# URL is the roundup, not the event Claude writes about. Checked on the
-# URL path, case-insensitive.
-LISTICLE_URL_HINTS = (
-    "/things-to-do",
-    "/things_to_do",
-    "/best-of",
-    "/best-",
-    "/top-",
-    "/guide-to-",
-    "/guide/",
-    "/roundup",
-    "/listicle",
-    "/weekend-guide",
-    "/what-to-do",
-    "/events-this-weekend",
-    "/things-to-do-this-weekend",
-)
 
 # Domains we still treat as "aggregators" for prefer-primary-source logic.
 # When Claude picks an event whose URL is on one of these, we drill its
@@ -165,152 +104,6 @@ def target_weekend_dates(today: datetime | None = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 4. SEARCH QUERY BUILDERS
-# ---------------------------------------------------------------------------
-def build_queries(newsletter: dict, audience: str, day: str, target_date_iso: str) -> list[str]:
-    """Build 2 Brave search queries per (newsletter, audience, day) combo.
-
-    Trimmed from 4 → 2 to cut Brave spend ~2x — Brave's index dedupes
-    heavily across similar local-area queries, so the four-query variant
-    returned mostly overlapping URLs. Two well-chosen queries capture the
-    same hits at half the cost.
-
-    Queries rotate across `search_areas` (concrete towns) instead of
-    `display_area` because display areas like 'Perimeter' or 'Lewisville
-    Lake' return too much off-topic content (physics seminars, etc.)."""
-    target_dt = datetime.fromisoformat(target_date_iso)
-    date_label = target_dt.strftime("%B %d %Y")
-    month_year = target_dt.strftime("%B %Y")
-
-    areas = newsletter["search_areas"]
-
-    def area(i: int) -> str:
-        return areas[i % len(areas)]
-
-    if audience == "Family":
-        return [
-            f"{area(0)} family events {day} {date_label}",
-            f"{area(1)} kids things to do {month_year}",
-            f"{area(2)} family weekend activities {month_year}",
-        ]
-    else:  # Adult
-        return [
-            f"{area(0)} live music {day} {date_label}",
-            f"{area(1)} concerts nightlife weekend {month_year}",
-            f"{area(2)} brewery bar event {day} {month_year}",
-        ]
-
-
-def build_fallback_queries(newsletter: dict, audience: str, day: str, target_date_iso: str) -> list[str]:
-    """Broader fallback queries for the retry pass (trimmed 4 → 2). Rotation
-    starts at the back half of `search_areas` so the retry pool covers
-    different towns than the primary pass."""
-    target_dt = datetime.fromisoformat(target_date_iso)
-    month_year = target_dt.strftime("%B %Y")
-
-    areas = newsletter["search_areas"]
-    offset = len(areas) // 2  # start fallback rotation at the midpoint
-
-    def area(i: int) -> str:
-        return areas[(i + offset) % len(areas)]
-
-    if audience == "Family":
-        return [
-            f"{area(0)} weekend events {month_year}",
-            f"{area(1)} community events {month_year}",
-            f"{area(2)} kids fun things to do {month_year}",
-        ]
-    else:  # Adult
-        return [
-            f"{area(0)} nightlife weekend {month_year}",
-            f"what's happening {area(1)} {day}",
-            f"{area(2)} bars venues live music {month_year}",
-        ]
-
-
-# ---------------------------------------------------------------------------
-# 5. AGGREGATOR FILTER
-# ---------------------------------------------------------------------------
-def is_aggregator(url: str) -> bool:
-    host = domain_of(url)
-    if any(host == d or host.endswith("." + d) for d in AGGREGATOR_BLOCKLIST):
-        return True
-    # Listicle URL-path heuristic: catches "things-to-do" / "best-of" /
-    # weekend-guide patterns on domains we don't blanket-block.
-    path = url.lower()
-    if any(hint in path for hint in LISTICLE_URL_HINTS):
-        return True
-    return False
-
-
-def filter_aggregators(candidates: list[dict]) -> list[dict]:
-    return [c for c in candidates if not is_aggregator(c.get("url", ""))]
-
-
-# ---------------------------------------------------------------------------
-# 6. CLAUDE PROMPT BUILDER
-# ---------------------------------------------------------------------------
-def build_claude_user_prompt(
-    newsletter: dict,
-    audience: str,
-    day: str,
-    target_date_iso: str,
-    candidates: list[dict],
-) -> str:
-    d = newsletter["demographics"]
-    demo_summary = (
-        f"Median household income: {d['median_income']}\n"
-        f"Median age: {d['median_age']}\n"
-        f"Family skew: {d['family_skew']}\n"
-        f"Homeownership rate: {d['homeownership']}\n"
-        f"Education level: {d['education']}"
-    )
-
-    # Tag candidates with 1-based candidate_index for safe URL attachment post-Claude
-    indexed = [{**c, "candidate_index": i} for i, c in enumerate(candidates, 1)]
-    candidates_json = json.dumps(indexed, indent=2)
-
-    target_dt = datetime.fromisoformat(target_date_iso)
-    date_label = target_dt.strftime("%A, %B %d, %Y")
-
-    return f"""
-Newsletter: {newsletter['name'].replace('_', ' ')} ({newsletter['display_area']})
-Audience: {audience}
-Day: {day} ({date_label})
-
-Audience demographics:
-{demo_summary}
-
-Anchor towns: {', '.join(newsletter['search_areas'])}
-
-Below are pre-filtered candidates. They have ALREADY been screened for:
-  • domain quality (review sites, social, listicles, real-estate noise removed)
-  • date range (only candidates whose page text mentions a date inside the target weekend Fri-Sun remain, with unparseable-date candidates kept as borderline)
-  • duplicate URLs
-
-Your job is to PICK the best {TARGET_PER_BUCKET} for this audience+day and WRITE the
-one-line description per event per the skill's schema. Do NOT re-filter for date,
-relevance, or geography — that's already been done. If a candidate looks off, that's
-a signal the pre-filter missed something — feel free to skip, but the working
-assumption is every candidate in this list is a valid option.
-
-When the same event appears under both an aggregator URL (e.g. Eventbrite) AND a primary
-source URL (the venue's own page), pick the primary by `candidate_index`. We drill
-aggregator picks for an embedded primary link in a post-pass.
-
-Use `candidate_index` to reference the source URL — do NOT include raw URLs in the output.
-
-Set every event's `audience` to "{audience}" and `day` to "{day}" and `date` to "{target_date_iso}".
-
-Candidates:
-{candidates_json}
-"""
-
-
-# ---------------------------------------------------------------------------
-# 7. PROCESS ONE BUCKET (audience × day) — with adaptive retry
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
 # Notion candidate pool — replaces the Brave-search flow. One pull per
 # newsletter, cached for the run so all audiences share the same pool.
 # ---------------------------------------------------------------------------
@@ -352,10 +145,9 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
     Pass either `status_equals` (only rows with exactly that Status) or
     `status_excludes` (rows whose Status is none of those) — not both.
 
-    Returns dicts shaped like Brave search_web output (url, title,
-    description, age) so the downstream Claude eval is shape-agnostic.
-    Each row also carries `notion_page_id` so we can PATCH its Status
-    after a pick."""
+    Returns flat dicts (url, title, description, age) so the downstream
+    Claude eval stays shape-agnostic. Each row also carries
+    `notion_page_id` so we can PATCH its Status after a pick."""
     if not NOTION_WEEKEND_EVENTS_DB_ID:
         print("  ⚠ NOTION_WEEKEND_EVENTS_DB_ID not set — no Notion pool")
         return []
@@ -520,225 +312,6 @@ def get_notion_pool(newsletter_name: str,
                 status_excludes=_FALLBACK_EXCLUDE_STATUSES,
             )
     return list(_NOTION_POOL_CACHE[key])
-
-
-def fetch_and_filter_candidates(
-    queries: list[str],
-    max_per_query: int,
-    excluded_urls: set,
-    label: str,
-    target_range: tuple[date, date] | None = None,
-    target_weekend: dict | None = None,
-) -> list[dict]:
-    """One pass: Brave -> aggregator filter -> dedup. NO URL validation.
-
-    Why no validation: HEAD-request validation gives false positives on
-    bot-protected event-calendar pages (visitlewisville.com/events/,
-    llela.org/visit/llela-events-calendar, playlewisville.com/programs/
-    activities-calendar, etc.). Those are real, human-reachable pages that
-    return 403/404 to non-browser User-Agents. Killing them pre-Claude
-    starves the candidate pool of the best primary sources we have.
-
-    Trade-off: Claude may occasionally see a candidate whose page is
-    actually dead. The skill's primary-source rule is the quality gate —
-    Claude rejects news-article URLs and stale roundups by content, not
-    by URL reachability."""
-    query_specs = [{"q": q} for q in queries]
-    # Freshness window: only consider pages Brave indexed in the past 8
-    # weeks. Stale event roundups ("Best Atlanta events of January") are
-    # almost always reposted/syndicated old content. Restricting to recent
-    # crawl-dates drastically cuts the rate of past-event candidates that
-    # we'd otherwise have to date-extract and reject.
-    today = datetime.today().date()
-    freshness_window = f"{(today - timedelta(weeks=8)).isoformat()}to{today.isoformat()}"
-    candidates = search_web(
-        query_specs=query_specs,
-        api_key=BRAVE_NEWS_API_KEY,
-        trusted_domains=None,
-        max_per_query=max_per_query,
-        pause_between=PAUSE_BETWEEN_BRAVE,
-        freshness=freshness_window,
-    )
-    if not candidates:
-        print(f"    [{label}] No Brave results")
-        return []
-
-    # Aggregator handling: ONLY expand aggregator URLs that look like
-    # listicles. Tag archives, business directories, news landing pages
-    # and bare homepages get kept as single candidates instead of being
-    # expanded into their sidebar/related-stories noise.
-    try:
-        from aggregator_drilldown import expand_listicle as _expand_listicle
-    except Exception:
-        _expand_listicle = None
-
-    # Listicle title/URL markers (mirrors Featured Event).
-    _LISTICLE_MARKERS = (
-        "things to do", "things-to-do", "5 things", "10 things",
-        "weekend checklist", "weekend events", "weekend roundup",
-        "weekend guide", "your weekend", "events this weekend",
-        "events this week", "events you absolutely need",
-        "out and about", "what to do this", "what's happening",
-        "upcoming events", "calendar of events", "events calendar",
-        "fun things to do", "guide to events", "things to do in",
-    )
-    _NON_LISTICLE_URL_PATTERNS = (
-        "/tag/", "/tags/", "/category/", "/categories/",
-        "/author/", "/authors/", "/archives/", "/archive/",
-        "/business/listing/", "/businesses/",
-        "/news/local", "/news/police", "/news/crime",
-    )
-
-    def _is_listicle(c: dict) -> bool:
-        blob = f"{c.get('title','')} {c.get('url','')}".lower()
-        return any(m in blob for m in _LISTICLE_MARKERS)
-
-    def _is_landing_or_archive(url: str) -> bool:
-        from urllib.parse import urlparse as _up
-        p = _up(url)
-        path = (p.path or "").lower().rstrip("/")
-        if not path:
-            return True
-        return any(pat in path for pat in _NON_LISTICLE_URL_PATTERNS)
-
-    # Expand any candidate that looks like a listicle (title/URL marker),
-    # regardless of host. Government calendars (cobbcounty.gov) and city
-    # tourism sites also publish event roundups. Drop only aggregator
-    # landing/archive URLs (they have no event content).
-    expanded_count = 0
-    expanded_total = 0
-    kept_single    = 0
-    dropped_count  = 0
-    keep_pool = []
-    for c in candidates:
-        url = c.get("url", "")
-        # Step 1: aggregator landing/archive → drop entirely.
-        if is_aggregator(url) and _is_landing_or_archive(url):
-            dropped_count += 1
-            continue
-        # Step 2: anything that looks like a listicle → expand.
-        if _expand_listicle is not None and _is_listicle(c):
-            events = _expand_listicle(url, listicle_title=c.get("title", ""))
-            if events:
-                expanded_count += 1
-                expanded_total += len(events)
-                keep_pool.extend(events)
-            else:
-                # No event links found; keep the original URL so date filter
-                # can still consider it.
-                keep_pool.append(c)
-            continue
-        # Step 3: everything else → keep as single candidate.
-        keep_pool.append(c)
-        if is_aggregator(url):
-            kept_single += 1
-    if expanded_count:
-        print(f"    [{label}] expanded {expanded_count} listicle(s) into {expanded_total} candidates")
-    if kept_single:
-        print(f"    [{label}] kept {kept_single} aggregator(s) as single candidate (not a listicle)")
-    if dropped_count:
-        print(f"    [{label}] dropped {dropped_count} aggregator(s) that yielded no events")
-    candidates = keep_pool
-
-    if excluded_urls:
-        before = len(candidates)
-        candidates = [c for c in candidates if c["url"] not in excluded_urls]
-        if before - len(candidates):
-            print(f"    [{label}] dropped {before - len(candidates)} already-seen URLs")
-
-    # Strict date filter: candidates must mention a date IN the target
-    # weekend (Fri-Sun of the current week). If no target_range is given,
-    # fall back to the past-only floor.
-    before = len(candidates)
-    if target_range is not None:
-        start, end = target_range
-        candidates, dropped_urls = filter_candidates_in_date_range(candidates, start, end)
-        if dropped_urls:
-            excluded_urls.update(dropped_urls)
-            print(f"    [{label}] dropped {before - len(candidates)} candidates outside {start}..{end}")
-    else:
-        candidates, past_urls = filter_candidates_by_date(candidates, upcoming_friday())
-        if past_urls:
-            excluded_urls.update(past_urls)
-            print(f"    [{label}] dropped {before - len(candidates)} past-only candidates")
-
-    # Pipeline-side day tagging: figure out which target-weekend day(s)
-    # each candidate maps to BEFORE sending to Claude. Drops candidates
-    # whose text doesn't pin to Fri/Sat/Sun (the recurring-event fallback
-    # inside determine_event_days still rescues "every Friday" / "weekly"
-    # wording). After this, each survivor has a `days` list and Claude
-    # doesn't need to figure out the date — the pipeline already did.
-    if target_weekend is not None:
-        before = len(candidates)
-        tagged = []
-        for c in candidates:
-            days = determine_event_days(c, target_weekend)
-            if days:
-                c["days"] = days
-                tagged.append(c)
-        candidates = tagged
-        if before - len(candidates):
-            print(f"    [{label}] dropped {before - len(candidates)} candidates with no target-weekend day match")
-
-    print(f"    [{label}] {len(candidates)} candidates ready for Claude")
-    return candidates[:CANDIDATE_CAP]
-
-
-def call_claude_for_bucket(
-    candidates: list[dict],
-    newsletter: dict,
-    audience: str,
-    day: str,
-    target_date_iso: str,
-    skill_prompt: str,
-) -> list[dict]:
-    """Send candidates to Claude. Returns validated event dicts (URLs reattached
-    from candidate_index, audience/day/date forced)."""
-    if not candidates:
-        return []
-
-    user_prompt = build_claude_user_prompt(newsletter, audience, day, target_date_iso, candidates)
-    try:
-        # Generous max_tokens because the response is a JSON array of
-        # up to 20 events × ~200 tokens of structured content each.
-        # The default 4000 routinely truncated the array mid-event,
-        # breaking JSON parsing and forcing the fallback gap-fill path
-        # for both audiences on every run.
-        results = call_with_json_output(
-            api_key=CLAUDE_API_KEY,
-            system=skill_prompt,
-            user_content=user_prompt,
-            max_tokens=12000,
-        )
-    except Exception as e:
-        print(f"    ✗ Claude error: {e}")
-        return []
-    if not results:
-        return []
-
-    candidates_by_index = {i: c for i, c in enumerate(candidates, 1)}
-    validated = []
-    for r in results:
-        idx = r.get("candidate_index")
-        try:
-            idx = int(idx) if idx is not None else None
-        except Exception:
-            idx = None
-        source = candidates_by_index.get(idx) if idx is not None else None
-        if not source:
-            print(f"    ✗ Rejecting event with invalid candidate_index {idx}: {r.get('event_name', '?')}")
-            continue
-        r["source_url"] = source.get("url", "")
-        r.pop("candidate_index", None)
-        r["audience"] = audience
-        r["day"] = day
-        r["date"] = target_date_iso
-        validated.append(r)
-    # Prefer primary sources: if Claude picked an Eventbrite / Meetup /
-    # AllEvents URL, drill the page to find an official venue or organizer
-    # link and swap. Falls back to the aggregator URL on miss.
-    validated = prefer_primary_source(validated)
-    return validated
 
 
 def prefer_primary_source(events: list[dict]) -> list[dict]:
@@ -1192,73 +765,6 @@ def process_pool(
         print(f"      - [{p['audience']}] {p.get('emoji','')} "
               f"{p.get('event_name','?')[:60]}{tag}")
     return picks
-
-
-def process_bucket(
-    newsletter: dict,
-    audience: str,
-    day: str,
-    target_date_iso: str,
-    skill_prompt: str,
-    existing_urls: set,
-) -> list[dict]:
-    """Run one bucket with adaptive retry: if first pass yields too few
-    events, run a second broader pass and merge."""
-    print(f"\n  [{audience} / {day} / {target_date_iso}]")
-
-    # The target weekend's Fri-Sun range — strict. Candidates must mention
-    # a date inside this window OR have no parseable date (those are kept
-    # as borderline, since many real events use vague wording like 'this
-    # weekend' and we don't want to false-drop them).
-    weekend = target_weekend_dates()
-    target_range = (
-        date.fromisoformat(weekend["Friday"]),
-        date.fromisoformat(weekend["Sunday"]),
-    )
-
-    # Pass 1 — primary queries, normal result count
-    primary_queries = build_queries(newsletter, audience, day, target_date_iso)
-    candidates_p1 = fetch_and_filter_candidates(
-        primary_queries, MAX_RESULTS_PER_QUERY, existing_urls,
-        label="primary", target_range=target_range,
-        target_weekend=weekend,
-    )
-    results = call_claude_for_bucket(
-        candidates_p1, newsletter, audience, day, target_date_iso, skill_prompt
-    )
-    print(f"    Primary pass: {len(results)} events accepted")
-
-    # Retry if Claude found too few qualifying events
-    if len(results) < MIN_EVENTS_BEFORE_RETRY:
-        print(f"    Retrying broader (reason: only {len(results)} events) — {RETRY_RESULTS_PER_QUERY} results/query")
-
-        # Exclude URLs already in pass 1 so the retry pool is fresh
-        retry_excluded = set(existing_urls) | {c["url"] for c in candidates_p1}
-
-        fallback_queries = build_fallback_queries(newsletter, audience, day, target_date_iso)
-        candidates_p2 = fetch_and_filter_candidates(
-            fallback_queries, RETRY_RESULTS_PER_QUERY, retry_excluded,
-            label="retry", target_range=target_range,
-            target_weekend=weekend,
-        )
-        more_results = call_claude_for_bucket(
-            candidates_p2, newsletter, audience, day, target_date_iso, skill_prompt
-        )
-
-        # Merge, dedup by URL
-        seen_urls = {r["source_url"] for r in results}
-        added = 0
-        for r in more_results:
-            if r["source_url"] and r["source_url"] not in seen_urls:
-                results.append(r)
-                seen_urls.add(r["source_url"])
-                added += 1
-        print(f"    Retry pass added {added} events (bucket total: {len(results)})")
-
-    print(f"    ✓ {len(results)} events accepted")
-    for r in results:
-        print(f"      - {r.get('emoji', '')} {r.get('event_name', '?')}")
-    return results
 
 
 # ---------------------------------------------------------------------------
