@@ -222,7 +222,7 @@
     "date_generated": "2026-05-28",
     "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
-    "default_winner": "yes"
+    "default_winner": ""
   },
   {
     "source_url": "http://www.foxparts.com/",
@@ -245,7 +245,7 @@
     "relevance_score": "6",
     "total_score": "6",
     "date_generated": "2026-05-22",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -270,7 +270,7 @@
     "relevance_score": "7",
     "total_score": "7",
     "date_generated": "2026-05-22",
-    "status": "approved",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -295,8 +295,8 @@
     "relevance_score": "8",
     "total_score": "8",
     "date_generated": "2026-05-22",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
-    "default_winner": "yes"
+    "default_winner": ""
   }
 ]
