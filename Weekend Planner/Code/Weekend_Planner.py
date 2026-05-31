@@ -675,21 +675,50 @@ def _titles_are_duplicate(a_norm, a_tok, b_norm, b_tok, ratio_threshold: float =
     return difflib.SequenceMatcher(None, a_norm, b_norm).ratio() >= ratio_threshold
 
 
+def _url_embedded_date(url: str) -> str:
+    """Return the first YYYY-MM-DD found in a URL, else "".
+
+    Several sources (e.g. cobbcounty.gov: /events/2026-06-05<slug>) encode the
+    specific occurrence date in the URL path. For a recurring event that has
+    one row per occurrence, the URL's date is the most reliable signal of
+    WHICH occurrence a row points at — more reliable than the Notion `Date`
+    field, which the scraper may set to the series' first date on every row."""
+    import re as _re
+    m = _re.search(r"(\d{4})-(\d{2})-(\d{2})", url or "")
+    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else ""
+
+
 def _candidate_richness(c: dict, weekend_isos: frozenset = frozenset()) -> float:
     """Higher = more complete. Decides which of two duplicates to keep.
 
-    `weekend_isos` is the set of target-weekend ISO dates. A candidate whose
-    primary date actually lands inside the target weekend gets a dominating
-    bonus: for a recurring event with one Notion row per occurrence (each
-    with its own dated URL, e.g. .../2026-05-29... vs .../2026-06-05...), we
-    MUST keep the in-weekend occurrence's row so the published URL matches
-    the day it's filed under — not just the row with the longest blurb."""
+    `weekend_isos` is the set of target-weekend ISO dates. For a recurring
+    event with one Notion row per occurrence (each with its own dated URL,
+    e.g. .../2026-06-05... vs .../2026-06-08...), we MUST keep the in-weekend
+    occurrence's row so the published URL matches the day it's filed under —
+    not just the row with the longest blurb. Two date signals drive this:
+
+      1. The date embedded in the URL (most reliable — it names the exact
+         occurrence). In-weekend → big bonus; a parseable date OUTSIDE the
+         weekend → big penalty (that URL links to the wrong occurrence).
+      2. The row's primary Notion `Date` as a weaker fallback signal.
+    """
     score = 0.0
     d = (c.get("date") or "").strip().lower()
     if d and d not in ("check website", "tbd", "tba"):
         score += 2.0
     if d[:10] in weekend_isos:
-        score += 100.0   # in-weekend occurrence wins the URL, decisively
+        score += 100.0   # in-weekend primary date
+
+    # URL-encoded occurrence date — the decisive signal when two same-titled
+    # rows differ only by which dated occurrence their link points at.
+    if weekend_isos:
+        url_date = _url_embedded_date(c.get("url", ""))
+        if url_date:
+            if url_date in weekend_isos:
+                score += 200.0   # correct occurrence URL — keep this row
+            else:
+                score -= 200.0   # wrong occurrence URL — never keep over a sibling
+
     desc = (c.get("description") or "").strip()
     score += min(len(desc), 600) / 600.0
     if (c.get("image_url") or "").strip():
