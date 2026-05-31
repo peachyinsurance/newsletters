@@ -61,19 +61,20 @@ jobs:
           rm -rf dist
           npm run build
 
-      - name: Preserve existing GIFs/images from gh-pages
-        run: |
-          git fetch origin gh-pages || true
-          git checkout origin/gh-pages -- gifs/ 2>/dev/null || true
-          if [ -d "gifs" ]; then
-            cp -r gifs review-app/dist/gifs
-            echo "✓ Preserved $(ls gifs/ | wc -l) files from gifs/"
-          else
-            echo "No existing gifs/ to preserve"
-          fi
+      # NOTE: We intentionally do NOT snapshot gifs/ into the build dir here.
+      # That old "preserve" step grabbed gh-pages' gifs/ at job start, then
+      # the full-replace deploy below republished that stale copy — clobbering
+      # any RE/event images other workflows pushed AFTER the snapshot (a race
+      # the snapshot model can't win). Instead, keep_files:true below leaves
+      # the live gifs/ directory untouched. gifs/ is owned solely by the
+      # image-publishing workflows (real_estate, featured_event, restaurant,
+      # weekend_planner, …); the deploy only manages the review-app build.
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./review-app/dist
+          # Don't wipe files absent from publish_dir — preserves gifs/ images
+          # published by the content workflows so their Notion URLs don't 404.
+          keep_files: true
