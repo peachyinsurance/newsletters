@@ -217,7 +217,11 @@ def run_tribe_source(source_url: str, newsletter: str,
             else:
                 entry["all_dates"].add(sd)
                 if sd < entry["start_date"]:
+                    # Keep the canonical URL/time aligned with the earliest
+                    # occurrence so the link matches the date we cite.
                     entry["start_date"] = sd
+                    entry["source_url"] = ev["source_url"]
+                    entry["time"]       = ev.get("time", entry.get("time", ""))
         print(f"  [page {page}] {len(events)} listings  "
               f"({new_occurrences} new occurrences)")
         if new_occurrences == 0:

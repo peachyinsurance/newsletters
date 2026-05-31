@@ -249,7 +249,14 @@ def main() -> int:
         else:
             entry["all_dates"].add(sd)
             if sd < entry["start_date"]:
+                # Adopt the earliest occurrence's date AND its URL/time so the
+                # row's link points at the occurrence it's dated to. cobbcounty
+                # mints one page per occurrence (…/2026-06-05<slug> vs
+                # …/2026-06-08<slug>); keeping the first-seen URL left the link
+                # pointing at a different (often later) day than start_date.
                 entry["start_date"] = sd
+                entry["source_url"] = ev["source_url"]
+                entry["time"]       = ev.get("time", entry.get("time", ""))
 
     candidates = sorted(by_name.values(),
                         key=lambda e: e["start_date"] or date.max)

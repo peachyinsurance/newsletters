@@ -274,9 +274,14 @@ def run_simpleview_tempest(sitemap_url: str, newsletter: str,
             by_name[name_key] = ev
         else:
             entry["all_dates"] = (entry.get("all_dates") or set()) | (ev.get("all_dates") or set())
-            new_earliest = min(entry["all_dates"])
-            if new_earliest < entry["start_date"]:
-                entry["start_date"] = new_earliest
+            # Keep the canonical URL/time aligned with the earliest occurrence:
+            # if this ev starts earlier than the one we kept, adopt its URL too,
+            # so the link points at the occurrence the row is dated to.
+            if ev.get("start_date") and (not entry.get("start_date")
+                                         or ev["start_date"] < entry["start_date"]):
+                entry["start_date"] = ev["start_date"]
+                entry["source_url"] = ev["source_url"]
+                entry["time"]       = ev.get("time", entry.get("time", ""))
         time.sleep(0.3)   # be kind to the host
 
     candidates = sorted(by_name.values(),

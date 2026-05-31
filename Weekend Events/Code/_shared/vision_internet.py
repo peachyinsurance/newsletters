@@ -242,7 +242,11 @@ def run_vision_internet_tiles(
         else:
             entry["all_dates"].add(sd)
             if sd < entry["start_date"]:
+                # Keep the canonical URL/time aligned with the earliest
+                # occurrence so the link matches the date we cite.
                 entry["start_date"] = sd
+                entry["source_url"] = ev["source_url"]
+                entry["time"]       = ev.get("time", entry.get("time", ""))
 
     candidates = sorted(by_name.values(),
                         key=lambda e: e["start_date"] or date.max)
