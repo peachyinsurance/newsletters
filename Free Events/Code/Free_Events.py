@@ -1133,8 +1133,14 @@ Candidates:
         print(f"    {i}. \"{ev.get('name', '?')}\" {ev.get('event_date', '')}"
               f"  time={s['time_score']} source={s['source_score']} total={s['total']}  ({tag})")
 
-    # Pick the highest that passes date + URL + past-tense validation
+    # Pick the highest that passes date + URL + past-tense validation.
+    # Among the qualifying candidates, PREFER one that has a usable image —
+    # an imageless winner renders a blank hero in both the Notion page and the
+    # Beehiiv email. Only fall back to an imageless event if none of the
+    # qualifying candidates has a photo. Images fetched here are cached on the
+    # scoreboard entry (`_image_urls`) so the winner doesn't re-fetch.
     winner = None
+    fallback = None        # best qualifying candidate regardless of image
     for s in scoreboard:
         ev = s["ev"]
         date_str = (ev.get("event_date") or "").strip()
@@ -1165,8 +1171,22 @@ Candidates:
         if not s["source_url"] or not validate_url(s["source_url"]):
             print(f"    ✗ Skipping '{ev.get('name', '?')}': dead/missing URL")
             continue
-        winner = s
-        break
+        # Qualifying candidate. Remember the first as the imageless fallback,
+        # then prefer the first one that actually has a usable image.
+        if fallback is None:
+            fallback = s
+        imgs = fetch_event_images(s["source_url"], max_results=3)
+        if imgs:
+            s["_image_urls"] = imgs
+            winner = s
+            break
+        print(f"    ⓘ '{ev.get('name', '?')}' has no usable image — "
+              f"looking for a higher candidate with a photo")
+
+    if winner is None and fallback is not None:
+        print(f"    ⓘ No qualifying candidate had a usable image — "
+              f"falling back to top-scored event without one")
+        winner = fallback
 
     if not winner:
         print(f"  No qualifying free event for {newsletter_name}")
@@ -1193,8 +1213,14 @@ Candidates:
     ev["total_score"]            = winner["total"]
     # Grab up to 3 images off the source page (gallery), keep the first as the
     # canonical hero (`image_url`) for backward compatibility with consumers
-    # that still expect a single URL.
-    ev["image_urls"]             = fetch_event_images(ev["source_url"], max_results=3)
+    # that still expect a single URL. Reuse the images fetched during winner
+    # selection unless drill-down changed the URL (re-fetch from the refined
+    # page in that case, since a guide page and the drilled event page differ).
+    cached_imgs = winner.get("_image_urls")
+    if cached_imgs and refined_url == raw_url:
+        ev["image_urls"] = cached_imgs
+    else:
+        ev["image_urls"] = fetch_event_images(ev["source_url"], max_results=3)
     ev["image_url"]              = ev["image_urls"][0] if ev["image_urls"] else ""
 
     # Restore body_markdown from Claude's events[] (the all_scored entry we

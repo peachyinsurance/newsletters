@@ -991,6 +991,13 @@ if __name__ == "__main__":
         # Family Saturday would both grab the same recurring event's photo,
         # only the first slot gets it and Saturday falls through to the
         # next-best event with a still-unused image.
+        # Prefer the richest image-bearing event for each slot's lead photo.
+        # `total_score` is never populated, so reuse _candidate_richness
+        # (image presence +1.0, description length, in-weekend date) — same
+        # "prefer-an-image" weighting Free Events / Featured Event use.
+        _slot_isos = frozenset(
+            (weekend or {}).get(d, "")[:10] for d in DAYS
+        ) - {""}
         used_image_urls: set[str] = set()
         for aud in AUDIENCES:
             for day in ("Friday", "Saturday", "Sunday"):
@@ -998,7 +1005,10 @@ if __name__ == "__main__":
                            if e.get("audience") == aud
                            and e.get("day") == day
                            and e.get("image_url")]
-                in_slot.sort(key=lambda e: e.get("total_score", 0), reverse=True)
+                in_slot.sort(
+                    key=lambda e: (e.get("total_score", 0),
+                                   _candidate_richness(e, _slot_isos)),
+                    reverse=True)
                 kept = None
                 for ev in in_slot:
                     if ev["image_url"] not in used_image_urls:

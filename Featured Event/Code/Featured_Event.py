@@ -723,11 +723,31 @@ Candidates:
 # 5. FLAG DEFAULT WINNER
 # ---------------------------------------------------------------------------
 def flag_default_winner(results: list[dict]) -> list[dict]:
+    """Flag the default winner — the highest-scored event that actually has a
+    usable image, so the newsletter never leads with a blank hero. `results`
+    is pre-sorted by total_score desc, so the first entry carrying an image (or
+    image gallery) is the highest-scored one with a photo. Falls back to the
+    top-scored event if none has an image.
+
+    Call this AFTER the image-population stage so `image_url`/`image_candidates`
+    reflect what was actually found."""
     for r in results:
         r["default_winner"] = ""
-    if results:
-        results[0]["default_winner"] = "yes"
-        print(f"  Default winner: {results[0]['event_name']} ({results[0]['total_score']}/30)")
+    if not results:
+        return results
+    winner = next((r for r in results
+                   if (r.get("image_url") or r.get("image_candidates"))), None)
+    if winner is None:
+        winner = results[0]
+        print(f"  Default winner: {winner['event_name']} "
+              f"({winner['total_score']}/30) — no candidate had an image")
+    elif winner is not results[0]:
+        print(f"  Default winner: {winner['event_name']} "
+              f"({winner['total_score']}/30) — preferred over higher-scored "
+              f"'{results[0]['event_name']}' which had no image")
+    else:
+        print(f"  Default winner: {winner['event_name']} ({winner['total_score']}/30)")
+    winner["default_winner"] = "yes"
     return results
 
 
@@ -824,9 +844,6 @@ if __name__ == "__main__":
         if not results:
             print(f"  Claude found no qualifying events for {newsletter['name']}. Skipping.")
             continue
-
-        # Flag winner
-        results = flag_default_winner(results)
 
         # Populate image_url for each event in two stages:
         #   Stage 1: scrape the source URL's og:image / JSON-LD / body-image
@@ -987,6 +1004,10 @@ if __name__ == "__main__":
                     print(f"  · no images found for {event_name[:50]} (both stages failed)")
         except Exception as e:
             print(f"  ⚠ image lookup skipped ({e}) — events will save without image_url")
+
+        # Flag the default winner AFTER images are resolved, so we lead with
+        # the highest-scored event that actually has a photo (not a blank hero).
+        results = flag_default_winner(results)
 
         # Pre-build the Canva header composite for every event so the
         # review app shows a preview immediately (no reviewer click needed).
