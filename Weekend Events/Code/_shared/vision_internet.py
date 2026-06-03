@@ -57,41 +57,74 @@ _DESC_RE       = re.compile(r'<p class="vi-events-tiles-desc">([^<]*)</p>')
 _CATEGORY_RE   = re.compile(r'<span class="vi-events-tiles-category">([^<]+)</span>')
 
 
+# Vision Internet sites sit behind Akamai bot-manager, which fingerprints
+# the TLS/HTTP2 handshake. Akamai retires old Chrome fingerprints over
+# time — chrome120 (our original pin) is now flagged on a 403, while a
+# current target sails through. Rotate newest-first so a single stale
+# target can't take the scraper down; the newest one that curl_cffi
+# supports goes first. 403 is treated as retryable here (unlike a normal
+# request) because Akamai returns it for both fingerprint rejection and
+# IP-reputation throttling — a different target / a short backoff can get
+# past the former.
+_IMPERSONATE_TARGETS = ("chrome131", "chrome124", "chrome120")
+
+
 def _fetch_html(url: str) -> str:
-    """curl_cffi Chrome TLS impersonation. Plain requests fallback when
-    curl_cffi isn't available — but expect 403 from Vision Internet
-    sites without it."""
-    cffi_get = None
+    """curl_cffi Chrome TLS impersonation, rotating through modern Chrome
+    fingerprints newest-first. Plain requests fallback when curl_cffi
+    isn't available — but expect 403 from Vision Internet sites without
+    it (Akamai fingerprints plain requests instantly)."""
+    cffi_mod = None
     try:
         from curl_cffi import requests as _cffi
-        cffi_get = lambda u: _cffi.get(u, impersonate="chrome120",
-                                       timeout=15, allow_redirects=True)
+        cffi_mod = _cffi
     except ImportError:
         pass
 
     headers = {
         "User-Agent":       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "Accept":           "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language":  "en-US,en;q=0.5",
     }
-    for attempt in range(3):
+
+    def _do_get(target: str | None):
+        if cffi_mod is not None and target is not None:
+            return cffi_mod.get(url, impersonate=target, timeout=15,
+                                allow_redirects=True)
+        return requests.get(url, headers=headers, timeout=15,
+                            allow_redirects=True)
+
+    # Attempt plan: one try per impersonation target (newest first); if
+    # curl_cffi is missing, a single plain-requests attempt.
+    targets = list(_IMPERSONATE_TARGETS) if cffi_mod is not None else [None]
+    last_status = None
+    for attempt, target in enumerate(targets):
+        tag = target or "plain-requests"
         try:
-            r = cffi_get(url) if cffi_get is not None else \
-                requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+            r = _do_get(target)
         except Exception as e:
-            print(f"    fetch error (attempt {attempt + 1}/3): {e}")
+            print(f"    fetch error ({tag}, {attempt + 1}/{len(targets)}): {e}")
             time.sleep(2 * (attempt + 1))
             continue
         if r.status_code == 200 and r.text:
+            if attempt:
+                print(f"    ✓ fetched via {tag} after {attempt} earlier reject(s)")
             return r.text
-        if r.status_code in (202, 429, 503) and attempt < 2:
-            wait = 3 * (attempt + 1)
-            print(f"    HTTP {r.status_code} — retry {attempt + 1}/3 in {wait}s")
+        last_status = r.status_code
+        # 403 (fingerprint/IP), 202/429/503 (throttle) → try the next
+        # target with a short backoff rather than giving up immediately.
+        if r.status_code in (202, 403, 429, 503) and attempt < len(targets) - 1:
+            wait = 2 * (attempt + 1)
+            print(f"    HTTP {r.status_code} via {tag} — trying next "
+                  f"fingerprint in {wait}s")
             time.sleep(wait)
             continue
-        print(f"    HTTP {r.status_code} from {url}")
+        print(f"    HTTP {r.status_code} via {tag} from {url}")
         return ""
+    if last_status is not None:
+        print(f"    ✗ all {len(targets)} fingerprint(s) rejected "
+              f"(last HTTP {last_status}) — {url}")
     return ""
 
 
