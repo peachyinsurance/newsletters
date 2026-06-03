@@ -994,16 +994,17 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"  ⚠ event image fetch skipped ({e})")
 
-        # One photo per (audience, day) — at most six images render in the
-        # Weekend Planner section (Friday/Saturday/Sunday × Family/Adult).
-        # Also enforce no URL reuse across slots: if Family Friday and
-        # Family Saturday would both grab the same recurring event's photo,
-        # only the first slot gets it and Saturday falls through to the
-        # next-best event with a still-unused image.
-        # Prefer the richest image-bearing event for each slot's lead photo.
-        # `total_score` is never populated, so reuse _candidate_richness
-        # (image presence +1.0, description length, in-weekend date) — same
-        # "prefer-an-image" weighting Free Events / Featured Event use.
+        # Up to MAX_IMAGES_PER_SLOT photos per (audience, day) so multiple
+        # pictures render mixed in among the events rather than one lead photo.
+        # The Notion page shows a thumbnail above EVERY event that keeps an
+        # image_url; the Beehiiv email renders a per-card image. Still enforce
+        # no URL reuse across slots: if Family Friday and Family Saturday would
+        # both grab the same recurring event's photo, the first slot wins and
+        # the other falls through to the next-best event with an unused image.
+        # Order by richness (_candidate_richness: image presence +1.0,
+        # description length, in-weekend date) since `total_score` is never
+        # populated — same "prefer-an-image" weighting Free / Featured use.
+        MAX_IMAGES_PER_SLOT = 3
         _slot_isos = frozenset(
             (weekend or {}).get(d, "")[:10] for d in DAYS
         ) - {""}
@@ -1018,20 +1019,23 @@ if __name__ == "__main__":
                     key=lambda e: (e.get("total_score", 0),
                                    _candidate_richness(e, _slot_isos)),
                     reverse=True)
-                kept = None
+                kept_ids: set[int] = set()
+                kept_names: list[str] = []
                 for ev in in_slot:
-                    if ev["image_url"] not in used_image_urls:
-                        kept = ev
-                        used_image_urls.add(ev["image_url"])
+                    if len(kept_ids) >= MAX_IMAGES_PER_SLOT:
                         break
+                    if ev["image_url"] not in used_image_urls:
+                        kept_ids.add(id(ev))
+                        kept_names.append(ev.get("event_name", "?")[:40])
+                        used_image_urls.add(ev["image_url"])
                 cleared = 0
                 for ev in in_slot:
-                    if ev is not kept:
+                    if id(ev) not in kept_ids:
                         ev.pop("image_url", None)
                         cleared += 1
-                if kept:
-                    print(f"  ↳ {aud} {day}: keeping image on "
-                          f"'{kept.get('event_name','?')[:50]}', cleared {cleared} other(s)")
+                if kept_names:
+                    print(f"  ↳ {aud} {day}: keeping {len(kept_names)} image(s) "
+                          f"({', '.join(kept_names)}), cleared {cleared} other(s)")
                 elif in_slot:
                     print(f"  ↳ {aud} {day}: no unique image available "
                           f"(all {len(in_slot)} candidates' images already used elsewhere)")

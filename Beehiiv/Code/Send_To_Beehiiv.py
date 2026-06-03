@@ -662,6 +662,34 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
     return len(items), len(card_nodes)
 
 
+def _weekend_image_mutator(clone_soup, ev: dict) -> None:
+    """Per-card hook for Weekend Planner: render THIS event's photo inside its
+    own card so multiple photos mix in among the events (the pipeline now keeps
+    up to 3 image-bearing events per slot). If the cloned card already has an
+    <img>, retarget its src; otherwise insert a responsive <img> at the top of
+    the card. Events with no image have any stray placeholder <img> removed so
+    no broken template token URL shows."""
+    img_url = (ev.get("image_url") or "").strip()
+    existing = clone_soup.find("img")
+    if not img_url:
+        if existing is not None:
+            existing.decompose()
+        return
+    alt = (ev.get("event_name") or "event photo")[:120]
+    if existing is not None:
+        existing["src"] = img_url
+        existing["alt"] = alt
+        return
+    new_img = clone_soup.new_tag("img", src=img_url, alt=alt)
+    new_img["style"] = ("max-width:100%;height:auto;display:block;"
+                        "margin:0 auto 12px;border-radius:6px;")
+    first = clone_soup.find(True)
+    if first is not None:
+        first.insert_before(new_img)
+    else:
+        clone_soup.append(new_img)
+
+
 def expand_weekend_slots(html: str, events: list[dict]) -> str:
     """For each (day, audience) Weekend Planner slot, duplicate the
     template card once per event. See `_expand_one_slot` for the
@@ -677,15 +705,21 @@ def expand_weekend_slots(html: str, events: list[dict]) -> str:
     for slot_key, day, audience in WEEKEND_SLOT_KEYS:
         slot_events = [e for e in events
                        if e.get("day") == day and e.get("audience") == audience]
-        # The slot's single image lives above the cards in the column.
-        # Sort image-owner first so that image is visually adjacent to
-        # its matching event's card after expansion (otherwise the image
-        # looks adopted by whichever event happened to sort first).
-        slot_events.sort(key=lambda e: (
-            0 if e.get("image_url") else 1,
-            -(e.get("total_score") or 0),
-        ))
-        n, width = _expand_one_slot(soup, slot_key, slot_events, _weekend_event_to_card)
+        # Each event card now carries its OWN image (see
+        # _weekend_image_mutator), so we no longer float the single
+        # image-owner to the top. Order alphabetically — matching the Notion
+        # page's sort — so the photos interleave naturally among the cards
+        # instead of clustering. Strip a leading article / ordinal so headline
+        # qualifiers don't dictate the order.
+        def _wp_sort_key(e: dict) -> str:
+            name = (e.get("event_name") or "").strip()
+            name = re.sub(r"^(the|a|an)\s+", "", name, flags=re.IGNORECASE)
+            name = re.sub(r"^\d+(st|nd|rd|th)?\s+(annual\s+)?", "",
+                          name, flags=re.IGNORECASE)
+            return name.lower()
+        slot_events.sort(key=_wp_sort_key)
+        n, width = _expand_one_slot(soup, slot_key, slot_events, _weekend_event_to_card,
+                                    item_dom_mutator=_weekend_image_mutator)
         if n == -1:
             print(f"    · weekend slot '{slot_key}' — no {{{slot_key}_title}} in template")
         elif n == 0:
@@ -1439,16 +1473,23 @@ def build_replacements(client: BeehiivClient, publication_id: str,
                     weekend_dates_seen[day] = f"{dt.strftime('%B')} {dt.day}"
                 except Exception:
                     pass
-        # Upload + register the single image for this (day, audience) slot.
-        # Image dedup happens in Weekend_Planner.py — at most one event in
-        # the slot will have image_url populated.
-        img_event = next((e for e in slot_events if e.get("image_url")), None)
-        if img_event:
-            src = img_event["image_url"]
+        # Per-event images: the Weekend Planner pipeline now keeps up to 3
+        # image-bearing events per slot. Host each (the WP images are already
+        # gh-pages URLs, so upload_remote_image passes through) and write the
+        # hosted URL back on the event dict — expand_weekend_slots() then
+        # renders a photo INSIDE each event's card via _weekend_image_mutator.
+        # We deliberately DON'T register a {slot_key}_image alt-swap anymore:
+        # leaving the weekend slots out of alt_swaps lets prune_unused_image_
+        # slots() remove the old single static slot placeholder, so per-card
+        # images fully take over.
+        for ev in slot_events:
+            src = (ev.get("image_url") or "").strip()
+            if not src:
+                continue
             hosted = upload_remote_image(client, publication_id, src)
-            if hosted:
+            if hosted and hosted != src:
                 image_swaps[src] = hosted
-            alt_swaps[f"{slot_key}_image"] = hosted or src
+                ev["image_url"] = hosted
 
     # Day-level date placeholders (used in the section headers).
     for day, friendly in weekend_dates_seen.items():
