@@ -681,13 +681,27 @@ def _weekend_image_mutator(clone_soup, ev: dict) -> None:
         existing["alt"] = alt
         return
     new_img = clone_soup.new_tag("img", src=img_url, alt=alt)
-    new_img["style"] = ("max-width:100%;height:auto;display:block;"
-                        "margin:0 auto 12px;border-radius:6px;")
-    first = clone_soup.find(True)
-    if first is not None:
-        first.insert_before(new_img)
+    new_img["style"] = ("display:block;width:100%;max-width:100%;height:auto;"
+                        "margin:0 auto 10px;border-radius:6px;")
+    # Anchor the photo INSIDE this event's own text block (as the first
+    # child of the first text-bearing block element — normally the title),
+    # not as a bare sibling before the whole card. Beehiiv wraps cards in
+    # nested <table><tr><td> structures; a bare <img> placed before that
+    # table can drift to the top of the section in some email clients,
+    # which is what made "all the photos pile up on top" instead of sitting
+    # with each event. Inserting it within the title's block keeps the
+    # photo glued directly above that event's text.
+    _BLOCK = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "div", "td", "li"}
+    anchor = next((el for el in clone_soup.find_all(True)
+                   if el.name in _BLOCK and (el.get_text() or "").strip()), None)
+    if anchor is not None:
+        anchor.insert(0, new_img)
     else:
-        clone_soup.append(new_img)
+        first = clone_soup.find(True)
+        if first is not None:
+            first.insert_before(new_img)
+        else:
+            clone_soup.append(new_img)
 
 
 def expand_weekend_slots(html: str, events: list[dict]) -> str:
