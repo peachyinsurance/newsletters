@@ -1324,6 +1324,25 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["PET_SHELTER_HOURS"]    = pet.get("shelter_hours", "")
         repl["PET_SOURCE_URL"]       = pet.get("url", "")
         img_url = pet.get("gif") or pet.get("photo")
+        # DEBUG: surface which URL the pet image resolves to. A gh-pages URL is
+        # hotlink-safe; a raw source-CDN photo URL (petfinder/avfap/etc.) often
+        # fails to load in email — that was the "pet image didn't make it" bug.
+        _src = "gif" if pet.get("gif") else ("photo" if pet.get("photo") else "none")
+        print(f"  [pet] image source={_src}: {img_url[:90] or '(empty)'}")
+        # Reachability check: a pet's GIF URL is written to Notion at generation
+        # time but may be SENT a cycle later. If the gh-pages file was wiped or
+        # never published, the URL 404s — Beehiiv hotlinks live so it renders
+        # broken (Notion masks this via its server-side image cache). Surface it
+        # loudly so a dead pet image is obvious at send time.
+        if img_url:
+            try:
+                _hr = requests.head(img_url, timeout=10, allow_redirects=True)
+                if _hr.status_code != 200:
+                    print(f"  ⚠ [pet] image URL is NOT reachable (HTTP {_hr.status_code}) — "
+                          f"it will render broken in Beehiiv. Re-run the pet pipeline so the "
+                          f"gh-pages file is (re)published, or re-approve a pet with a live image.")
+            except Exception as _e:
+                print(f"  ⚠ [pet] image URL reachability check failed ({_e})")
         if img_url:
             hosted = upload_remote_image(client, publication_id, img_url)
             if hosted:

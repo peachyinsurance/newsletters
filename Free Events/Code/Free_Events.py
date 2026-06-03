@@ -143,6 +143,30 @@ def _absolutize(url: str, base_url: str) -> str:
     return url  # leave alone if we can't resolve
 
 
+def _image_dedup_key(url: str) -> str:
+    """Normalize an image URL to a key that collapses near-duplicate variants
+    of the *same* underlying picture so a gallery doesn't show one photo twice.
+
+    Event pages routinely expose the same image multiple ways — og:image,
+    twitter:image, and a body <img> that's a resized WordPress/CDN variant.
+    Exact-string dedup misses these because the URLs differ by a query string
+    or a size suffix. This key drops the query/fragment, lowercases, strips the
+    file extension, and removes common resize markers, so:
+        foo.png  ·  foo.png?v=2  ·  foo-1024x1024.png  ·  foo-scaled.jpg
+    all map to "foo".
+    """
+    try:
+        from urllib.parse import urlsplit
+        path = urlsplit(url).path
+    except Exception:
+        path = (url or "").split("?", 1)[0].split("#", 1)[0]
+    base = path.rsplit("/", 1)[-1].lower()
+    base = _re.sub(r"\.(jpe?g|png|gif|webp|avif|bmp|tiff?)$", "", base)  # drop ext
+    base = _re.sub(r"-\d{2,4}x\d{2,4}$", "", base)                       # -150x150
+    base = _re.sub(r"-scaled$", "", base)                               # -scaled
+    return base or path.lower()
+
+
 def fetch_event_image(source_url: str, _allow_root_fallback: bool = True) -> str:
     """Pull a reliable hero image URL from the source page. Tries (in order):
        1. og:image / twitter:image / image_src meta tags
@@ -399,21 +423,30 @@ def fetch_event_images(source_url: str, max_results: int = 8,
 
     # Validate and dedup
     valid: list[str] = []
-    seen: set = set()
+    seen_exact: set = set()   # raw URL strings already considered
+    seen_norm: set = set()    # normalized keys of ACCEPTED images
     for url in raw:
         if len(valid) >= max_results:
             break
         url = (url or "").strip()
-        if not url or url in seen:
+        if not url or url in seen_exact:
             continue
-        seen.add(url)
+        seen_exact.add(url)
         if url.startswith("data:"):
             continue
         url = _absolutize(url, source_url)
         ul = url.lower()
         if any(skip in ul for skip in SKIP_TOKENS):
             continue
+        # Collapse near-duplicate variants of the same picture (og:image vs
+        # twitter:image vs resized body <img>). We only record the key once an
+        # image is ACCEPTED, so if a tiny thumbnail variant fails validation a
+        # larger variant of the same photo can still be picked up.
+        norm = _image_dedup_key(url)
+        if norm in seen_norm:
+            continue
         if _image_looks_real(url):
+            seen_norm.add(norm)
             valid.append(url)
 
     return valid

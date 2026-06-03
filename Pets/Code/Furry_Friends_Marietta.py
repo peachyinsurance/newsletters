@@ -714,9 +714,13 @@ if __name__ == "__main__":
                 if not photos:
                     print(f"    {pname}: no photos, skipping GIF")
                     continue
+                # Single-photo pets used to keep their raw source-CDN photo_url,
+                # which email clients (Beehiiv) can't reliably hotlink — so the
+                # pet image silently broke in the email. Build a 1-frame GIF for
+                # them too so EVERY pet gets a stable gh-pages-hosted URL that
+                # flows through the existing "Publish GIFs to gh-pages" step.
                 if len(photos) == 1:
-                    print(f"    {pname}: 1 photo, using static image")
-                    continue
+                    print(f"    {pname}: 1 photo, hosting as single-frame GIF")
                 gif_bytes = create_gif_from_urls(photos[:3], crop_top=True)
                 if gif_bytes:
                     slug = pname.lower().replace(" ", "_").replace("'", "")[:30]

@@ -83,7 +83,14 @@ jobs:
             git fetch origin gh-pages
             git checkout gh-pages
             mkdir -p gifs
-            rm -f gifs/pet_*.gif gifs/pet_*.webp 2>/dev/null || true
+            # Do NOT wipe existing pet GIFs. A pet's GIF URL is written to its
+            # Notion row at generation time but the pet may not be SENT until a
+            # later cycle (after review/approval). Wiping all pet_*.gif on every
+            # run deleted the file out from under an approved-but-unsent pet, so
+            # Beehiiv's live hotlink 404'd (Notion still showed it from its own
+            # server-side image cache, masking the problem). We now only add /
+            # overwrite same-named files; old GIFs persist (~9KB each) until a
+            # dedicated cleanup prunes them.
             cp /tmp/pet_gifs/*.gif gifs/ 2>/dev/null || true
             cp /tmp/pet_gifs/*.webp gifs/ 2>/dev/null || true
             git add gifs/
