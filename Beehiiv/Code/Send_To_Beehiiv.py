@@ -383,18 +383,51 @@ def replace_placeholders(html: str, replacements: dict[str, str]) -> str:
     return out
 
 
+def _autolink_bare_urls(html: str) -> str:
+    """Turn bare http(s) URLs into clickable <a> tags, but leave URLs that
+    are already inside an <a>…</a> (e.g. just produced from [text](url)
+    markdown, or hand-authored anchors) untouched.
+
+    Split on existing anchors so only the text BETWEEN them is scanned; the
+    captured <a> spans land on odd indices and are passed through verbatim.
+    Trailing sentence punctuation is kept OUTSIDE the link so 'see x.com.'
+    doesn't put the period in the href."""
+    parts = re.split(r'(<a\b[^>]*>.*?</a>)', html, flags=re.IGNORECASE | re.DOTALL)
+    url_re = re.compile(r'(https?://[^\s<>()]+)')
+
+    def _repl(m: re.Match) -> str:
+        u = m.group(1)
+        trail = ""
+        while u and u[-1] in ".,;:!?)":
+            trail = u[-1] + trail
+            u = u[:-1]
+        if not u:
+            return m.group(0)
+        return (f'<a href="{u}" target="_blank" rel="noopener noreferrer">'
+                f'{u}</a>{trail}')
+
+    for i in range(0, len(parts), 2):  # even indices = non-anchor text
+        parts[i] = url_re.sub(_repl, parts[i])
+    return "".join(parts)
+
+
 def md_inline_to_html(text: str) -> str:
     """Inline-only markdown → HTML conversion (bold + links). No paragraph
-    handling — that's done by expand_paragraph_field via real DOM ops."""
+    handling — that's done by expand_paragraph_field via real DOM ops.
+
+    Markdown links convert first; then any remaining BARE URLs (common when
+    a Notion-authored blurb just pastes the website) are auto-linked so they
+    render clickable instead of as plain URL text."""
     if not text:
         return ""
     out = text
     out = re.sub(
-        r"\[([^\]]+)\]\((https?://[^)]+)\)",
+        r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
         r'<a href="\2" target="_blank" rel="noopener noreferrer">\1</a>',
         out,
     )
     out = re.sub(r"\*\*([^*]+?)\*\*", r"<strong>\1</strong>", out)
+    out = _autolink_bare_urls(out)
     out = out.replace("\n", " ")
     return out
 
