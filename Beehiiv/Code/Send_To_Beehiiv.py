@@ -662,21 +662,28 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
     return len(items), len(card_nodes)
 
 
-def _weekend_image_mutator(clone_soup, ev: dict, proto_attrs: dict | None = None) -> None:
+# Weekend Planner per-card photo sizing. Responsive ("dynamic"): the photo
+# fluidly fills its container up to WP_IMAGE_MAX_WIDTH_PX, then stops — so it
+# scales down on narrow/mobile widths but never blows up to full email width
+# (the "too big" complaint). Bump this one number to resize every weekend photo.
+WP_IMAGE_MAX_WIDTH_PX = 300
+
+
+def _weekend_image_mutator(clone_soup, ev: dict) -> None:
     """Per-card hook for Weekend Planner: render THIS event's photo inside its
     own card so multiple photos mix in among the events (the pipeline now keeps
     up to 3 image-bearing events per slot). If the cloned card already has an
-    <img>, retarget its src; otherwise insert an <img> at the top of the card.
-    Events with no image have any stray placeholder <img> removed so no broken
-    template token URL shows.
+    <img>, retarget its src; otherwise insert a responsive <img> at the top of
+    the card. Events with no image have any stray placeholder <img> removed so
+    no broken template token URL shows.
 
-    `proto_attrs` carries the width/height/style attributes copied from the
-    template's own weekend event image for this slot, so the inserted photo
-    matches the exact size the template author chose (rather than rendering
-    full-bleed). expand_weekend_slots() captures it before the static slot
-    image gets pruned."""
+    The photo is sized responsively — width:100% capped at
+    WP_IMAGE_MAX_WIDTH_PX — so it scales with the layout but never renders
+    full-bleed."""
     img_url = (ev.get("image_url") or "").strip()
     existing = clone_soup.find("img")
+    style = (f"display:block;width:100%;max-width:{WP_IMAGE_MAX_WIDTH_PX}px;"
+             "height:auto;margin:0 auto 12px;border-radius:6px;")
     if not img_url:
         if existing is not None:
             existing.decompose()
@@ -685,19 +692,16 @@ def _weekend_image_mutator(clone_soup, ev: dict, proto_attrs: dict | None = None
     if existing is not None:
         existing["src"] = img_url
         existing["alt"] = alt
+        existing["style"] = style
+        existing["width"] = str(WP_IMAGE_MAX_WIDTH_PX)
         return
     new_img = clone_soup.new_tag("img")
-    if proto_attrs:
-        # Mirror the template image's sizing exactly (width/height/style/class).
-        for k, v in proto_attrs.items():
-            new_img[k] = v
     new_img["src"] = img_url
     new_img["alt"] = alt
-    if "style" not in new_img.attrs:
-        # No template style to mirror — fall back to a centered block that
-        # respects the template's width attribute if present.
-        new_img["style"] = ("display:block;max-width:100%;height:auto;"
-                            "margin:0 auto 10px;border-radius:6px;")
+    # width attr is a fallback for clients that ignore max-width CSS; the
+    # max-width in style keeps it responsive on smaller screens.
+    new_img["width"] = str(WP_IMAGE_MAX_WIDTH_PX)
+    new_img["style"] = style
     # Anchor the photo INSIDE this event's own text block (as the first
     # child of the first text-bearing block element — normally the title),
     # not as a bare sibling before the whole card. Beehiiv wraps cards in
@@ -747,22 +751,8 @@ def expand_weekend_slots(html: str, events: list[dict]) -> str:
                           name, flags=re.IGNORECASE)
             return name.lower()
         slot_events.sort(key=_wp_sort_key)
-        # Capture the template's own weekend event image for this slot
-        # (filename token e.g. 'family_event_friday' / 'adult_event_saturday')
-        # BEFORE it gets pruned downstream, so each per-card photo inherits
-        # the exact size/style the template author set instead of rendering
-        # full-bleed. Drop identity attrs that shouldn't be cloned N times.
-        proto_token = f"{audience.lower()}_event_{day.lower()}"
-        proto_img = soup.find("img", src=lambda s, t=proto_token: bool(s) and t in s)
-        proto_attrs = ({k: v for k, v in proto_img.attrs.items()
-                        if k not in ("src", "alt", "id")}
-                       if proto_img is not None else None)
-
-        def _mutator(clone_soup, ev, _attrs=proto_attrs):
-            _weekend_image_mutator(clone_soup, ev, _attrs)
-
         n, width = _expand_one_slot(soup, slot_key, slot_events, _weekend_event_to_card,
-                                    item_dom_mutator=_mutator)
+                                    item_dom_mutator=_weekend_image_mutator)
         if n == -1:
             print(f"    · weekend slot '{slot_key}' — no {{{slot_key}_title}} in template")
         elif n == 0:
