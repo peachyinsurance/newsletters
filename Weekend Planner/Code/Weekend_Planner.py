@@ -198,14 +198,16 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
     try:
         sys.path.append(os.path.join(os.path.dirname(__file__),
                                      '..', '..', 'NewsletterCreation', 'Code'))
-        from event_image_scraper import is_cancelled_event, is_inappropriate_event
+        from event_image_scraper import is_cancelled_event, is_inappropriate_event, is_senior_event
     except Exception:
         is_cancelled_event     = lambda t, d="":          False  # noqa: E731
         is_inappropriate_event = lambda t, d="", v="":   False  # noqa: E731
+        is_senior_event        = lambda t, d="", a="":   False  # noqa: E731
 
     out: list[dict] = []
     dropped_cancelled = 0
     dropped_inappropriate = 0
+    dropped_senior = 0
     for p in pages:
         props = p.get("properties", {})
         title = _rich_text_value(props.get("Event Name")) or _rich_text_value(props.get("Name"))
@@ -222,6 +224,11 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
         address = _rich_text_value(props.get("Address"))
         if is_inappropriate_event(title, description, venue):
             dropped_inappropriate += 1
+            continue
+        # Drop senior-citizen events that predate the scraper-side exclusion
+        # (legacy rows already in Notion). New scrapes are filtered at save.
+        if is_senior_event(title, description):
+            dropped_senior += 1
             continue
         # Per-occurrence model: each pool row is ONE occurrence on ONE date,
         # so its day comes straight from its own primary Date. Recurring
@@ -255,6 +262,8 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
         drop_notes.append(f"{dropped_cancelled} cancelled")
     if dropped_inappropriate:
         drop_notes.append(f"{dropped_inappropriate} adult/NSFW")
+    if dropped_senior:
+        drop_notes.append(f"{dropped_senior} senior")
     drop_note = (", dropped " + ", ".join(drop_notes)) if drop_notes else ""
     print(f"  Notion pool: {len(out)} candidate(s) in window "
           f"({friday} → {sunday}) for {tags}, {status_label}{drop_note}")

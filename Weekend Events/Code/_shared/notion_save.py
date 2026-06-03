@@ -41,6 +41,7 @@ import requests
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
 from notion_helper import HEADERS as NOTION_HEADERS, query_database  # noqa: E402
+from event_image_scraper import is_senior_event  # noqa: E402
 
 
 def existing_source_urls(db_id: str,
@@ -91,6 +92,17 @@ def save_event(db_id: str, ev: dict, newsletter: str,
     weekend day. Recurring events are saved as multiple calls, one per
     in-window date, by the scraper."""
     if not ev.get("source_url"):
+        return False
+
+    # Global senior-citizen exclusion. Every scraper saves through this
+    # helper, so gating here applies the exclusion uniformly. Sources that
+    # expose a structured age tag pass it as ev["age_tags"] (e.g. Cobb
+    # County's eventAge); everyone else falls back to the title/description
+    # keyword scan inside is_senior_event(). Returning False (don't save) is
+    # the same "skip this row" contract the caller already handles.
+    if is_senior_event(ev.get("event_name", ""), ev.get("description", ""),
+                       ev.get("age_tags", "")):
+        print(f"    ⊘ skipping senior event: {ev.get('event_name', '')[:60]}")
         return False
 
     # `Dates` mirrors the single occurrence date in ISO form so the

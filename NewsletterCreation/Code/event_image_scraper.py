@@ -94,6 +94,63 @@ def is_inappropriate_event(title: str, description: str = "",
     haystack = f"{title or ''} | {description or ''} | {venue or ''}"
     return bool(_INAPPROPRIATE_RE.search(haystack))
 
+
+# Senior-citizen / older-adult events. Excluded at the user's request — the
+# newsletters skew toward families and younger readers. The keyword list
+# deliberately AVOIDS a bare "senior"/"seniors" match, which would wrongly
+# catch high-school seniors ("senior prom", "senior night", "senior year").
+# It fires only on an unambiguous senior-citizen qualifier (senior citizen /
+# center, older adult, AARP, SilverSneakers, active adult), a "seniors +
+# activity" phrase, or an explicit 55+/60+/65+ age cue. The standalone "55+"
+# patterns omit "50+" because festivals routinely advertise "50+ vendors".
+_SENIOR_RE = re.compile(
+    r"(?:"
+    r"\bsenior[- ]?citizens?\b|"
+    r"\bsenior[- ]?cent(?:er|re)\b|"
+    r"\bolder[- ]?adults?\b|"
+    r"\baarp\b|"
+    r"\bsilver[- ]?sneakers\b|"
+    r"\bactive[- ]?adults?\b|"
+    r"\bseniors?[- ]?(?:only|bingo|luncheon|lunch|social|socials|club|day|"
+    r"program|programs|group|games?|yoga|fitness|exercise|dance|expo|fair|"
+    r"series|meetup|coffee|breakfast|brunch|trip|trips)\b|"
+    r"\bages?\s?(?:55|60|62|65)\b|"
+    # Bare "55+/60+" as an age cue, but NOT when it's a count of things a
+    # festival advertises ("55+ vendors", "60+ artists/booths/breweries").
+    r"\b(?:55|60|62|65)\s?\+(?!\s*(?:vendors?|artists?|exhibitors?|booths?|"
+    r"breweries|wineries|restaurants?|stores?|shops?|items?|attendees|"
+    r"participants|guests|acts?|bands?|films?|movies?|games?|rides?))|"
+    r"\b(?:50|55|60|62|65)[- ]?(?:plus\b|and[- ](?:older|over|up)\b)|"
+    r"\b(?:50|55|60|62|65)[- ]?years?[- ](?:and[- ])?(?:older|over|up)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def is_senior_event(title: str, description: str = "",
+                    age_tags: str = "") -> bool:
+    """True if the event targets senior citizens / older adults and should be
+    excluded from the family-oriented newsletters.
+
+    Two independent signals — either one triggers exclusion:
+      • `age_tags`: a free-text dump of whatever structured age labels the
+        source exposes (e.g. Cobb County's `eventAge` -> "Seniors (ages 60+)").
+        If "senior" appears here, the source itself tagged it senior — the
+        most reliable signal, so we honor it even when the event is ALSO
+        tagged for adults (an AARP driving course is still a senior event).
+      • title + description keyword scan (`_SENIOR_RE`) for the many sources
+        that expose no structured age data, so the exclusion still applies to
+        EVERY scraper.
+
+    Called at the data layer (notion_save.save_event for all scrapers, plus
+    the Cobb scraper's pre-save and the Weekend Planner pool fetcher) so
+    senior events never reach the newsletter regardless of origin."""
+    if age_tags and re.search(r"\bseniors?\b", age_tags, re.IGNORECASE):
+        return True
+    haystack = f"{title or ''} | {description or ''}"
+    return bool(_SENIOR_RE.search(haystack))
+
+
 # Affiliate CDNs / generic icons / tracking pixels we never want to
 # pick up as a hero image.
 SKIP_TOKENS = (

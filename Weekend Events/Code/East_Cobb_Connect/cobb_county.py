@@ -46,7 +46,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
 from html_utils  import _clean_html, _normalize_title, format_dates_human  # noqa: E402
 from notion_save import existing_source_urls, save_event  # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
-from event_image_scraper import is_cancelled_event, is_inappropriate_event  # noqa: E402
+from event_image_scraper import is_cancelled_event, is_inappropriate_event, is_senior_event  # noqa: E402
 
 WEEKEND_EVENTS_DB_ID = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
 NEWSLETTER = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
@@ -173,6 +173,13 @@ def normalize_event(api_ev: dict) -> dict | None:
     city          = (addr_obj.get("locality") or "").strip().lower()
     if is_inappropriate_event(title, description, location_name):
         return None
+    # cobbcounty exposes a structured age tag (eventAge) — e.g.
+    # [{"name": "Seniors (ages 60+)"}]. Flatten the labels and let
+    # is_senior_event() drop anything the county itself tagged senior.
+    age_tags = " ".join((a or {}).get("name", "")
+                        for a in (api_ev.get("eventAge") or []))
+    if is_senior_event(title, description, age_tags):
+        return None
     time_str      = _format_time_range(
         (api_ev.get("startDate") or {}).get("time", ""),
         (api_ev.get("endDate")   or {}).get("time", ""),
@@ -188,6 +195,7 @@ def normalize_event(api_ev: dict) -> dict | None:
         "location":    location_name,
         "address":     address,
         "city":        city,
+        "age_tags":    age_tags,
     }
 
 
