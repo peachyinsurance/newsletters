@@ -1217,13 +1217,24 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     business = get_business_brief(newsletter_name)
     if business and business.get("blurb"):
         repl["business_brief_name"]    = business.get("name", "")
-        paragraph_prose["business_brief_blurb"] = business.get("blurb", "")
-        repl["business_brief_blurb"]   = md_to_html(business.get("blurb", ""))
+        bb_url = business.get("source_url", "") or ""
+        # Embed a clickable website link directly in the blurb prose so the
+        # email always has a working link, independent of whether the Beehiiv
+        # template wires the {business_brief_url}/{business_brief_link} token
+        # into an <a>. md_inline_to_html (used by both expand_paragraph_field
+        # and md_to_html) converts the [text](url) markdown into a real
+        # anchor. Appended as its own paragraph, mirroring the Notion page's
+        # "Website:" line. Skip if the URL is already in the blurb so an
+        # author/Claude-supplied link isn't double-rendered.
+        bb_blurb = business.get("blurb", "")
+        if bb_url and bb_url not in bb_blurb:
+            bb_blurb = bb_blurb.rstrip() + f"\n\n**Website:** [{display_domain(bb_url)}]({bb_url})"
+        paragraph_prose["business_brief_blurb"] = bb_blurb
+        repl["business_brief_blurb"]   = md_to_html(bb_blurb)
         repl["business_brief_city"]    = business.get("city", "")
         repl["business_brief_price"]   = business.get("price_level", "")
         repl["business_brief_hours"]   = business.get("hours", "")
         repl["business_brief_address"] = business.get("address", "")
-        bb_url = business.get("source_url", "") or ""
         repl["business_brief_url"]     = bb_url
         repl["business_brief_link"]    = bb_url  # alias for templates wired as `_link`
         repl["business_brief_domain"]  = display_domain(bb_url) if bb_url else ""
