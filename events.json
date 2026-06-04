@@ -250,7 +250,7 @@
     ],
     "header_image_url": "https://peachyinsurance.github.io/newsletters/gifs/Newsletter_Header_image_East_Cobb_Connect_Braves_Country_Fest_at_Truist_Park.png?v=1780585244",
     "gif_url": "https://peachyinsurance.github.io/newsletters/gifs/event_gif_East_Cobb_Connect_Braves_Country_Fest_at_Truist_Park.gif?v=1780585254",
-    "default_winner": "yes"
+    "default_winner": ""
   },
   {
     "source_url": "https://www.cityoflewisville.com/Home/Components/Calendar/Event/87217/668",
@@ -582,7 +582,7 @@
     "blurb": "If you have never watched live MMA up close, this is a different thing entirely from watching it on TV. NFC Fight Night brings over 12 professional and amateur fights, including MMA, Muay Thai, kickboxing, and bare knuckle, to a 32-foot LED screen setup at Live! at The Battery. It starts at 5pm so there is plenty of night left after. It is a great call for anyone with a teenager who thinks they have seen it all, or honestly for any adult who wants a Saturday night that actually has some energy to it.",
     "ticket_url": "",
     "date_generated": "2026-05-28",
-    "status": "approved",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "total_score": "22",
     "demographic_fit_score": "7",
