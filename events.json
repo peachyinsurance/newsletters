@@ -184,7 +184,7 @@
     ],
     "header_image_url": "https://peachyinsurance.github.io/newsletters/gifs/Newsletter_Header_image_Perimeter_Post_World_Cup_USA_vs__Australia_Watch_Party_.png?v=1780620752",
     "gif_url": "https://peachyinsurance.github.io/newsletters/gifs/event_gif_Perimeter_Post_World_Cup_USA_vs__Australia_Watch_Party_.gif?v=1780620757",
-    "default_winner": "yes"
+    "default_winner": ""
   },
   {
     "source_url": "https://batteryatl.com/event/braves-country-fest-at-truist-park/",
@@ -504,7 +504,7 @@
     ],
     "header_image_url": "https://peachyinsurance.github.io/newsletters/gifs/Newsletter_Header_image_Perimeter_Post_World_Cup_Kickoff_Party_on_The_Lawn.png?v=1780097482",
     "gif_url": "https://peachyinsurance.github.io/newsletters/gifs/event_gif_Perimeter_Post_World_Cup_Kickoff_Party_on_The_Lawn.gif?v=1780097490",
-    "default_winner": "yes"
+    "default_winner": ""
   },
   {
     "source_url": "https://www.discoverdunwoody.com/events/global-running-day-big-peach-running-co-city-of-dunwoody/",
@@ -516,7 +516,7 @@
     "blurb": "Global Running Day is June 4th, and Dunwoody is celebrating it a day early with Big Peach Running Co. at Brook Run Park. It's a run, a walk, and a social after, all paces and abilities welcome.\n\nBrook Run is a great park and this is a genuinely easy yes: it's free, it's in the neighborhood, it's midweek, and you end with people. The social part is the whole reason to go.\n\nShow up, move your body, meet someone new. Wednesday nights could use more of this.",
     "ticket_url": "",
     "date_generated": "2026-05-28",
-    "status": "approved",
+    "status": "pending",
     "newsletter_name": "Perimeter_Post",
     "total_score": "21",
     "demographic_fit_score": "7",
