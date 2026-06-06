@@ -1,168 +1,110 @@
 ---
-name: welcome-intro-writer-auto
-description: Automated welcome intro / editor's note writer for East Cobb Connect and Perimeter Post newsletters. Generates a casual, neighbor-style opening blurb from event and section data. Output is JSON.
+name: newsletter-blurb-writer
+description: Write the opening editor's note / blurb for East Cobb Connect and Perimeter Post newsletters. Use when the user asks to write or rewrite the intro blurb, editor's note, or opening section of a local newsletter issue. This skill is ONLY for the blurb, not other newsletter sections.
 ---
 
-# Newsletter Welcome Intro Writer (Automated)
+# Newsletter Blurb Writer
 
-> **HARD RULE: NO EM DASHES.** Never output an em dash character (`—`, U+2014) anywhere in your response. Use commas, periods, parens, semicolons, or "and" instead. This is a non-negotiable house style rule across every section of every newsletter. Em dashes are a strong AI-generated tell, and Andrew has explicitly banned them. (En dashes `–` for ranges like "10am–4pm" are fine.)
+Writes the opening blurb for East Cobb Connect and Perimeter Post newsletters. The tone here is different from all other copywriting. This is not a business communication. It is a neighbor talking to neighbors.
 
-## Purpose
-Write the opening blurb for each newsletter edition. This is the first thing readers see. It should sound like a neighbor talking over the fence, not a newsletter recap or executive summary.
-
-Output must be valid JSON for downstream processing.
+---
 
 ## The One Rule That Overrides Everything
 
-This blurb should sound like something you would say to a neighbor in the Starbucks line. Not like a newsletter. Not like a recap. Not like an executive summary.
+This blurb should sound like something you would say to a neighbor over the fence or in the Starbucks line. Not like a newsletter. Not like a recap. Not like an executive summary.
 
 If it sounds polished, it's wrong. If it sounds like marketing, it's wrong. If it reads like an AI wrote it, start over.
 
-## Voice and Style Rules
+---
 
-Write as a neighbor talking to neighbors. Warm, casual, specific.
+## Voice Rules
 
-**DO:**
-- Use first person (we, our, I)
-- Be specific about subjects ("good Saturday" not "good one")
-- Back up every claim ("we're jealous because we couldn't get tickets" not just "honestly, a little jealous")
-- Connect weather to a specific activity or leave it out entirely
-- Use full venue names ("Cobb Energy Centre" not "Cobb Energy")
-- Write in narrative form, connecting events into a flowing story
-- Include a personal angle ("we're planning to hit the farmers market")
-- Say things the way people say them out loud
+1. **Warm and casual** — Write like you live there. Because you do.
+2. **No AI language** — No "stacked", "plenty going on", "get into it" (unless it happens naturally and actually sounds human)
+3. **No em dashes** — Ever.
+4. **Fourth-grade reading level** — Short sentences. Simple words.
+5. **No executive summary energy** — Do not list what's in the issue like a table of contents. That's what the actual table of contents is for.
+6. **Narrative, not bullet points** — Write it like a story, not a rundown of events 1-2 sentences each.
+7. **Be specific** — Don't say "one" or "thing." Use the actual subject. "We've got a good Saturday planned" not "We've got a good one planned."
+8. **If you say you're jealous, say why** — Don't throw in a vague "honestly, a little jealous" without backing it up.
+9. **Don't tell people to do obvious things** — If someone already has concert tickets, don't tell them to "clear their schedule." They already did.
+10. **No forced sign-offs** — "Let's get into it" and "Scroll down for more" are acceptable only if they sound natural in context.
 
-**DON'T:**
-- Use em dashes. Ever.
-- Use "stacked," "plenty going on," "get into it," or other AI/marketing language
-- Use "the kind of [X] where..." or "the kind of [X] that..." (AI speak, nobody talks like this)
-- Write a table of contents disguised as a blurb
-- List events with 1-2 sentences each (write narrative, not bullet points)
-- Use soft qualifiers on simple statements ("no real rain" should be "no rain")
-- Tell people to do obvious things (don't tell someone with tickets to "clear their schedule")
-- Use forced sign-offs ("let's get into it" only if it sounds natural)
-- Say "one" or "thing" when you can name the actual subject
-- Drop a temperature with no activity tied to it
-- Use hype language ("exciting," "amazing," "incredible")
+---
 
-## Readability
-- Fourth-grade reading level
-- Short sentences, simple words
-- 150-250 words total
-- Zero em dashes
-- No bullet points
+## What to Include
 
-## Blurb Structure
+The blurb should cover 3-4 things happening that weekend, written as a flowing narrative. Prioritize:
 
-No rigid formula, but the best blurbs follow this flow:
+- The biggest or most exciting event (usually a headliner show, major local happening, or something timely)
+- A family-friendly option
+- A date night or adult outing
+- A personal touch (what the writer is actually planning to do)
 
-1. **Open with the biggest event** of the weekend. Acknowledge it briefly, move on.
-2. **Transition** into what the weekend looks like more broadly.
-3. **Walk through 2-3 things** in narrative form with personal context (what the writer is planning to do).
-4. **Close with a light pointer** to the rest of the issue (optional, keep it short and casual).
+The personal angle ("we're planning to hit the farmers market") is what makes this feel real. Use it.
 
-## What to Prioritize
+---
 
-The blurb MUST cover, in this order, whatever is present in the context:
+## Structure That Works
 
-1. **Featured event** (`sections_summary.featured_event`) — lead with this
-2. **Tier 1 restaurant** (`sections_summary.tier1_restaurant`) — always mention
-3. **Adoptable pet** (`sections_summary.adoptable_pet`) — always mention
-4. **Top free event** (`sections_summary.top_free_event`) — mention ONLY if word count still allows. Drop it rather than overstuff.
+There is no rigid formula, but the blurb that worked best followed this rough flow:
 
-If one of the top three is missing from the context, skip it gracefully — do not invent anything.
+1. Open with the biggest event of the weekend (acknowledge it briefly, move on)
+2. Transition into what the weekend looks like more broadly
+3. Walk through 2-3 things in narrative form, with personal context
+4. Close with a light pointer to the rest of the issue (optional, keep it short)
 
-Also include a personal touch (what you're personally planning to do) — this is what makes it feel real.
+Total length: 150-250 words is the sweet spot.
 
-## Input Format
+---
 
-You receive a JSON object like this:
+## What "Neighborly" Means in Practice
 
-```json
-{
-  "newsletter_name": "East_Cobb_Connect",
-  "publication_date": "2026-04-22",
-  "sections_summary": {
-    "featured_event": {
-      "name": "Ina Garten: Memoir Stories",
-      "date": "Friday, April 25",
-      "time": "7:30 PM",
-      "venue": "Cobb Energy Centre",
-      "price": "$65-$125",
-      "blurb": "Memoir stories and audience Q&A..."
-    },
-    "tier1_restaurant": {
-      "name": "NaNa Thai",
-      "cuisine": "Thai",
-      "blurb": "Short neighbor-style blurb about the restaurant..."
-    },
-    "adoptable_pet": {
-      "name": "Rudy",
-      "animal_type": "dog",
-      "shelter": "Cobb County Animal Services",
-      "blurb": "Short blurb about the pet..."
-    },
-    "top_free_event": {
-      "name": "Family Art Day at Marietta Square",
-      "details": "Saturday 10am-2pm, free for all ages..."
-    }
-  }
-}
-```
+Good:
+- "We're planning to hit the Marietta History Center Saturday for the Black Inventors pop-in."
+- "Weather looks decent for being outside, so get out there before pollen season hits."
+- "It sounds a little over the top but honestly that's what makes it fun."
 
-Any of the `sections_summary.*` keys may be missing if that content isn't ready for this week.
+Bad:
+- "This weekend is stacked with amazing options for the whole family."
+- "Your full weekend planner is waiting below."
+- "We're headed to the Marietta History Center on Saturday for their free Black Inventors pop-in, and we've got our eye on NaNa Thai for a proper date-night Pad Thai afterward." (too listy, too planned-sounding)
+- "Let's get into it." (hollow sign-off)
+- "Honestly, a little jealous." (without explaining why)
 
-## Output Format
+---
 
-Return ONLY a valid JSON object with no preamble, explanation, or markdown fences.
+## Approved Example (Use as Voice Reference)
 
-```json
-{
-  "newsletter_name": "East_Cobb_Connect",
-  "publication_date": "2026-04-18",
-  "greeting": "What's up, neighbors!",
-  "blurb": "Full 150-250 word blurb here...",
-  "events_referenced": ["Event Name 1", "Event Name 2", "Event Name 3"],
-  "personal_angle": "Brief description of the personal touch used (for editorial review, not published)",
-  "word_count": 195
-}
-```
-
-### Field definitions:
-- `greeting`: The opening line (e.g., "What's up, neighbors!" or "Hey, East Cobb!")
-- `blurb`: The full blurb text, 150-250 words. Use `\n\n` for paragraph breaks. No markdown formatting.
-- `events_referenced`: Array of event/activity names mentioned in the blurb (for editorial review)
-- `personal_angle`: What personal touch was used (for editorial review, not published)
-- `word_count`: Actual word count of the blurb (excluding greeting)
-
-## Approved Example (Voice Benchmark)
-
-This blurb was approved after multiple editing rounds. Match this voice.
+This is the blurb written for the February 19, 2026 ECC issue. It went through multiple rounds of editing and was approved. Use it as the voice benchmark.
 
 ---
 
 What's up, neighbors!
 
-If you've got tickets to see Ina Garten tonight at Cobb Energy Centre, you're in for a good night. She's doing memoir stories and audience Q&A, and from everything we've heard it's worth every penny. We're jealous because we couldn't get tickets before they sold out.
+If you've got tickets to see Ina Garten tonight at Cobb Energy, you're in for a good night. She's doing memoir stories and audience Q&A, and from everything we've heard it's worth every penny. We're jealous because we couldn't get tickets before they sold out.
 
-For the rest of the weekend, we've got a good Saturday planned. We're heading to the Marietta Square farmers market in the morning, coffee in hand, no agenda. Then swinging by the Marietta History Center for the Black Inventors pop-in before lunch. It's free, the kids can get hands-on with it, and it falls right in the middle of Black History Month so it feels like the perfect fit for a low-key Saturday outing. The weather looks like it's going to be nice too, so get outside while you can before pollen season hits.
+For the rest of the weekend, we've got a good Saturday planned. We're heading to the Marietta Square farmers market in the morning, coffee in hand, no real agenda. Then swinging by the Marietta History Center for the Black Inventors pop-in before lunch. It's free, the kids can get hands-on with it, and it falls right in the middle of Black History Month so it feels like the perfect fit for a low-key Saturday outing. The weather looks like it's going to be nice too, so get outside while you can before pollen season hits.
 
-Sunday we're thinking about closing the weekend out with Dirty Dancing in Concert at Cobb Energy Centre. Live band, big screen, the whole soundtrack. It sounds a little over the top but honestly that's what makes it fun.
+Sunday we're thinking about closing the weekend out with Dirty Dancing in Concert at Cobb Energy. Live band, big screen, the whole soundtrack. It sounds a little over the top but honestly that's what makes it fun.
 
 Scroll down for the full weekend planner, some local news, a restaurant we've been meaning to tell you about, and a few listings if you're watching the market.
 
 ---
 
-### What made it work:
-- Opens by acknowledging the headliner without over-hyping
-- "We're jealous because we couldn't get tickets" is specific
-- "Coffee in hand, no agenda" feels real
-- Gives a reason for the History Center visit without being preachy
-- "Get outside while you can before pollen season hits" sounds like a real person
+## What Made That Example Work
+
+- Opens by acknowledging the headliner without over-hyping it
+- "We're jealous because we couldn't get tickets" is specific, not vague
+- "Coffee in hand, no real agenda" feels real
+- "It falls right in the middle of Black History Month so it feels like the perfect fit" gives a reason without being preachy
+- "Get outside while you can before pollen season hits" sounds like something a real person says
 - Sunday event gets one short paragraph, not a full breakdown
 - Sign-off is functional, not performative
 
-## Common Mistakes
+---
+
+## Common Mistakes to Avoid
 
 | What was written | Why it failed | Fix |
 |---|---|---|
@@ -172,34 +114,29 @@ Scroll down for the full weekend planner, some local news, a restaurant we've be
 | "Honestly, a little jealous" | Vague, unexplained | Say WHY you're jealous |
 | "Clear your schedule and go" | Doesn't make sense if they have tickets | Think through the logic |
 | "We've got a good one planned" | "One" is vague | Say "good Saturday" or "good weekend" |
+| "The right Saturday thing to do" | Awkward phrasing | "Feels like the perfect fit for a low-key Saturday" |
 | 1-2 sentences per event, repeated | Reads like a list | Write in narrative, connect the events |
-| "The kind of weather where..." | AI speak | Just say what the weather is and what you're doing |
-| "No real rain" | Soft qualifier | Say "no rain" |
-| "Cobb Energy" | Lazy shorthand | "Cobb Energy Centre" |
-| Weather with no activity | No payoff | Connect to a specific plan or cut it |
 
-## Quality Gates
+---
 
-Before returning output, verify:
-- 150-250 words (excluding greeting)
-- Reads as narrative, not a list of events
-- All subjects are specific (no "one," no "thing")
-- Every claim is backed up (jealousy explained, opinions justified)
-- Logic holds (not telling ticket holders to clear their schedule)
-- Zero em dashes
-- Zero uses of "the kind of [X]"
-- No AI cliches ("stacked," "plenty going on," "amazing")
-- Every weather reference connects to a specific activity
-- All venue and proper nouns written out in full
-- No soft qualifiers on simple statements
-- Personal angle is included and feels genuine
-- Sign-off (if any) is casual and functional
+## Inputs Needed Before Writing
 
-## Critical Reminders
+If not already provided in context, ask:
 
-- Output must be valid JSON: no markdown fences, no preamble, no explanation
-- 150-250 words, narrative form, neighbor voice
-- No em dashes anywhere
-- Only reference events/content provided in the input data. Do not invent details.
-- The personal angle is what makes this work. Always include one.
-- If fewer than 3 events are provided, work with what you have. A shorter, genuine blurb beats a padded one.
+- What are the 3-5 biggest events this weekend?
+- Which events is the writer personally planning to attend?
+- Any timely hooks (weather, season, holidays, local news)?
+- Any events that are free vs. ticketed (affects how you position them)?
+
+---
+
+## Final Check Before Delivering
+
+- Does it sound like a real person wrote it?
+- Is there a narrative thread or does it feel like a list?
+- Are all subjects specific (no "one," no "thing")?
+- Is every "I'm jealous" or similar claim backed up?
+- Does the logic hold? (e.g., not telling someone with tickets to clear their schedule)
+- Is it 150-250 words?
+- Zero em dashes?
+- No AI clichés?
