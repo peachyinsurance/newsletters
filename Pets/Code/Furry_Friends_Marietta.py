@@ -11,7 +11,7 @@ import sys
 import re
 import json
 import time
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import math
@@ -549,18 +549,20 @@ Candidates to score:
 
 
 #-----------getting week number for even/odd weeks-------------
-def get_week_number():
-    now = datetime.today()
-    start_of_year = datetime(now.year, 1, 1)
-    # Exact match of JavaScript formula:
-    # Math.ceil(((now - startOfYear) / 86400000 + startOfYear.getDay() + 1) / 7)
-    days_diff = (now - start_of_year).total_seconds() / 86400
-    jan1_weekday = start_of_year.weekday()
-    # JavaScript getDay() is 0=Sunday, Python weekday() is 0=Monday
-    # Convert Python weekday to JS getDay()
-    jan1_js_day = (jan1_weekday + 1) % 7
-    week_num = math.ceil((days_diff + jan1_js_day + 1) / 7)
-    return week_num
+# Weeks run Saturday→Friday so the cat/dog rotation lines up with the
+# weekend edition and never flips mid-week. Parity alternates each
+# Saturday: an EVEN count of weeks from EPOCH_SATURDAY → dog, ODD → cat.
+# To invert the cycle (swap which species comes next), shift
+# EPOCH_SATURDAY by exactly one week. The phase below makes 2026-06-06
+# (a Saturday) an ODD/cat week.
+EPOCH_SATURDAY = date(2025, 12, 27)  # a Saturday; sets the rotation phase
+
+def get_week_number(now: "datetime | None" = None) -> int:
+    today = (now or datetime.today()).date()
+    # Python weekday(): Mon=0 … Sat=5, Sun=6. Step back to this week's Saturday.
+    days_since_saturday = (today.weekday() - 5) % 7
+    week_start = today - timedelta(days=days_since_saturday)
+    return (week_start - EPOCH_SATURDAY).days // 7
     
 #-----------selecting default winners-------------
 def flag_default_winners(cat_results: list[dict], dog_results: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -595,13 +597,24 @@ def flag_default_winners(cat_results: list[dict], dog_results: list[dict]) -> tu
         dog_results[0]["dog_default"] = "yes"
         print(f"Dog default: {dog_results[0]['pet_name']} ({dog_results[0]['total_score']}/30)")
 
-    # Flag overall default winner based on week number
-    if odd_week and cat_results:
-        cat_results[0]["default_winner"] = "yes"
-        print(f"Week {week_number} (odd) — overall default: {cat_results[0]['pet_name']} (cat)")
-    elif not odd_week and dog_results:
-        dog_results[0]["default_winner"] = "yes"
-        print(f"Week {week_number} (even) — overall default: {dog_results[0]['pet_name']} (dog)")
+    # Flag overall default winner based on week parity, but fall back to the
+    # OTHER species when the preferred one has no candidates this week. This
+    # guarantees we always flag a fresh winner — so an empty cat week can't
+    # silently leak the previous batch's (usually dog) pick.
+    preferred = "cat" if odd_week else "dog"
+    if odd_week:
+        winner = (cat_results or dog_results or [None])[0]
+    else:
+        winner = (dog_results or cat_results or [None])[0]
+
+    if winner:
+        winner["default_winner"] = "yes"
+        got = winner.get("animal_type", "?")
+        note = "" if got == preferred else f" — FALLBACK, no {preferred}s available this week"
+        print(f"Week {week_number} ({'odd' if odd_week else 'even'}, prefer {preferred}) "
+              f"— overall default: {winner['pet_name']} ({got}){note}")
+    else:
+        print(f"Week {week_number} — no cat or dog candidates; no default winner flagged")
 
     return cat_results, dog_results
 
