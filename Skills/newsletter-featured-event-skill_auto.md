@@ -1,66 +1,21 @@
 ---
 name: newsletter-featured-event
-description: Pick the best featured event for a local newsletter based on neighborhood demographics, then write a polished blurb. Use when the user asks for a featured event for their newsletter — Claude automatically searches for upcoming local events rather than waiting for the user to provide a list.
+description: Pick the best featured event for a local newsletter based on neighborhood demographics, then write a polished blurb. Use when the user pastes a list of events and wants help selecting and writing the featured event for their newsletter.
 ---
 
 # Newsletter Featured Event Picker
 
-> **HARD RULE: NO EM DASHES.** Never output an em dash character (`—`, U+2014) anywhere in your response. Use commas, periods, parens, semicolons, or "and" instead. This is a non-negotiable house style rule across every section of every newsletter. Em dashes are a strong AI-generated tell, and Andrew has explicitly banned them. (En dashes `–` for ranges like "10am–4pm" are fine.)
-
 ## What This Skill Does
 
-1. Takes a newsletter name or neighborhood from the user
-2. Searches the web for upcoming local events automatically
-3. Looks up local demographics using web search
-4. Recommends the top 2-3 events with reasoning
-5. Waits for the user to pick one
-6. Writes a polished featured event blurb
+1. Takes a list of events and a newsletter name or neighborhood
+2. Looks up local demographics using web search
+3. Recommends the top 2-3 events with reasoning
+4. Waits for the user to pick one
+5. Writes a polished featured event blurb
 
 ---
 
-## Step 1: Find Upcoming Events
-
-When the user provides a newsletter name or neighborhood, immediately search the web for upcoming local events. Do NOT ask the user to provide a list — go find them.
-
-Search queries to use (run several to get broad coverage):
-- "[neighborhood/area name] events this weekend"
-- "[neighborhood/area name] events next week"
-- "[neighborhood/area name] things to do [month year]"
-- "[neighborhood/area name] concerts shows festivals [month year]"
-- "events near [neighborhood/area name] Georgia [month year]"
-- Check local event aggregators like Eventbrite, Patch, and local arts/entertainment sites
-
-Aim to compile at least 8-10 candidate events before moving to evaluation. Include a mix of event types: arts, food, music, community, family, sports, etc. For each event, capture:
-- Event name
-- Date and time
-- Venue / location
-- Ticket price (or free)
-- A brief description of what it is
-- URL / source
-
-If the user provides a list of events in addition to asking for a pick, use their list AND supplement with your own search results to make sure nothing great is being missed.
-
----
-
-## Step 2: Get Demographics
-
-When the user provides a newsletter name or neighborhood, use web search to find:
-
-- Median household income
-- Median age
-- Family vs. adult skew (are there lots of kids in the home, or are people past that stage?)
-- Homeownership rate
-- Education level (if available)
-
-Search queries to use:
-- "[neighborhood name] demographics median income age"
-- "[zip code] Georgia demographics" (if zip is known)
-
-Summarize the demographic profile in 3-4 sentences before moving to event selection. Keep it factual and brief.
-
----
-
-## Step 3: Pick the Top 2-3 Events
+## Step 2: Pick the Top 2-3 Events
 
 Evaluate every event on the list using these four factors, in this priority order:
 
@@ -78,7 +33,7 @@ Then ask the user to choose before writing the blurb.
 
 ---
 
-## Step 4: Write the Blurb
+## Step 3: Write the Blurb
 
 Once the user picks an event, write the featured event blurb using these rules:
 
@@ -148,9 +103,8 @@ What makes this work:
 
 ## Notes
 
-- If the user already knows the demographics or provides them, skip Step 2 and use what they give you.
-- If the user provides their own list of events, use it — but still supplement with a web search to make sure nothing great is being missed.
-- If the user tells you the newsletter skews a certain way (e.g., "heavy empty nesters" or "lots of young families"), weight that heavily in Step 3 — it overrides what the raw demographics suggest.
+- If the user already knows the demographics or provides them, skip Step 1 and use what they give you.
+- If the user tells you the newsletter skews a certain way (e.g., "heavy empty nesters" or "lots of young families"), weight that heavily in Step 2 — it overrides what the raw demographics suggest.
 - Never recommend an event just because it's free. Free is not a selling point for high-income audiences.
 - Never penalize an event for having a ticket price if the audience can clearly afford it.
 - If two events are close in score, default to the one with higher uniqueness. Readers can find a farmers market any weekend. They can't always see Ina Garten.
