@@ -55,26 +55,7 @@ From the places_search results, extract:
 
 ### Tone and Style Rules
 
-**Voice: Write as Andrew, a neighbor who goes to these places**
-- Use first person (me, my wife, we)
-- Talk about where you actually go and why
-- Be real about the pros and cons
-- Sound like you're recommending a place over the fence
-
-**DO:**
-- Be specific about WHY something matters ("good for a quick weeknight dinner")
-- Use real talk ("don't feel like driving into town")
-- Mix punchy hooks with specific body details
-- Show a little personality and opinion
-- Mention practical details that actually matter
-
-**DON'T:**
-- Use food critic language ("elevated," "curated," "artisanal")
-- Use AI-speak or corporate jargon ("nestled in," "boasts," "indulge")
-- Write long, flowery descriptions
-- Make it sound like an advertisement
-- Use em dashes or over-format
-- Say vague things that don't mean anything ("works for everyone")
+> **Voice:** Tone, rhythm, and style come from the house voice guide provided above this skill at generation time. Apply it. The rules below are this section's specifics: format, length, structure, selection, and output.
 
 ### Structure
 
@@ -143,14 +124,10 @@ Just know they're closed Mondays, and Tuesday through Friday they break for a fe
 
 - Write in first person as Andrew (me, my wife, we)
 - Keep it to 2-3 short paragraphs maximum
-- Write like a person talking to neighbors, not marketing copy
 - Be specific about occasions (date night, post-game, weeknight meal)
 - Only mention dishes people actually talk about in reviews
 - Include price range and hours every time
 - Flag problems separately, not in the blurb
-- Use simple words (fourth grade reading level)
-- No AI-speak, no food critic language
-- Show the images you found
 - Be real about pros AND cons
 
 ## What to Do If Things Go Wrong

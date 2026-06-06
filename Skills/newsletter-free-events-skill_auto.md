@@ -16,7 +16,7 @@ Output must be valid JSON for downstream processing.
 
 ## Voice and Style
 
-Write as a neighbor pulling something together for a friend who's new to the area. Confident, specific, warm. Never salesy.
+> **Voice:** Tone, rhythm, and style come from the house voice guide provided above this skill at generation time. Apply it. The rules below are this section's specifics: format, length, structure, selection, and output.
 
 **DO:**
 - Start with a 3-5 sentence hook paragraph that captures the vibe, not just the facts

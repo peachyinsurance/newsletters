@@ -19,16 +19,12 @@ If it sounds polished, it's wrong. If it sounds like marketing, it's wrong. If i
 
 ## Voice Rules
 
-1. **Warm and casual** — Write like you live there. Because you do.
-2. **No AI language** — No "stacked", "plenty going on", "get into it" (unless it happens naturally and actually sounds human)
-3. **No em dashes** — Ever.
-4. **Fourth-grade reading level** — Short sentences. Simple words.
-5. **No executive summary energy** — Do not list what's in the issue like a table of contents. That's what the actual table of contents is for.
-6. **Narrative, not bullet points** — Write it like a story, not a rundown of events 1-2 sentences each.
-7. **Be specific** — Don't say "one" or "thing." Use the actual subject. "We've got a good Saturday planned" not "We've got a good one planned."
-8. **If you say you're jealous, say why** — Don't throw in a vague "honestly, a little jealous" without backing it up.
-9. **Don't tell people to do obvious things** — If someone already has concert tickets, don't tell them to "clear their schedule." They already did.
-10. **No forced sign-offs** — "Let's get into it" and "Scroll down for more" are acceptable only if they sound natural in context.
+> **Voice:** Tone, rhythm, and style come from the house voice guide provided above this skill at generation time. Apply it. The rules below are this section's specifics: format, length, structure, and output.
+
+1. **No executive summary energy** — Do not list what's in the issue like a table of contents. That's what the actual table of contents is for.
+2. **Narrative, not bullet points** — Write it like a story, not a rundown of events 1-2 sentences each.
+3. **Don't tell people to do obvious things** — If someone already has concert tickets, don't tell them to "clear their schedule." They already did.
+4. **No forced sign-offs** — "Let's get into it" and "Scroll down for more" are acceptable only if they sound natural in context.
 
 ---
 

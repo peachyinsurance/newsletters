@@ -46,13 +46,7 @@ The distinction matters. A TOC tells you where things are. This section tells yo
 
 ## Writing Style
 
-Each line is a **curiosity hook** — a short, punchy fragment that gives the reader just enough to be intrigued but not enough to skip opening the section. Think of it as a text message preview, not a headline.
-
-**Tone targets:**
-- Casual but specific
-- Neighbor voice, not announcer voice
-- Concrete details over vague promises
-- Slightly incomplete on purpose (the detail gap is what pulls them down)
+> **Voice:** Tone, rhythm, and style come from the house voice guide provided above this skill at generation time. Apply it. The rules below are this section's specifics: format, length, structure, selection, and output.
 
 **Line structure patterns that work:**
 

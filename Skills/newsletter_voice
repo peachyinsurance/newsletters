@@ -1,11 +1,11 @@
 ---
-name: andrew-voice-guide
-description: Apply Andrew Filar's writing voice, tone, and rhythm to any content. Use this skill whenever writing, editing, or polishing content that should sound like Andrew -- including newsletters, LinkedIn posts, blog posts, emails, social captions, scripts, or any marketing copy. Also use when another skill (like copywriting-expert or all-aboard-writer) has produced a draft and the user wants it to "sound more like me" or "in my voice." Trigger on phrases like "make it sound like me", "use my voice", "Andrew-ify this", "voice guide", "polish this in my style", or any request where the output should match Andrew's personal writing style.
+name: newsletter-voice
+description: The house writing voice (Andrew Filar) applied automatically to every newsletter section. Loaded ahead of each section skill as the single source of truth for tone, rhythm, and style. Not interactive — applied by the pipeline, not invoked by a user.
 ---
 
-# Andrew Filar Voice Guide
+# Newsletter House Voice (Andrew Filar)
 
-This skill captures Andrew Filar's writing voice based on analysis of 53+ newsletters. Use it to make any piece of content sound like Andrew wrote it.
+This is the house writing voice, based on analysis of 53+ newsletters. It is composed ahead of every section skill so all newsletter content sounds like Andrew wrote it.
 
 ## Applying the Voice (automated pipeline use)
 

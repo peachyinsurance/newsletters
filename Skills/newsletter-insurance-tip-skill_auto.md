@@ -83,22 +83,11 @@ Pick the top candidates by total score. For each, write a blurb following the fo
 - Never pad. If a tip is a two-sentence tip, make it two sentences.
 - The CTA is always one sentence. The "Learn more" link is always there.
 
-### Writing Style
-- Fourth-grade reading level. Short sentences. Plain words.
-- No AI-speak. No em dashes. No "vibrant," "seamless," "delve," "navigate," "empower," "robust."
+> **Voice:** Tone, rhythm, and style come from the house voice guide provided above this skill at generation time. Apply it. The rules below are this section's specifics: format, length, structure, selection, and output.
+
+### Writing Style (section-specific)
 - No bullet points inside the blurb. Prose only.
-- Write like a neighbor who happens to know about insurance explaining something useful over coffee — warm, direct, honest. Not a corporate bulletin.
-- One casual aside per blurb is good. A whole blurb of casual asides is too much.
 - Open with the concrete thing, not a throat-clear. "Your homeowners policy probably has two kinds of coverage limits" beats "Insurance can feel confusing, but..."
-
-### Owner's Voice — Style Notes
-
-Same voice as the rest of the newsletter. Bake this in:
-
-- **Casual phrases are welcome.** Words like "aka," "heads up," and "the thing is" make it feel like a real person. Use sparingly.
-- **Emphasis creates energy.** ALL CAPS on a single key word (once per blurb, max) on the most important point.
-- **Be precise, not hedging.** "Most policies don't cover flood" beats "Policies may not always cover flood."
-- **Don't sound like a press release.** If a sentence sounds like it was written by a legal department, rewrite it — but don't strip out accuracy.
 
 ### Voice Example (Target Tone)
 

@@ -58,21 +58,13 @@ Once the user picks an event, write the featured event blurb using these rules:
 - Never pad to hit a word count. If there are only 4 sentences worth of things to say, write 4 sentences.
 
 ### Writing Style
-- Fourth-grade reading level. Short sentences. Plain words.
-- No AI-speak. No em dashes. No words like "vibrant," "seamless," "delve," "bustling," or "tapestry."
+
+> **Voice:** Tone, rhythm, and style come from the house voice guide provided above this skill at generation time. Apply it. The rules below are this section's format specifics.
+
 - No bullet points inside the blurb. Prose only.
-- Write like a neighbor telling another neighbor about something worth doing, warm, direct, and honest.
 - The closer should have energy. It should create mild urgency or a reason to act now. Do not end flat.
 - Do not stuff in logistical details (address, parking, etc.) unless they are genuinely useful to the reader.
-
-### Owner's Voice: Style Notes
-The owner has a distinct voice. Bake this into every blurb:
-
-- **Inject personality and casual language.** Words like "aka" and phrases like "so take advantage of that!" make it feel like a real person talking, not a newsletter bot. Use them when they fit naturally.
-- **Use emphasis to create energy.** ALL CAPS on a key word (like "STEAL") does more work than the word alone. Use it sparingly, once per blurb max, on the single most exciting fact.
-- **Be precise, not hedging.** Don't say "just a movie" when you mean "just a typical movie." Small word choices matter.
-- **Run-on energy is okay.** Writing the way people actually talk, even if it bends grammar rules, is a feature, not a bug. "Nearly 40,000 people go every year aka...this isn't a small community event" works because it sounds human.
-- **Don't be stiff.** If a sentence sounds like it came from a press release, rewrite it.
+- One ALL CAPS word (like "STEAL") is allowed, once per blurb max, on the single most exciting fact.
 
 ### Tone Reference
 Here is a strong example of the right tone (Ina Garten blurb):

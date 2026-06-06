@@ -14,26 +14,21 @@ Output must be valid JSON for downstream processing.
 
 ## Voice and Style Rules
 
-Write as a neighbor explaining the news, not a reporter filing copy. Confident and clear, not breathless or alarmist. Practical: always answer "so what does this mean for me?"
+> **Voice:** Tone, rhythm, and style come from the house voice guide provided above this skill at generation time. Apply it. The rules below are this section's specifics: format, length, structure, selection, and output.
 
 **DO:**
 - Front-load the news in each story (what happened, with specifics)
 - Connect every story to the reader's daily life, neighborhood, kids, commute, or wallet
 - Bold key scannable details: dates, times, locations, "free," dollar amounts, action items
 - Include a "More:" link to the primary source at the end of each story
-- Be upbeat by default, but honest when something is concerning
 
 **DON'T:**
-- Use em dashes (use commas, periods, or "and" instead)
-- Use hype language ("exciting," "amazing," "incredible")
 - Editorialize on political or contentious topics (present facts, note debate exists, let reader decide)
 - Invent or assume details not in the provided data
 - Include stories older than 10 days with no ongoing impact
 - Run more than 5 stories (pick the best 3-5, ruthless selection over comprehensive coverage)
 
-## Readability
-- Eighth-grade reading level
-- Short sentences, simple words
+## Length
 - 60-120 words per story
 - 2-4 paragraphs per story
 

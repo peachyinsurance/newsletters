@@ -13,7 +13,7 @@ Write ONE subject line per issue. Subject line is the single biggest lever on op
 Output is a single plain string (no quotes, no markdown, no JSON wrapper). The pipeline will use it directly as the email subject in Beehiiv.
 
 ## Voice
-Casual, neighborly, specific. Like a text from a friend, not a press release.
+> **Voice:** Tone and style come from the house voice guide provided above this skill at generation time. Apply it. The rules below are this section's specifics: format, length, structure, and output.
 
 ## Rules
 - **6–12 words** max. Anything longer gets truncated in inbox previews.

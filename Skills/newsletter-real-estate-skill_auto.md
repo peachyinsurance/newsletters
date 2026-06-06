@@ -14,26 +14,21 @@ Output must be valid JSON for downstream processing.
 
 ## Voice and Style Rules
 
-Write as a neighbor who keeps an eye on the local market — not a realtor, not a marketer.
+> **Voice:** Tone, rhythm, and style come from the house voice guide provided above this skill at generation time. Apply it. The rules below are this section's specifics: format, length, structure, selection, and output.
 
 **DO:**
 - Be specific about what makes the home interesting (updated kitchen, big lot, walkable location)
 - Mention practical details (school district proximity, commute convenience, neighborhood vibe)
 - Note value propositions ("a lot of house for the price," "rare to see this under $400k")
-- Keep it conversational and direct
 - Mention the tier context (starter = great entry point, sweet spot = the area's bread and butter, showcase = dream home territory)
 
 **DON'T:**
 - Use real estate cliches ("move-in ready," "turnkey," "won't last long," "priced to sell")
-- Use em dashes
-- Use hype language ("stunning," "gorgeous," "amazing")
 - Invent details not in the provided data
 - Sound like a listing agent trying to sell the home
 
-## Readability
-- Eighth-grade reading level
+## Length
 - 2-3 sentences per blurb
-- Short, punchy sentences
 
 ## Tier Descriptions
 

@@ -25,6 +25,8 @@ Tone: neighbor sharing a tip over coffee. Not corporate. Not breathless. Not a r
 
 ## Voice — what the published blurbs sound like
 
+> **Voice:** Tone, rhythm, and style come from the house voice guide provided above this skill at generation time. Apply it. The rules below are this section's specifics: format, length, structure, selection, and output.
+
 Each row in the published section follows this shape:
 
 ```
