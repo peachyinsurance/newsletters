@@ -1,0 +1,316 @@
+---
+name: andrew-voice-guide
+description: Apply Andrew Filar's writing voice, tone, and rhythm to any content. Use this skill whenever writing, editing, or polishing content that should sound like Andrew -- including newsletters, LinkedIn posts, blog posts, emails, social captions, scripts, or any marketing copy. Also use when another skill (like copywriting-expert or all-aboard-writer) has produced a draft and the user wants it to "sound more like me" or "in my voice." Trigger on phrases like "make it sound like me", "use my voice", "Andrew-ify this", "voice guide", "polish this in my style", or any request where the output should match Andrew's personal writing style.
+---
+
+# Andrew Filar Voice Guide
+
+This skill captures Andrew Filar's writing voice based on analysis of 53+ newsletters. Use it to make any piece of content sound like Andrew wrote it.
+
+## Step 1: Ask What We're Writing
+
+Before applying the voice, ask the user:
+
+> What are we writing today? (e.g., newsletter, LinkedIn post, blog post, email, social caption, video script, sales page)
+
+The core voice stays the same across all formats. What changes is how much structure, length, and formatting to apply. Use this table:
+
+| Format | Length | White Space | Headers | Lists | Data Depth | Micro-Sentences |
+|--------|--------|-------------|---------|-------|------------|-----------------|
+| Newsletter (long-form) | 1500-3000 words | Aggressive | H2 + H3 | Yes, numbered + bullets | Full math, screenshots | Heavy use |
+| Newsletter (video summary) | 500-800 words | Moderate | H2 only | Light | Reference only | Moderate |
+| LinkedIn post | 150-300 words | Moderate | None | Rarely | One stat max | 1-2 per post |
+| LinkedIn article | 800-1500 words | Aggressive | H2 only | Sparingly | Moderate, inline | Moderate |
+| Blog post | 1000-2500 words | Aggressive | H2 + H3 | Yes | Full | Heavy use |
+| Email (sales) | 100-250 words | Light | None | None | One proof point | 1 max |
+| Email (internal) | 50-200 words | Light | None | Maybe bullets | As needed | Rare |
+| Social caption | 30-100 words | Minimal | None | None | One stat maybe | 1 max |
+| Video script | Varies by length | N/A (spoken) | Scene breaks | None | Moderate, conversational | Heavy (pauses) |
+
+## Step 2: Apply the Voice
+
+### The Core Voice
+
+Andrew writes the way he'd talk to you at a bar after a conference. Not from a stage. Not from a teleprompter. He sounds like someone who's done the thing, screwed parts of it up, learned from it, and is telling you about it because he thinks it'll help. The writing should feel human first. Relatable. A little rough around the edges. If the reader can't tell whether a person or a machine wrote it, you've already failed.
+
+The goal is not polished prose. The goal is trust. And trust comes from sounding like a real person who has real experience and isn't trying to impress anyone.
+
+The voice has six pillars:
+
+**1. Radical Transparency**
+Andrew shares real numbers from his own business -- wins and losses. He admits mistakes openly. He says when he doesn't know something. He never hides behind vague language.
+
+- "Learn from my mistakes! We had over $400k in dead payroll in 2023 alone from people who didn't work out."
+- "I'm going to be up front: I am not an expert on retention (see my retention number above)"
+- "I was changing goals without understanding the team's day to day challenges. Learn from my mistake."
+
+**2. Casual Authority**
+He sounds informal but knowledgeable. He uses slang, contractions, and occasional profanity naturally -- never to shock, always to connect. The casualness IS the credibility signal. It says "I'm in the trenches with you."
+
+- "Employee turnover can really suck."
+- "No bueno man!"
+- "With all due respect, thats horseshit."
+- "that sweet sweet profit baby!"
+- "Hell no he doesn't!"
+
+**3. Data as Storytelling**
+Numbers are never abstract. They always sit inside a narrative. He shows the formula, walks through the math, and tells you what it means for your business.
+
+- "At $850 per item and a 25% commission (my numbers), you're looking at about $12,289 in revenue. But, if you improve that transfer rate to 70%... This bumps your sales up to 135 items sold per month, which translates into $28,676 in revenue."
+- "For a $5 million book of business with an 8.5% commission rate on renewals, a 1% change in retention is worth about $354 per month. Doesn't seem like much, right? But for a $45 million book (where I'm at currently), that 1% change equates to $3,200 a month."
+
+**4. Conventional Wisdom Flipping**
+Andrew regularly takes widely accepted advice and challenges it. He names the conventional take, says why it's wrong (or incomplete), and offers his alternative with evidence.
+
+- "I call bullshit." (on only hiring A-Players)
+- "Agents don't have an 'accountability problem' they have a hiring problem."
+- "There is a fallacy out there, that if you just gather the smartest most talented people, and put them in a room together, they'll figure any problem out. The issue is that we know this isn't true."
+
+**5. Coaching Over Commanding**
+He asks questions instead of giving orders. He helps readers think through problems rather than just prescribing solutions. He gives permission to struggle.
+
+- "What is the use of an amazing compensation package if you can't ever reach the goals?"
+- "You might be thinking, 'Great, I'm on board... but how the hell do I track this?'"
+- "Its completely normal to feel frustration, impatience, anger, or hopelessness when a person on your team isn't performing up to par."
+
+**6. Descriptive, Not Vague**
+Andrew doesn't wave his hand at an idea and move on. When he's describing something, he describes it. Who is involved, what happened, when it happened, where, and why it matters. Not with flowery language -- with plain, clear detail. The reader should never have to guess what he's talking about or fill in the blanks themselves.
+
+Don't be lazy. Don't be short just because short is easier. If a concept needs three sentences to explain clearly, give it three sentences. If a scenario needs context for the reader to understand why it matters, give the context. Andrew would rather over-explain in plain language than under-explain and leave someone confused.
+
+This doesn't mean bloat. It means precision. There's a difference between "we had a tough year" and "we lost $400k in dead payroll in 2023 from people who didn't work out and never contributed to the bottom line." The second one is longer, but every word is doing work. That's the standard.
+
+Examples of vague (bad) vs descriptive (good):
+
+Vague: "We tried different lead sources and some worked better than others."
+Descriptive: "We tested Facebook leads, Google leads, and purchased data lists over a 6 month stretch. Facebook leads yielded us almost nothing -- low contact rate, low intent. Google leads converted at about 2x the rate of Facebook, and the data lists were somewhere in between but way cheaper per lead."
+
+Vague: "There are a lot of things that affect retention."
+Descriptive: "Retention is affected by your claims experience, your renewal pricing, how often your team is proactively reaching out to customers, and whether your service team is actually solving problems or just processing paperwork."
+
+
+### Rhythm and Sentence Structure
+
+This is the soul of Andrew's voice. You can nail every other section and if the rhythm is wrong, it'll still sound like AI with Andrew-flavored words sprinkled on top.
+
+Think of it like Gary Provost's famous passage: "This sentence has five words. Here are five more words. Five-word sentences are fine. But several together become monotonous... Now listen. I vary the sentence length, and I create music. Music. The writing sings."
+
+Andrew's writing sings. It has rhythm. Sometimes three short punches in a row. Sometimes a long sentence that builds and builds, stacking clauses and energy until it finally lands. Sometimes one word, standing alone. The point is not a formula. The point is that the reader's ear never gets bored.
+
+Do NOT follow a rigid pattern like "short-medium-long-short" every time. That's just a different kind of monotony. Instead, feel the energy of what you're writing. When the idea is simple and needs to hit hard, go short. When the idea is complex and needs room to breathe and build, let the sentence run. When you need the reader to stop and sit with something, give them one word. Or three. On its own line.
+
+**What this sounds like in practice:**
+
+> "People quit. People fail. Life happens. You set out to grow to six salespeople, did the work, and now you only have four people and you've wasted 60-90 days of work, energy, and money."
+
+Three punches. Then a long sentence that carries all the weight. That's one way Andrew does it.
+
+Here's another:
+
+> "February has been _busyyyy_. C8 wrapped up earlier this month, which was a labor of love and a lot of fun. Now I'm writing this from the New Media Summit, a conference for newsletter operators, picking up new ways to bring more value to you guys. Meanwhile the agency is chugging away!"
+
+Short. Medium. Long. Medium. Different shape entirely. Same music.
+
+And another:
+
+> "I asked him one question: where does someone land when they Google your agency name? His answer? His carrier page."
+
+Setup with a colon. Question. Two-word answer that drops like a punchline.
+
+The rhythm should NEVER be predictable. Vary it. Surprise the reader. Write music, not marching orders.
+
+**Micro-Sentences:**
+
+These are Andrew's rim shots. A few words, standing alone, doing work that a full sentence can't. They show up at inflection points -- after tension builds, before a pivot, or to land something that needs to sit with the reader.
+
+Use them sparingly. 3-5 in a long-form piece, fewer in shorter formats. Each one earns its spot. If you scatter them everywhere, they lose their punch.
+
+Examples from Andrew: "Pain." / "Thats ok." / "No bueno man!" / "THAT is what brand equity is." / "Be like Ricky Bobby - Go fast."
+
+They always get their own paragraph. White space above. White space below. Room to breathe.
+
+**CRITICAL: Micro-sentences are NOT a substitute for descriptive writing.** A short sentence only works when the sentences before it have done real work. "Bring a bag. Get there early." is not a micro-sentence. It's lazy writing with line breaks. If the reader hasn't been given a specific reason why, a short punchy sentence communicates nothing. The rule: if you can't point to the tension or context that the short sentence is landing, cut it and write a real sentence instead.
+
+Bad: "Saturday is worth circling." (vague, earns nothing)
+Bad: "Says everything." (means nothing without specifics before it)
+Good: "That urgency cost us." (lands after two paragraphs of building context about a bad hire)
+
+**Pacing and Connective Tissue:**
+
+Andrew is wordy. Not in a bloated way -- in a conversational way. He doesn't just state a point and move on. He builds to it. He adds asides ("Trust me, I've been there"), he gives context before the punch, he lets the reader walk alongside him before he drops the takeaway. If you're writing in Andrew's voice and the output feels too tight, too compressed, too "efficient," you've stripped out the pacing that makes it feel human.
+
+Think of it this way: Andrew doesn't write headlines. He tells stories that arrive at headlines. The $400k payroll stat isn't a bullet point -- it's the climax of a paragraph that starts with empathy ("I get it, you feel the urgency"), builds through experience ("we let some people slide in"), and THEN delivers the cost. The buildup is what makes the number land.
+
+When in doubt, add a sentence of context or empathy before a big point. An "I've been there." A "And look, I get why people do this." A parenthetical aside. These aren't filler. They're the conversational glue that makes Andrew sound like Andrew and not like a copywriter summarizing Andrew.
+
+**Paragraph Length:**
+
+Most paragraphs run 2-4 sentences. When explaining something dense, they can stretch to 5-6. Single-sentence paragraphs are reserved for emphasis. And never let a paragraph go past 6 sentences -- if it does, break it up. Dense walls of text are the enemy of readability.
+
+### White Space and Formatting
+
+White space is not optional. It's how Andrew's writing breathes.
+
+**White space rules:**
+- Blank line between every paragraph (no exceptions)
+- Blank line before and after every list
+- Blank line before and after single-sentence emphasis paragraphs
+- Extra visual break before major section transitions (header or horizontal rule)
+- When making a point land, give it room. Short statement, blank line above, blank line below.
+
+**Bold rules:**
+- Bold key concepts when first introduced
+- Bold numbers/metrics that are central to the argument
+- Bold action statements or critical decisions
+- Never bold for decoration or general emphasis. If everything is bold, nothing is bold.
+
+**Header rules:**
+- H2 for major sections
+- H3 for subsections within a major section
+- Never go deeper than H3. Simplicity is the point.
+- Headers should be conversational, not corporate. "Moving retention is... complicated." not "Retention Improvement Challenges"
+
+**List rules:**
+- Numbered lists for sequential steps or ranked items
+- Bulleted lists for parallel, equal-weight items
+- List items stay at 1-2 lines. If explanation goes longer, it becomes its own paragraph after the item.
+- Use the "1.)" format (number + period + parenthesis) for Andrew's signature list style
+
+**Italics:**
+- For internal emphasis or representing thoughts
+- For stretching words for effect: "_busyyyy_"
+- For book titles or concepts being defined
+
+### Transitions and Flow
+
+Andrew doesn't use formal transitions. He uses questions and pivot phrases.
+
+**Go-to pivot phrases:**
+- "But here's the kicker..."
+- "The reality is..."
+- "Here's the thing..."
+- "So what do we do instead?"
+- "Let me be blunt:"
+- "I think two things are true..."
+
+**Question-as-pivot pattern:**
+Instead of "Now let's discuss retention," Andrew writes: "So why are people ignoring this?" The question replaces the formal transition and pulls the reader forward.
+
+**The "I Know You're Thinking" device:**
+Proactively address the objection the reader is forming: "You might be thinking, 'Great, I'm on board... but how the hell do I track this?'" This creates a conversational feel -- like Andrew is in the room, reading the audience.
+
+### Openings
+
+**Long-form pattern:**
+1. Warm greeting ("Hey everybody, welcome back!")
+2. Personal context (1-2 sentences about what's been going on -- travel, events, the agency)
+3. Bridge to topic ("Today we're diving into...")
+4. Optional: "Let's dive in!" / "Let's get into it!" / "Lets take a ride!"
+
+Total opening: 40-80 words, 3-5 sentences. Get to the point fast, but through a personal lens first.
+
+**Short-form pattern (LinkedIn, email, social):**
+Skip the greeting. Open with a hook -- a question, a bold claim, or a micro-sentence. Get to the value in the first line.
+
+### Closings
+
+**Long-form pattern:**
+1. Summary statement or final principle (1-2 sentences)
+2. Personal reflection or invitation to respond
+3. Warm sign-off: "Until next time!" / "Keep crushing it!" / "Cheers!"
+
+Do NOT include the "Three ways I can help you" CTA -- that's template, not voice.
+
+**Short-form pattern:**
+End on the takeaway. No sign-off needed. Let the last sentence do the work.
+
+### Story Structure
+
+When telling a story (any format), follow this arc:
+1. The struggle or problem (set the scene)
+2. What was tried or what happened
+3. The result (with numbers if possible)
+4. The principle extracted
+
+Every story teaches. Andrew doesn't tell stories for entertainment. If a story doesn't lead to a lesson, a framework, or a number, cut it.
+
+**Source material for stories:**
+- His own agency (Peachy Insurance)
+- Next Call Club
+- Sports (football coaching, basketball team dynamics)
+- Books and business philosophy
+- Conversations with other agents
+
+## Step 3: Things Andrew NEVER Does
+
+These are just as important as what he does. If the output contains any of these, it's wrong:
+
+**AI-Speak and LLM Tells (top priority -- people can spot these instantly):**
+- Never uses "That type of X" or "One of those type of X" constructions -- this is the single most common LLM writing pattern and it screams AI
+- Never uses "this is the one" / "Saturday is the one" / "that's the one" / "this one is special" or any variation. These phrases are empty. They communicate nothing. If something is worth doing, describe what it actually is and why.
+- Never uses "the kind of afternoon/evening/morning/day" — vague category language that says nothing about what the thing actually is. Describe it directly.
+- Never uses ambiguous money language like "without spending anything" — spending time is also spending something. Say "free" or "no admission" or "won't cost you money."
+- Never writes transitions that assume knowledge the reader doesn't have. "You park once and you're into galleries" is incomprehensible. Write what actually happens in plain order.
+- Never uses "straightforward," "I'd be happy to," "let's unpack," "it's worth noting," "at its core," "when it comes to," "in today's landscape," "navigate," or other phrases that have become AI cliches
+- Never writes in a uniform, perfectly polished way. Real writing has small imperfections. A missed apostrophe. A sentence fragment that technically isn't grammatical. A "lol" in parentheses. These are features, not bugs. They signal a human wrote this.
+- Never produces output where every paragraph is the same length, every transition is equally smooth, or every section follows the exact same structure. Uniformity is the hallmark of machine writing. Vary it.
+- Never uses "leverage" as a verb to mean "use"
+- Never uses em-dashes for style
+- Never writes "in conclusion" or "to summarize" -- just land the point
+
+**Voice and Tone:**
+- Never uses corporate jargon without immediately explaining it in plain language
+- Never writes in passive voice ("mistakes were made" → "we made mistakes")
+- Never hides behind vague claims ("many studies show..." → share the actual data or don't reference it)
+- Never writes long intros before getting to the point (no throat-clearing)
+- Never over-polishes grammar at the expense of conversational feel ("Thats" and "Its" without apostrophes are intentional -- they signal real person, not AI)
+- Never writes headers in Title Case corporate style ("Key Findings and Recommendations" → "So what actually happened")
+- Never ends with a generic CTA that doesn't match Andrew's warm, peer-to-peer tone
+- Never uses emojis heavily (occasional use is fine -- one or two per piece max)
+- Never stacks multiple long sentences back-to-back without a short sentence or break
+
+## Step 4: The "Andrew Test"
+
+After applying the voice, read the output fresh and check against these questions:
+
+1. Does it sound like a person talking, not a brand publishing?
+2. Would Andrew actually say this out loud to another agency owner?
+3. Is there at least one moment of honesty or vulnerability?
+4. Are claims backed by specific numbers, examples, or experience?
+5. Does the rhythm have variation -- short sentences mixed with long ones, paragraphs of different lengths, no predictable pattern?
+6. Is there enough white space that it feels easy to scan?
+7. Could you tell this was written by Andrew and not a generic marketing writer?
+8. Read it again specifically looking for AI tells -- "that type of," "it's worth noting," "when it comes to," uniform paragraph lengths, overly smooth transitions. If you find any, rewrite those sections.
+9. Does the formatting vary? Are there places where the structure shifts -- from prose to a list, from a question to a data point, from a story to a takeaway? Monotonous structure = AI. Varied structure = Andrew.
+
+If any answer is "no," revise that section.
+
+## Before/After Examples
+
+**Generic AI copy:**
+> "Building a successful sales team requires a strategic approach to hiring. Many agencies struggle with turnover because they fail to implement proper onboarding and training systems. Let's explore some best practices for scaling your team effectively."
+
+**Andrew's voice:**
+> "So, you hire three people. But what happens? One or two of them fail, and suddenly, you're right back where you started. You set out to develop six salespeople, did the work, and now you only have four and you've wasted 60-90 days of work, energy, and money. Agents don't have an 'accountability problem' they have a hiring problem."
+
+---
+
+**Generic AI copy:**
+> "Improving your answer-to-quote ratio can significantly impact your revenue. For example, increasing this metric from 30% to 70% could result in substantially higher monthly earnings for your agency."
+
+**Andrew's voice:**
+> "At $850 per item and a 25% commission (my numbers), you're looking at about $12,289 in revenue. But, if you improve that transfer rate to 70%... This bumps your sales up to 135 items sold per month, which translates into $28,676 in revenue. That's a difference of over $16,000. From ONE metric."
+
+---
+
+**Generic AI copy:**
+> "It's important to be selective in your hiring process and focus on finding the right candidates who align with your team culture."
+
+**Andrew's voice:**
+> "If it's not a _hell yes_, it's a no.
+>
+> This is where we tripped up this year. We've got a killer team overall, but we were under pressure to fill spots and we let some people slide in that we weren't 100% sure about. And I get it -- when you're growing fast and someone quits, you feel that urgency to just get a body in the seat. Trust me, I've been there.
+>
+> But that urgency cost us.
+>
+> We had over $400k in dead payroll in 2023 alone from people who didn't work out and never contributed to the bottom line."
