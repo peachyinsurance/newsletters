@@ -280,7 +280,7 @@ Return ONLY valid JSON, no preamble or markdown fences."""
 # ---------------------------------------------------------------------------
 # 5. CLAUDE PASS 2: SELF-REVIEW
 # ---------------------------------------------------------------------------
-def review_blurb(blurb_result: dict, review_prompt: str) -> dict:
+def review_blurb(blurb_result: dict, review_prompt: str, label: str = "Pass 2") -> dict:
     """Use Claude to review and optionally revise the generated blurb."""
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
     blurb_json = json.dumps(blurb_result, indent=2)
@@ -322,7 +322,7 @@ Return ONLY valid JSON, no preamble or markdown fences."""
     score = review.get("score", 0)
     violations = review.get("violations", [])
 
-    print(f"  Pass 2 — Review: {'PASS' if passed else 'FAIL'} (score: {score}/10)")
+    print(f"  {label} — Review: {'PASS' if passed else 'FAIL'} (score: {score}/10)")
     if violations:
         for v in review.get("violation_details", violations):
             print(f"    ✗ {v}")
@@ -410,12 +410,35 @@ if __name__ == "__main__":
         # Merge and pick final version
         final = merge_results(blurb_result, review)
 
+        # If Pass 2 revised the blurb, its score describes the ORIGINAL blurb,
+        # not the text we're saving. Re-score the revised blurb so the stored
+        # score is the FINAL score that matches the saved content. We keep the
+        # revised text and only take the new score (no further rewriting).
+        was_revised = bool(review.get("revised_blurb")) and not review.get("pass", False)
+        if was_revised:
+            print("\n  Pass 3 — Re-scoring the revised blurb...")
+            final_review = review_blurb(
+                {
+                    "greeting": final["greeting"],
+                    "blurb": final["blurb"],
+                    "word_count": final["word_count"],
+                    "newsletter_name": final["newsletter_name"],
+                    "publication_date": final["publication_date"],
+                },
+                review_prompt,
+                label="Pass 3",
+            )
+            final["review_score"] = final_review.get("score", final["review_score"])
+            final["review_passed"] = final_review.get("pass", final["review_passed"])
+            fv = final_review.get("violations", [])
+            final["review_violations"] = ", ".join(fv) if fv else ""
+
         # Save to Notion
         print(f"\n  Saving to Notion...")
         save_intro_to_notion(final, newsletter["name"])
 
         print(f"\n  Done with {newsletter['name']}.")
         print(f"  Final: {final['word_count']} words, score {final['review_score']}/10"
-              f"{' (revised)' if not final['review_passed'] else ''}")
+              f"{' (revised)' if was_revised else ''}")
 
     print(f"\nAll newsletters complete.")
