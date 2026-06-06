@@ -44,6 +44,7 @@ from event_date_filter import effective_today
 # ---------------------------------------------------------------------------
 CLAUDE_API_KEY     = os.environ["CLAUDE_API_KEY"]
 
+from voice_helper import with_voice  # noqa: E402
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-weekend-planner-skill_auto.md"
 
 TARGET_PER_AUDIENCE = 20     # Soft target per audience. The pool depth IS the section length
@@ -518,7 +519,7 @@ Candidates:
         # pool in one call, not per-audience).
         results = call_with_json_output(
             api_key=CLAUDE_API_KEY,
-            system=skill_prompt,
+            system=with_voice(skill_prompt),
             user_content=user_prompt,
             max_tokens=16000,
         )

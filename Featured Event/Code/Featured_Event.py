@@ -51,6 +51,7 @@ from event_date_filter import (
 CLAUDE_API_KEY     = os.environ["CLAUDE_API_KEY"]
 BRAVE_NEWS_API_KEY = os.environ["BRAVE_NEWS_API_KEY"]
 
+from voice_helper import with_voice  # noqa: E402
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-featured-event-skill_auto.md"
 
 MAX_RESULTS_PER_QUERY = 10
@@ -454,7 +455,7 @@ def evaluate_and_write_events(
             response = client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=4000,
-                system=skill_prompt,
+                system=with_voice(skill_prompt),
                 messages=[{
                     "role": "user",
                     "content": f"""

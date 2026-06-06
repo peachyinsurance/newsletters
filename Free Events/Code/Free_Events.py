@@ -457,6 +457,7 @@ def fetch_event_images(source_url: str, max_results: int = 8,
 CLAUDE_API_KEY     = os.environ["CLAUDE_API_KEY"]
 BRAVE_NEWS_API_KEY = os.environ["BRAVE_NEWS_API_KEY"]
 
+from voice_helper import with_voice  # noqa: E402
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-free-events-skill_auto.md"
 
 MAX_RESULTS_PER_QUERY = 10
@@ -983,7 +984,7 @@ Return ONLY the body_markdown text — plain markdown, no JSON wrapper, no quote
             response = client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=2000,
-                system=skill_prompt,
+                system=with_voice(skill_prompt),
                 messages=[{"role": "user", "content": user_content}],
             )
             break
@@ -1024,7 +1025,7 @@ def write_free_events(candidates: list[dict], newsletter_name: str, display_area
             response = client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=4000,
-                system=skill_prompt,
+                system=with_voice(skill_prompt),
                 messages=[{
                     "role": "user",
                     "content": f"""Evaluate the candidates below and pick the single best free event for this week's {display_area} newsletter.

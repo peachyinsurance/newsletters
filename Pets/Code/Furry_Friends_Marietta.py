@@ -30,6 +30,7 @@ from newsletters_config import NEWSLETTERS, filter_by_env
 # ---------------------------------------------------------------------------
 CLAUDE_API_KEY      = os.environ["CLAUDE_API_KEY"]
 RESCUEGROUPS_API_KEY = os.environ.get("RESCUE_GROUP_API_KEY", "")
+from voice_helper import with_voice  # noqa: E402
 SKILL_PROMPT_PATH    = Path(__file__).parent.parent.parent / "Skills" / "newsletter-pet-adoption-skill_auto.md"
 
 RESCUEGROUPS_API_BASE = "https://api.rescuegroups.org/v5/public"
@@ -343,7 +344,7 @@ def generate_blurb(pets: list[dict], skill_prompt: str, animal_type: str) -> lis
             response = client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=4000,
-                system=skill_prompt,
+                system=with_voice(skill_prompt),
                 messages=[{
                     "role": "user",
                     "content": f"""

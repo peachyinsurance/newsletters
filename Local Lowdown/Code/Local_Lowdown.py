@@ -32,6 +32,7 @@ NOTION_API_KEY = os.environ["NOTION_API_KEY"]
 CLAUDE_API_KEY      = os.environ["CLAUDE_API_KEY"]
 BRAVE_NEWS_API_KEY  = os.environ["BRAVE_NEWS_API_KEY"]
 
+from voice_helper import with_voice  # noqa: E402
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-local-lowdown-skill_auto.md"
 
 MAX_ARTICLES = 50  # Brave News API max per query — pull the full window
@@ -279,7 +280,7 @@ def write_local_lowdown(articles: list[dict], newsletter_name: str, display_area
             response = client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=4000,
-                system=skill_prompt,
+                system=with_voice(skill_prompt),
                 messages=[{
                     "role": "user",
                     "content": f"""

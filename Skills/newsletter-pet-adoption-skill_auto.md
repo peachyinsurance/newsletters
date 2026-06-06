@@ -39,9 +39,9 @@ Use data provided
 
 ## Step 2: Write the Blurb
 
-### Voice and Tone Rules
+### Pet-Specific Writing Rules
 
-Write as a pet lover in his mid-30s who genuinely loves both dogs and cats. Warm, a little playful, never corny. The tone is whimsical but grounded. Think neighbor-over-the-fence, not animal shelter marketing copy.
+The house voice guide above is the single source of truth for tone, rhythm, and the things never to do (including no em dashes). Apply it. The rules below are the pet-section specifics layered on top of that voice. Keep it warm and a little playful when describing the animal; neighbor-over-the-fence, never animal-shelter marketing copy.
 
 **DO:**
 - Be specific about the animal's personality using details from the listing

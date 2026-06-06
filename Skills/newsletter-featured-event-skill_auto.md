@@ -15,14 +15,20 @@ description: Pick the best featured event for a local newsletter based on neighb
 
 ---
 
+## House Rule: No Em Dashes
+
+**HARD RULE: NO EM DASHES.** Never output an em dash character (`—`, U+2014) anywhere in your response. Use commas, periods, parens, semicolons, or "and" instead. This is a non-negotiable house style rule across every section of every newsletter. Em dashes are a strong AI-generated tell, and Andrew has explicitly banned them. (En dashes `–` for ranges like "10am–4pm" are fine.)
+
+---
+
 ## Step 2: Pick the Top 2-3 Events
 
 Evaluate every event on the list using these four factors, in this priority order:
 
-1. **Demographic fit** — Does this event match the age, income, lifestyle, and interests of the audience?
-2. **Uniqueness / can't-miss factor** — Is this a one-night-only event? Is it rare or special? Or is it something the reader could do any weekend?
-3. **Family vs. adult skew** — Match the event type to the newsletter's audience. If the newsletter skews toward empty nesters, adult events beat family events even if the family events are well-attended.
-4. **Ticket price relative to local income** — A $138 ticket is a non-issue for a $150K household. For a $60K household, flag it. Don't disqualify expensive events for high-income audiences, and don't assume low-income audiences only want free events.
+1. **Demographic fit**: Does this event match the age, income, lifestyle, and interests of the audience?
+2. **Uniqueness / can't-miss factor**: Is this a one-night-only event? Is it rare or special? Or is it something the reader could do any weekend?
+3. **Family vs. adult skew**: Match the event type to the newsletter's audience. If the newsletter skews toward empty nesters, adult events beat family events even if the family events are well-attended.
+4. **Ticket price relative to local income**: A $138 ticket is a non-issue for a $150K household. For a $60K household, flag it. Don't disqualify expensive events for high-income audiences, and don't assume low-income audiences only want free events.
 
 Present 2-3 recommendations. For each one, include:
 - Event name, date, time, price
@@ -55,25 +61,25 @@ Once the user picks an event, write the featured event blurb using these rules:
 - Fourth-grade reading level. Short sentences. Plain words.
 - No AI-speak. No em dashes. No words like "vibrant," "seamless," "delve," "bustling," or "tapestry."
 - No bullet points inside the blurb. Prose only.
-- Write like a neighbor telling another neighbor about something worth doing — warm, direct, and honest.
+- Write like a neighbor telling another neighbor about something worth doing, warm, direct, and honest.
 - The closer should have energy. It should create mild urgency or a reason to act now. Do not end flat.
 - Do not stuff in logistical details (address, parking, etc.) unless they are genuinely useful to the reader.
 
-### Owner's Voice — Style Notes
+### Owner's Voice: Style Notes
 The owner has a distinct voice. Bake this into every blurb:
 
 - **Inject personality and casual language.** Words like "aka" and phrases like "so take advantage of that!" make it feel like a real person talking, not a newsletter bot. Use them when they fit naturally.
-- **Use emphasis to create energy.** ALL CAPS on a key word (like "STEAL") does more work than the word alone. Use it sparingly — once per blurb max — on the single most exciting fact.
+- **Use emphasis to create energy.** ALL CAPS on a key word (like "STEAL") does more work than the word alone. Use it sparingly, once per blurb max, on the single most exciting fact.
 - **Be precise, not hedging.** Don't say "just a movie" when you mean "just a typical movie." Small word choices matter.
-- **Run-on energy is okay.** Writing the way people actually talk — even if it bends grammar rules — is a feature, not a bug. "Nearly 40,000 people go every year aka...this isn't a small community event" works because it sounds human.
+- **Run-on energy is okay.** Writing the way people actually talk, even if it bends grammar rules, is a feature, not a bug. "Nearly 40,000 people go every year aka...this isn't a small community event" works because it sounds human.
 - **Don't be stiff.** If a sentence sounds like it came from a press release, rewrite it.
 
 ### Tone Reference
 Here is a strong example of the right tone (Ina Garten blurb):
 
-> If you've ever stood in your kitchen on a Sunday, glass of wine in hand, making her roast chicken while the Barefoot Contessa plays in the background — this one's for you.
+> If you've ever stood in your kitchen on a Sunday, glass of wine in hand, making her roast chicken while the Barefoot Contessa plays in the background, this one's for you.
 >
-> Ina Garten is coming to Marietta for one night only. She'll be talking about her new memoir, sharing the stories behind the recipes, the TV show, and the life she built from scratch. Then she opens it up to the crowd for Q&A. It's personal, it's warm, and it's exactly what you'd expect from her — like being invited over, except there are a few hundred of you.
+> Ina Garten is coming to Marietta for one night only. She'll be talking about her new memoir, sharing the stories behind the recipes, the TV show, and the life she built from scratch. Then she opens it up to the crowd for Q&A. It's personal, it's warm, and it's exactly what you'd expect from her, like being invited over, except there are a few hundred of you.
 >
 > This is not a cooking demo or a book signing line. It's a real night out. The kind you'll actually talk about over dinner the next week.
 >
@@ -104,7 +110,7 @@ What makes this work:
 ## Notes
 
 - If the user already knows the demographics or provides them, skip Step 1 and use what they give you.
-- If the user tells you the newsletter skews a certain way (e.g., "heavy empty nesters" or "lots of young families"), weight that heavily in Step 2 — it overrides what the raw demographics suggest.
+- If the user tells you the newsletter skews a certain way (e.g., "heavy empty nesters" or "lots of young families"), weight that heavily in Step 2, it overrides what the raw demographics suggest.
 - Never recommend an event just because it's free. Free is not a selling point for high-income audiences.
 - Never penalize an event for having a ticket price if the audience can clearly afford it.
 - If two events are close in score, default to the one with higher uniqueness. Readers can find a farmers market any weekend. They can't always see Ina Garten.

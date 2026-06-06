@@ -41,6 +41,7 @@ from claude_json import call_with_json_output  # noqa: E402
 
 
 CLAUDE_API_KEY = os.environ["CLAUDE_API_KEY"]
+from voice_helper import with_voice  # noqa: E402
 SKILL_PROMPT_PATH = (Path(__file__).parent.parent.parent
                      / "Skills" / "newsletter-in-search-of-skill_auto.md")
 
@@ -137,7 +138,7 @@ Rows:
     try:
         results = call_with_json_output(
             api_key=CLAUDE_API_KEY,
-            system=skill_prompt,
+            system=with_voice(skill_prompt),
             user_content=user_prompt,
         )
     except Exception as e:

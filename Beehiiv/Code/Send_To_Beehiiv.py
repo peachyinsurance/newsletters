@@ -85,6 +85,7 @@ def _build_newsletter_config() -> dict:
 
 NEWSLETTER_CONFIG = _build_newsletter_config()
 
+from voice_helper import with_voice  # noqa: E402
 SUBJECT_SKILL_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-subject-line_auto.md"
 
 
@@ -112,7 +113,7 @@ def generate_subject_line(context: dict) -> str:
             response = client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=200,
-                system=skill,
+                system=with_voice(skill),
                 messages=[{
                     "role":    "user",
                     "content": f"Write the subject line for this issue. Output ONLY the subject string, no quotes, no preamble.\n\n{user}",

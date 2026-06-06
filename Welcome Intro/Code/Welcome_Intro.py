@@ -39,6 +39,7 @@ NOTION_RE_DB_ID           = os.environ.get("NOTION_RE_DB_ID", "")
 NOTION_EVENTS_DB_ID       = os.environ.get("NOTION_EVENTS_DB_ID", "")
 NOTION_FREE_EVENTS_DB_ID  = os.environ.get("NOTION_FREE_EVENTS_DB_ID", "")
 
+from voice_helper import with_voice  # noqa: E402
 SKILL_PROMPT_PATH  = Path(__file__).parent.parent.parent / "Skills" / "newsletter-welcome-intro-skill_auto.md"
 REVIEW_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-welcome-intro-review-skill.md"
 
@@ -212,6 +213,21 @@ def gather_context(newsletter_name: str) -> dict:
 # ---------------------------------------------------------------------------
 # 4. CLAUDE PASS 1: GENERATE BLURB
 # ---------------------------------------------------------------------------
+def _parse_json_object(raw: str) -> dict:
+    """Parse a JSON object from a model response, tolerating code fences and
+    stray prose around it. Raises json.JSONDecodeError if none can be recovered."""
+    clean = (raw.strip()
+                .removeprefix("```json").removeprefix("```")
+                .removesuffix("```").strip())
+    try:
+        return json.loads(clean)
+    except json.JSONDecodeError:
+        start, end = clean.find("{"), clean.rfind("}")
+        if start != -1 and end > start:
+            return json.loads(clean[start:end + 1])
+        raise
+
+
 def generate_blurb(context: dict, skill_prompt: str) -> dict:
     """Use Claude to generate the welcome intro blurb."""
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
@@ -225,7 +241,7 @@ def generate_blurb(context: dict, skill_prompt: str) -> dict:
             response = client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=2000,
-                system=skill_prompt,
+                system=with_voice(skill_prompt),
                 messages=[{
                     "role": "user",
                     "content": f"""Write the welcome intro blurb for this week's {display_area} newsletter.
@@ -255,8 +271,7 @@ Return ONLY valid JSON, no preamble or markdown fences."""
                 raise
 
     raw = next(block.text for block in response.content if block.type == "text")
-    clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
-    result = json.loads(clean)
+    result = _parse_json_object(raw)
 
     print(f"  Pass 1 — Generated blurb: {result.get('word_count', '?')} words")
     return result
@@ -276,7 +291,7 @@ def review_blurb(blurb_result: dict, review_prompt: str) -> dict:
             response = client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=3000,
-                system=review_prompt,
+                system=with_voice(review_prompt),
                 messages=[{
                     "role": "user",
                     "content": f"""Review this welcome intro blurb against the voice and quality rules.
@@ -295,8 +310,13 @@ Return ONLY valid JSON, no preamble or markdown fences."""
                 raise
 
     raw = next(block.text for block in response.content if block.type == "text")
-    clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
-    review = json.loads(clean)
+    try:
+        review = _parse_json_object(raw)
+    except json.JSONDecodeError as e:
+        # A malformed review must not abort the run. Treat as a no-op pass so
+        # merge_results keeps the original Pass-1 blurb unchanged.
+        print(f"  Pass 2 — review JSON unparseable ({e}); keeping original blurb")
+        return {"pass": True, "score": 0, "violations": []}
 
     passed = review.get("pass", False)
     score = review.get("score", 0)

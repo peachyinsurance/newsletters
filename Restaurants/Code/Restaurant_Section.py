@@ -30,6 +30,7 @@ import anthropic
 # ---------------------------------------------------------------------------
 CLAUDE_API_KEY          = os.environ["CLAUDE_API_KEY"]
 GOOGLE_PLACES_API_KEY   = os.environ["GOOGLE_PLACES_API_KEY"]
+from voice_helper import with_voice  # noqa: E402
 SKILL_PROMPT_PATH       = Path(__file__).parent.parent.parent / "Skills" / "newsletter-restaurant-blurb-skill.md"
 SEARCH_RADIUS_METERS    = 8047  # 5 miles in meters (default starting radius)
 # Expansion plan: 5 mi → 7.5 mi → 10 mi. Stops early if MIN_QUALIFIED reached.
@@ -344,7 +345,7 @@ Summary/Review: {r['summary'][:500] if r['summary'] else 'Not available'}
             response = client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=4000,
-                system=skill_prompt,
+                system=with_voice(skill_prompt),
                 messages=[{
                     "role": "user",
                     "content": f"""

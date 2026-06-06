@@ -44,6 +44,7 @@ BRAVE_NEWS_API_KEY    = os.environ.get("BRAVE_NEWS_API_KEY", "")
 # REQUIRED — Google Places is now the primary candidate source.
 GOOGLE_PLACES_API_KEY = os.environ["GOOGLE_PLACES_API_KEY"]
 
+from voice_helper import with_voice  # noqa: E402
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-business-brief-skill_auto.md"
 
 # Places searchNearby radius per newsletter. ~10 miles covers the whole
@@ -444,7 +445,7 @@ if __name__ == "__main__":
         try:
             response = call_with_json_output(
                 api_key=CLAUDE_API_KEY,
-                system=skill_prompt,
+                system=with_voice(skill_prompt),
                 user_content=user_prompt,
             )
         except Exception as e:

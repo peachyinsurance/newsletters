@@ -57,6 +57,7 @@ from notion_helper import (  # noqa: E402
 
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY", "")
 NEWSLETTER     = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
+from voice_helper import with_voice  # noqa: E402
 SKILL_PATH     = (Path(__file__).parent.parent.parent
                   / "Skills"
                   / "newsletter-in-todays-connect-skill.md")
@@ -184,7 +185,7 @@ def call_claude(context: dict) -> str:
             response = client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=1000,
-                system=skill,
+                system=with_voice(skill),
                 messages=[{"role": "user", "content": user_msg}],
             )
             break

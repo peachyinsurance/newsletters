@@ -29,6 +29,7 @@ CLAUDE_API_KEY    = os.environ["CLAUDE_API_KEY"]
 REALTOR_API_KEY   = os.environ["REALTOR_API_KEY"]
 NOTION_API_KEY    = os.environ["NOTION_API_KEY"]
 
+from voice_helper import with_voice  # noqa: E402
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-real-estate-skill_auto.md"
 
 REALTOR_HOST = "realtor-search.p.rapidapi.com"
@@ -333,7 +334,7 @@ Photo: {listing['photo_url']}
             response = client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=3000,
-                system=skill_prompt,
+                system=with_voice(skill_prompt),
                 messages=[{
                     "role": "user",
                     "content": f"""

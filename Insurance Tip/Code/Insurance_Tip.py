@@ -24,6 +24,7 @@ from newsletters_config import NEWSLETTERS, filter_by_env
 CLAUDE_API_KEY     = os.environ["CLAUDE_API_KEY"]
 BRAVE_NEWS_API_KEY = os.environ["BRAVE_NEWS_API_KEY"]
 
+from voice_helper import with_voice  # noqa: E402
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-insurance-tip-skill_auto.md"
 
 TOPICS_PER_RUN = 5
@@ -339,7 +340,7 @@ if __name__ == "__main__":
     try:
         results = call_with_json_output(
             api_key=CLAUDE_API_KEY,
-            system=skill_prompt,
+            system=with_voice(skill_prompt),
             user_content=user_prompt,
         )
     except ClaudeJSONError as e:
@@ -371,7 +372,7 @@ relevance_score, actionability_score, timeliness_score, scoring_notes).
         try:
             results = call_with_json_output(
                 api_key=CLAUDE_API_KEY,
-                system=skill_prompt,
+                system=with_voice(skill_prompt),
                 user_content=fallback_prompt,
             )
         except ClaudeJSONError as e:

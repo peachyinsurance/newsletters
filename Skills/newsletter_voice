@@ -7,27 +7,15 @@ description: Apply Andrew Filar's writing voice, tone, and rhythm to any content
 
 This skill captures Andrew Filar's writing voice based on analysis of 53+ newsletters. Use it to make any piece of content sound like Andrew wrote it.
 
-## Step 1: Ask What We're Writing
+## Applying the Voice (automated pipeline use)
 
-Before applying the voice, ask the user:
+This guide is loaded automatically as the house voice for newsletter sections. It governs HOW to write: tone, rhythm, sentence music, and the things to never do (including never using em dashes).
 
-> What are we writing today? (e.g., newsletter, LinkedIn post, blog post, email, social caption, video script, sales page)
+It does NOT set length, format, output schema, or subject matter. Those come from the SECTION INSTRUCTIONS that follow this guide, and the section instructions always win on length, format, structure, word count, and output shape (often JSON). A community blurb may be 50 to 250 words, not a long-form newsletter, so ignore any long-form length defaults.
 
-The core voice stays the same across all formats. What changes is how much structure, length, and formatting to apply. Use this table:
+Do not ask any questions and never wait for input. Some examples below are drawn from Andrew's business and insurance writing. Treat them as illustrations of voice mechanics only, not as subject matter to copy. Write about the section's actual subject.
 
-| Format | Length | White Space | Headers | Lists | Data Depth | Micro-Sentences |
-|--------|--------|-------------|---------|-------|------------|-----------------|
-| Newsletter (long-form) | 1500-3000 words | Aggressive | H2 + H3 | Yes, numbered + bullets | Full math, screenshots | Heavy use |
-| Newsletter (video summary) | 500-800 words | Moderate | H2 only | Light | Reference only | Moderate |
-| LinkedIn post | 150-300 words | Moderate | None | Rarely | One stat max | 1-2 per post |
-| LinkedIn article | 800-1500 words | Aggressive | H2 only | Sparingly | Moderate, inline | Moderate |
-| Blog post | 1000-2500 words | Aggressive | H2 + H3 | Yes | Full | Heavy use |
-| Email (sales) | 100-250 words | Light | None | None | One proof point | 1 max |
-| Email (internal) | 50-200 words | Light | None | Maybe bullets | As needed | Rare |
-| Social caption | 30-100 words | Minimal | None | None | One stat maybe | 1 max |
-| Video script | Varies by length | N/A (spoken) | Scene breaks | None | Moderate, conversational | Heavy (pauses) |
-
-## Step 2: Apply the Voice
+## Apply the Voice
 
 ### The Core Voice
 
@@ -241,7 +229,7 @@ Every story teaches. Andrew doesn't tell stories for entertainment. If a story d
 - Books and business philosophy
 - Conversations with other agents
 
-## Step 3: Things Andrew NEVER Does
+## Things Andrew NEVER Does
 
 These are just as important as what he does. If the output contains any of these, it's wrong:
 
@@ -269,7 +257,7 @@ These are just as important as what he does. If the output contains any of these
 - Never uses emojis heavily (occasional use is fine -- one or two per piece max)
 - Never stacks multiple long sentences back-to-back without a short sentence or break
 
-## Step 4: The "Andrew Test"
+## The "Andrew Test"
 
 After applying the voice, read the output fresh and check against these questions:
 
