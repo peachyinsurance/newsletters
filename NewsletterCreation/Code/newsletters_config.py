@@ -212,8 +212,9 @@ def filter_by_env(env_var: str = "NEWSLETTER") -> list[dict]:
     input. The env var should hold a single newsletter name (e.g.
     "East_Cobb_Connect") or "all" / unset to process every newsletter.
 
-    Falls back to all if the env var holds an unrecognized value, with a
-    warning printed."""
+    Raises ValueError on an unrecognized value rather than silently falling
+    back to all — a typo'd or malformed brand value should fail loudly, not
+    quietly fan out to every newsletter."""
     import os
     arg = (os.environ.get(env_var) or "all").strip()
     if arg.lower() == "all":
@@ -221,5 +222,7 @@ def filter_by_env(env_var: str = "NEWSLETTER") -> list[dict]:
     nl = NEWSLETTERS_DICT.get(arg)
     if nl:
         return [nl]
-    print(f"  [WARN] Unknown {env_var} '{arg}'. Falling back to all. Known: {newsletter_names()}")
-    return NEWSLETTERS
+    raise ValueError(
+        f"Unknown {env_var} '{arg}'. Expected 'all', unset, or one of: "
+        f"{newsletter_names()}. Refusing to silently fall back to all."
+    )
