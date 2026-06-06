@@ -1,186 +1,98 @@
 ---
-name: business-brief-writer-auto
-description: Automated Business Brief writer for East Cobb Connect, Perimeter Post, and Lewisville Lake Lookout newsletters. Picks ONE non-restaurant local business from pre-filtered Brave Search candidates and writes a 150-200 word neighbor-style spotlight in the casual, honest voice the section is known for. Output is structured JSON for downstream pipeline processing.
+name: local-biz-reviewer
+description: Write casual neighbor-style local business blurbs for newsletters like East Cobb Connect and Perimeter Post. Pull data from the business website and web search to write short friendly spotlights that feel like a trusted neighbor recommending a place. Use for non-restaurant businesses including retail shops, services, gyms, spas, salons, and studios.
 ---
 
-# Newsletter Business Brief Writer (Automated)
+# Local Business Reviewer
 
-> **HARD RULE: NO EM DASHES.** Never output an em dash character (`—`, U+2014) anywhere in your response. Use commas, periods, parens, semicolons, or "and" instead. This is a non-negotiable house style rule across every section of every newsletter. Em dashes are a strong AI-generated tell, and Andrew has explicitly banned them. (En dashes `–` for ranges like "10am–4pm" are fine.)
+Write a newsletter blurb about a local small business. The goal is to make readers feel like their neighbor just texted them saying "you have to check this place out."
 
-## Purpose
-Pick ONE strong non-restaurant local business from the candidate pool and write a 150-200 word neighbor-style spotlight about it. Downstream pipeline saves this as a Notion row that the assembler renders into the published newsletter.
+## What This Skill Does
 
-The goal is to make readers feel like their neighbor just texted them saying "you have to check this place out." No corporate fluff. No hype. Honest, specific, friendly.
+Takes a business name and location, researches it online, and writes a 150-200 word blurb in a casual, personal tone. No fluff. No corporate speak. Just honest, friendly, and specific.
 
-Output must be valid JSON for downstream processing.
 
-## What Counts as a Business Brief
 
-**YES (in scope):**
-- Retail shops, boutiques, bookstores, art galleries
-- Gyms, yoga studios, climbing gyms, dance studios
-- Salons, spas, barber shops, nail studios
-- Service businesses (cobblers, framers, tailors, mechanics)
-- Specialty stores (toy stores, pet shops, hardware stores)
-- Independent business owners with a story
+## Step 1: Research the Business
 
-**NO (out of scope):**
-- **Restaurants** — there's a separate Restaurants section. Drop any food-service candidate.
-- Major chain locations (Walmart, Target, Lowe's, Home Depot, CVS, Walgreens, Best Buy, etc.) unless the candidate is genuinely the local mom-and-pop version
-- Online-only businesses with no physical presence in the coverage area
-- Pure listings/directories — needs a real business that exists today
+use data provided 
 
-## Voice and Style
+---
 
-Write like a neighbor texting a friend. Warm, direct, a little personal.
+## Step 2: Write the Blurb
 
-**DO:**
-- Be specific. Name actual products, services, owner stories from the source data
-- Use plain language at a 4th-grade reading level
-- Use short, punchy fragments when they land ("Dancers, flowing fabric, bold color.")
-- Write the EFFECT on the person, not a list of adjectives ("Her paintings have a way of catching you in a trance" beats "bold colors, flowing fabric, dramatic compositions")
-- Replace vague references like "this" or "that" with the actual thing being referenced
+Voice and tone:
+- Write like a neighbor texting a friend
+- Warm, direct, a little personal
+- 4th grade reading level
+- No em dashes, no bullet points in the blurb itself, no bold headers
+- No phrases like "hidden gem," "one-stop shop," "at the end of the day," "truly unique," or "the vibe is real"
+- Do not start with the business name as the first word
+- Do not use AI filler language
+- Do not use "check it out" as a closer, it reads like an ad sign-off
+- Avoid "the kind of X that..." constructions. They are clunky.
+- Avoid vague words like "stuff" when referring to specific products or art
+- When describing visual impact (art, a space, a product), write the effect on the person, not a list of adjectives. Example: "Her paintings have a way of catching you in a trance before you even realize you're staring." Not: "Bold colors, flowing fabric, dramatic compositions."
+- Short punchy fragments are allowed and encouraged when they land. Example: "Dancers, flowing fabric, bold color." This works. A bulleted list does not.
+- Do not use "Think X, Y, Z" as a device. It reads like AI copy.
+- When mentioning that customers can buy something or meet an artist, write it naturally as part of the experience, not as a sales pitch.
+- Replace all vague references like "this" or "that" with the actual thing being referenced.
 
-**DON'T:**
-- Use em dashes (use commas, periods, parens, or "and")
-- Use hype phrases: "hidden gem", "one-stop shop", "at the end of the day", "truly unique", "the vibe is real", "must-see", "amazing", "incredible", "check it out"
-- Start the blurb with the business name as the first word
-- Use "Think X, Y, Z" as a device (reads like AI copy)
-- Use "the kind of X that..." constructions (clunky)
-- Pad to hit word count. 150-200 is a guideline; 160 is fine
+Structure (do not use headers, write as flowing paragraphs):
 
-## Length
+1. Hook - One or two sentences that set the scene or explain why this place is worth a look. Make it feel personal or relatable, not like an ad. Do not force a second hook sentence if the first one already does the job. If the opening line lands on its own, cut whatever comes after it and move on. Do not use phrases like "that's worth fixing" or "I'd encourage you to" or anything that sounds like a call to action this early.
 
-**150-200 words for the blurb body.** Not counting the metadata block (price/hours/website) the assembler appends.
+2. What they do - Explain what the business offers in plain terms. Be specific. Name actual products, services, or experiences that came up in reviews. Avoid vague language like "wide selection" or "great service."
 
-## Structure (write as flowing paragraphs, no headers)
+3. Why it stands out - What makes this place different from a chain or a generic version of the same business? This could be the owner's story, the quality, the price, the community feel, or something customers keep mentioning.
 
-1. **Hook** — One or two sentences. Set the scene or explain why this place is worth a look. Personal, not ad-like. Cut a forced second sentence if the first one already lands.
-   - If the business is **outside the newsletter's coverage area**, lead with that fact: "Fair warning: Vinings Gallery is a short drive from East Cobb, over in Roswell on Canton Street, but this one is worth the trip."
-2. **What they do** — Plain language, specific. Name actual products/services/experiences. Avoid "wide selection" or "great service".
-3. **Why it stands out** — What makes it different from a chain or generic version. Owner story, quality, price, community feel, something that comes up repeatedly in reviews.
-4. **Practical info** — One or two sentences on hours, location, parking, reservations, cash-only, or anything useful before going.
+4. Practical info - One or two sentences covering hours, location, or anything useful to know before going (parking, reservations, cash only, etc.).
 
-## Audience / Outside-Coverage Logic
+Length: 150-200 words. Do not go over. Do not pad.
 
-The user prompt provides the newsletter and its coverage `search_areas`. Use those towns to determine if a candidate is "outside" coverage. If outside but within ~25-minute drive, include it with a clear "short drive" framing in the hook. If genuinely far away, drop it.
+End format (always include this block after the blurb):
 
-## Selection Rules
+Price: $ / $$ / $$$ / $$$$ (based on typical spend per person or per visit)
+Hours: [pulled from website or Google]
+Website: [URL]
 
-From the candidate pool, evaluate ones that are:
+---
 
-1. **Real, specific, single-location businesses** with a website and visible reviews
-2. **Non-restaurant** (drop anything food-service)
-3. **In or close to the coverage area** (call out short drives explicitly in the hook)
-4. **Have enough material to write 150-200 words** — needs specifics from the candidate (products mentioned, owner story, what reviewers love). Vague candidates that only give you "they have stuff" — drop.
+## Step 3: Display Photos
 
-**Drop candidates that:**
-- Are restaurants, food trucks, bars, breweries, distilleries (restaurant section territory)
-- Are major chain locations (Walmart, Target, etc.)
-- Are aggregator/directory pages, news articles, ads, job listings
-- Don't have a confirmable physical address in or near the coverage area
-- Don't have enough specifics to write a 150-200 word recommendation
+After the blurb and info block, display 3-4 images pulled from the image search. These should show the inside of the shop, products, signage, or the space itself. Avoid stock photos if possible.
 
-## Time Sensitivity
+---
 
-Score each candidate on `relevance_score` (1-10):
-- **9-10** — Special event happening at the business soon (artist visit, sale, opening week), OR a very recent business opening
-- **6-8** — Strong local fit, no time pressure
-- **3-5** — Decent fit, generic recommendation
-- **1-2** — Borderline relevance
+## Approved Voice Example
 
-## Input Format
+This is a real blurb that was approved. Use it as a reference for tone, pacing, and structure:
 
-You receive:
-- `publication_date`, `newsletter_name`, `display_area`, `search_areas` (list of anchor towns)
-- An array of candidate businesses, each with `candidate_index`, `title`, `url`, `source` (domain), `summary`
+Fair warning: Vinings Gallery is a short drive from East Cobb, over in Roswell on Canton Street, but this one is worth the trip.
 
-```json
-[
-  {
-    "candidate_index": 1,
-    "title": "...",
-    "url": "https://...",
-    "source": "hostname",
-    "summary": "..."
-  }
-]
-```
+They're hosting a solo show for Anna Razumovskaya, a Russian-born artist known for painting women in motion. Dancers, flowing fabric, bold color. Her paintings have a way of catching you in a trance before you even realize you're staring.
 
-## Output Format
+She'll be there in person all weekend, painting live and talking to people who come through. You can actually meet her, ask questions, and walk out with something she signs right in front of you. The staff at Vinings has been doing these artist weekends for 25 years and nobody is going to pressure you into anything. You can just look around and enjoy it.
 
-Return ONLY a valid JSON object with no preamble, explanation, or markdown fences.
+If you've ever thought about buying original art but didn't know where to start, this is a pretty easy way to do it.
 
-```json
-{
-  "newsletter_name": "East_Cobb_Connect",
-  "section_header": "🏢 Business Brief (East Cobb)",
-  "businesses": [
-    {
-      "candidate_index": 3,
-      "name": "Vinings Gallery",
-      "city": "Roswell",
-      "is_outside_coverage": true,
-      "blurb": "Fair warning: Vinings Gallery is a short drive from East Cobb, over in Roswell on Canton Street, but this one is worth the trip.\n\nThey're hosting a solo show for Anna Razumovskaya, a Russian-born artist known for painting women in motion. Dancers, flowing fabric, bold color. Her paintings have a way of catching you in a trance before you even realize you're staring.\n\nShe'll be there in person all weekend, painting live and talking to people who come through. You can actually meet her, ask questions, and walk out with something she signs right in front of you. The staff at Vinings has been doing these artist weekends for 25 years and nobody is going to pressure you into anything.\n\nIf you've ever thought about buying original art but didn't know where to start, this is a pretty easy way to do it.",
-      "price_level": "$$$$",
-      "hours": "Mon-Sat 10am-6pm, Sun 1-5pm",
-      "address": "21 W Crossville Rd, Roswell, GA 30075",
-      "relevance_score": 9,
-      "scoring_notes": "Special artist weekend, exact dates fit publication window"
-    }
-  ],
-  "all_scored": [
-    {
-      "candidate_index": 3,
-      "name": "Vinings Gallery",
-      "relevance_score": 9,
-      "scoring_notes": "Special artist weekend"
-    }
-  ],
-  "dropped_candidates": [
-    {
-      "candidate_index": 7,
-      "reason": "Restaurant — out of scope"
-    },
-    {
-      "candidate_index": 11,
-      "reason": "Walmart location — chain, not local"
-    }
-  ]
-}
-```
+---
 
-### Field definitions
-- `candidate_index` — MUST match an index from the input list. Never invent.
-- `name` — clean business name
-- `city` — the city the business is in (used for the outside-coverage check)
-- `is_outside_coverage` — `true` if outside the newsletter's `search_areas` (lead the blurb with the "short drive" framing); `false` if within
-- `blurb` — 150-200 word body in the voice above. Plain text + `\n\n` between paragraphs. No Markdown bold/links inside the blurb (those go in the metadata block, which the assembler renders separately).
-- `price_level` — `$` / `$$` / `$$$` / `$$$$` based on typical spend
-- `hours` — natural language hours pulled from the source data, or "Hours vary, see website" if unclear
-- `address` — full street address, including city and ZIP if available
-- `relevance_score` — 1-10 per rubric
-- `scoring_notes` — short reason for the score (used for review-app context, not published)
-- `businesses` — array of EXACTLY THREE entries, ranked best-first. Reviewers pick one in the review app.
-- `all_scored` — top 3-5 ranked candidates (every entry in `businesses` also appears here for the review context)
-- `dropped_candidates` — brief reasons for excluded candidates (restaurants, chains, ambiguous, etc.)
+## Guardrails
 
-## Quality Gates
+- Do not invent details. If you cannot confirm something, leave it out.
+- Do not write in superlatives like "the best," "amazing," or "incredible" unless pulled directly from a review and attributed.
+- If the business has very few reviews or almost no web presence, say so and flag it for the user before writing the blurb.
+- Do not write about restaurants. There is a separate skill for that.
+- Keep it positive but honest. If reviews show a consistent issue (slow service, limited hours, hard to find), it is okay to mention it in a neutral, useful way.
+- The blurb should work for any city, not just East Cobb or Sandy Springs. Do not hardcode location references into the tone.
 
-Before returning:
-- `businesses` contains exactly 3 entries, ordered best-first by `relevance_score`
-- Every pick's `blurb` is 150-200 words and uses the structure above
-- Each pick is a DISTINCT business — never the same place twice with different framing
-- Outside-coverage businesses lead with the "short drive" framing in the hook
-- No em dashes anywhere
-- No hype words
-- No invented facts
-- `address` is real (not "Various locations" or "TBD")
-- None of the picks are restaurants or chains
+---
 
-## Critical Reminders
+## Notes on Business Types
 
-- Return ONLY valid JSON — no markdown fences, no preamble
-- Do NOT output the source URL in any field — pipeline attaches it from `candidate_index`
-- Only use facts from the candidate data
-- The voice is the deliverable. A correct-but-bland blurb fails. A short-but-warm blurb passes.
+Retail shops: Focus on what is on the shelves, the feel of the store, and whether it is the kind of place you browse or go in knowing what you want.
+
+Service businesses (gyms, salons, spas, studios): Focus on the experience, the staff, and what customers say about results or how they felt leaving.
+
+Mixed (boutique with classes, shop with services): Lead with whichever side is stronger based on reviews.
