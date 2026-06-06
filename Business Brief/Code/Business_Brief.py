@@ -50,11 +50,27 @@ SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter
 # Places searchNearby radius per newsletter. ~10 miles covers the whole
 # East Cobb / Perimeter / Lewisville footprints comfortably.
 SEARCH_RADIUS_METERS = 16093  # ≈ 10 miles
-# Minimum quality bar so Claude doesn't see businesses no real
-# customer has reviewed. Tuned conservatively — adjust if the pool
-# is consistently too small.
-MIN_RATING       = 4.2
-MIN_REVIEW_COUNT = 25
+# Quality bar — TIERED so genuine small businesses (few but strong
+# reviews) make the pool, while thin / low-signal listings are dropped.
+# East Cobb has many small businesses with great ratings but modest
+# review counts, so a flat "25+ reviews" bar starved the pool.
+#   * Established (>= HIGH_VOLUME_REVIEWS): a normal rating bar.
+#   * Small (MIN_REVIEWS_FLOOR..HIGH_VOLUME_REVIEWS): must be strongly
+#     rated, since each review carries more weight.
+#   * Below MIN_REVIEWS_FLOOR: too little signal to trust — dropped.
+MIN_REVIEWS_FLOOR    = 5
+HIGH_VOLUME_REVIEWS  = 25
+RATING_HIGH_VOLUME   = 4.0   # for established businesses
+RATING_SMALL_BIZ     = 4.5   # for low-review-count small businesses
+
+
+def passes_quality_bar(rating: float, reviews: int) -> bool:
+    """Tiered quality gate (see notes above)."""
+    if reviews < MIN_REVIEWS_FLOOR:
+        return False
+    if reviews >= HIGH_VOLUME_REVIEWS:
+        return rating >= RATING_HIGH_VOLUME
+    return rating >= RATING_SMALL_BIZ
 
 # Whitelist of place types eligible for Business Brief. Conservative
 # subset of Google Places API Table A types — the searchNearby endpoint
@@ -100,9 +116,10 @@ CHAIN_NAME_TOKENS = {
     "michaels", "hobby lobby", "joann",
     "ikea", "wayfair",
     "at&t", "verizon", "t-mobile",
-    "planet fitness", "la fitness", "ymca", "orangetheory", "anytime fitness",
+    "planet fitness", "la fitness", "life time", "ymca", "orangetheory", "anytime fitness",
     "supercuts", "great clips", "sport clips", "fantastic sams",
     "massage envy", "european wax center",
+    "dick's", "academy sports", "rei",
 }
 
 
@@ -209,8 +226,8 @@ def fetch_businesses_from_places(newsletter: dict, excluded_urls: set) -> list[d
         if any(t in BUSINESS_EXCLUDED_TYPES for t in types):
             print(f"  ✗ Restaurant-tagged skipped: {name} ({types[:3]})")
             continue
-        # Quality bar
-        if rating < MIN_RATING or reviews < MIN_REVIEW_COUNT:
+        # Quality bar (tiered — lets strong small businesses through)
+        if not passes_quality_bar(rating, reviews):
             print(f"  ✗ Below quality bar: {name} ({rating}★, {reviews} reviews)")
             continue
 
