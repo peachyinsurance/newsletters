@@ -1,5 +1,24 @@
 [
   {
+    "source_url": "",
+    "business_name": "",
+    "city": "",
+    "blurb": "",
+    "price_level": "",
+    "hours": "",
+    "address": "",
+    "source_domain": "",
+    "image_url": "",
+    "image_candidates": [],
+    "scoring_notes": "",
+    "relevance_score": "0",
+    "total_score": "0",
+    "date_generated": "",
+    "status": "pending",
+    "newsletter_name": "",
+    "default_winner": ""
+  },
+  {
     "source_url": "https://www.tulliasage.com/",
     "business_name": "Tullia Sage",
     "city": "Lewisville",
@@ -20,7 +39,7 @@
     "relevance_score": "7",
     "total_score": "7",
     "date_generated": "2026-05-28",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "Lewisville_Lake_Lookout",
     "default_winner": ""
   },
@@ -45,7 +64,7 @@
     "relevance_score": "7",
     "total_score": "7",
     "date_generated": "2026-05-28",
-    "status": "pending",
+    "status": "approved",
     "newsletter_name": "Lewisville_Lake_Lookout",
     "default_winner": ""
   },
@@ -70,9 +89,9 @@
     "relevance_score": "8",
     "total_score": "8",
     "date_generated": "2026-05-28",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "Lewisville_Lake_Lookout",
-    "default_winner": ""
+    "default_winner": "yes"
   },
   {
     "source_url": "https://www.idealdiamond.com/",
@@ -147,7 +166,7 @@
     "date_generated": "2026-05-28",
     "status": "approved",
     "newsletter_name": "Perimeter_Post",
-    "default_winner": ""
+    "default_winner": "yes"
   },
   {
     "source_url": "https://www.totalwine.com/store-info/georgia-kennesaw/802?cid=referral:website_link::momentfeed:802_keenesaw_store_details_page:",
