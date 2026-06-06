@@ -1,5 +1,14 @@
 name: Scrape Weekend Events
 
+# ── CHAIN ENTRY POINT ──────────────────────────────────────────────
+# This is the canonical start of the full newsletter chain. It scrapes
+# every source ONCE into the shared Notion Weekend Events DB, then
+# dispatches the downstream sections WITHOUT data_source — so they read
+# from Notion and do NOT re-scrape. Launch the chain here. Only run a
+# section workflow (Featured Event / Free Events / Weekend Planner) with
+# data_source=scrape for an isolated standalone refresh — doing so while
+# the entry scraper already ran that day is redundant double work.
+#
 # Free scrapers only — every step in this workflow is a direct HTTP
 # fetch with no per-event cost. We previously had a paid Apify
 # Eventbrite layer; it was removed because the spend / yield ratio

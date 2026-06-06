@@ -22,7 +22,7 @@ on:
           - 'true'
           - 'false'
       data_source:
-        description: 'Where to pull events from. "notion" = use whatever the last scrape saved (fast). "scrape" = re-run web scrapers first to refresh the Notion DB.'
+        description: 'Where to pull events from. "notion" = use whatever the last scrape saved (fast). "scrape" = re-run web scrapers first to refresh the Notion DB. CHAIN RUNS: leave this on "notion". The chain is launched from "Scrape Weekend Events", which scrapes once; data_source is NOT forwarded downstream, so set "scrape" here only for an isolated standalone run of this workflow.'
         required: false
         default: 'notion'
         type: choice
