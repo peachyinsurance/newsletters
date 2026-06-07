@@ -818,21 +818,19 @@ FEATURED_RESTAURANT_COUNT = 1
 
 
 def get_restaurants(newsletter_name: str) -> list[dict]:
-    """Get this week's featured restaurant(s) for a newsletter.
+    """Get this week's single featured restaurant for a newsletter.
 
-    Returns at most FEATURED_RESTAURANT_COUNT rows (1 today — the Tier 1
-    Winner). The review app may approve a Tier 1 Winner plus several Tier 2
-    runner-ups in Notion, but only the top pick(s) are published.
+    Returns at most FEATURED_RESTAURANT_COUNT rows (1).
 
     Priority order:
-      1. Tier 1/Tier 2 Winners — explicitly approved by the user
-      2. Default-winner fallback — when no winners exist, pick the row with
-         Default Winner=True (auto-flagged by the pipeline) plus the next
-         couple highest-scored rows from the most recent batch as Tier 2 stand-ins
+      1. The 'approved' pick — explicitly approved in the review app (legacy
+         'Tier 1 Winner' rows are also honored during the transition).
+      2. Default-winner fallback — when nothing is approved, the row flagged
+         Default Winner=True (auto-picked by the pipeline) from the most
+         recent batch.
 
     The fallback ensures Send-to-Beehiiv always has a restaurant to feature
-    even when no one approved manually this week. The list is always sorted
-    Tier-1-first, so the published feature is the intended winner.
+    even when no one approved manually this week.
     """
     try:
         pages = query_database(NOTION_RESTAURANTS_DB_ID)
