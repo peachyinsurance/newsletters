@@ -1767,7 +1767,13 @@ def get_existing_tip_urls(newsletter_name: str) -> set:
         })
         urls = set()
         for page in pages:
-            url = page["properties"].get("Source URL", {}).get("url", "")
+            props = page["properties"]
+            # Rejected tips stay ELIGIBLE for future pools — keep their URLs
+            # out of the exclusion set so the same source can be re-offered.
+            status = (props.get("Status", {}).get("select") or {}).get("name", "")
+            if status == "rejected":
+                continue
+            url = props.get("Source URL", {}).get("url", "")
             if url:
                 urls.add(url)
         return urls
@@ -1798,6 +1804,12 @@ def get_existing_tip_subjects(newsletter_name: str, months_back: int = 6) -> lis
     subjects = []
     for page in pages:
         props = page.get("properties", {})
+
+        # Don't tell Claude to avoid REJECTED tip subjects — they stay
+        # eligible to be re-proposed in a future pool.
+        status = (props.get("Status", {}).get("select") or {}).get("name", "")
+        if status == "rejected":
+            continue
 
         def _rt(field: str) -> str:
             items = props.get(field, {}).get("rich_text", [])
@@ -2403,7 +2415,14 @@ def get_existing_business_brief_urls(newsletter_name: str) -> set:
         })
         urls = set()
         for page in pages:
-            url = page["properties"].get("Source URL", {}).get("url", "")
+            props = page["properties"]
+            # Rejected businesses stay ELIGIBLE for future candidate pools, so
+            # keep their URLs OUT of the exclusion set. Only already-used picks
+            # (approved / approved - old) and current pending stay excluded.
+            status = (props.get("Status", {}).get("select") or {}).get("name", "")
+            if status == "rejected":
+                continue
+            url = props.get("Source URL", {}).get("url", "")
             if url:
                 urls.add(url)
         return urls
@@ -2422,6 +2441,21 @@ def save_business_briefs_to_notion(results: list, newsletter_name: str) -> None:
     print(f"  Saving {len(results)} business briefs to Notion for {newsletter_name}...")
     existing_urls = get_existing_business_brief_urls(newsletter_name)
     print(f"  Found {len(existing_urls)} existing entries to skip")
+
+    # Map previously-REJECTED rows for this newsletter so a re-surfaced
+    # business reuses its row (flipped back to pending) instead of creating a
+    # duplicate. Rejected items are eligible again, but we don't want two rows.
+    rejected_rows = {}
+    try:
+        for page in query_database(NOTION_BUSINESS_BRIEF_DB_ID, filters={
+                "property": "Newsletter", "select": {"equals": newsletter_name}}):
+            p = page["properties"]
+            if (p.get("Status", {}).get("select") or {}).get("name", "") == "rejected":
+                u = p.get("Source URL", {}).get("url", "")
+                if u:
+                    rejected_rows[u] = page["id"]
+    except Exception:
+        rejected_rows = {}
 
     saved = 0
     for data in results:
@@ -2459,6 +2493,12 @@ def save_business_briefs_to_notion(results: list, newsletter_name: str) -> None:
         if price in ("$", "$$", "$$$", "$$$$"):
             properties["Price Level"] = {"select": {"name": price}}
 
-        create_page(NOTION_BUSINESS_BRIEF_DB_ID, properties)
+        if source_url and source_url in rejected_rows:
+            # Re-surfaced a previously-rejected business: reuse its row
+            # (flips Status back to pending + refreshes content) — no duplicate.
+            update_page(rejected_rows[source_url], properties)
+            print(f"  ♻ Re-proposing previously rejected: {data.get('name')}")
+        else:
+            create_page(NOTION_BUSINESS_BRIEF_DB_ID, properties)
         saved += 1
     print(f"  Saved {saved} new business briefs to Notion for {newsletter_name}")
