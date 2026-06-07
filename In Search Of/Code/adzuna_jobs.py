@@ -25,7 +25,33 @@ ADZUNA_APP_KEY = os.environ.get("ADZUNA_APP_KEY", "")
 _BASE         = "https://api.adzuna.com/v1/api/jobs/us/search/1"
 DISTANCE_KM   = 24    # ~15 miles
 MAX_DAYS_OLD  = 21
-RESULTS_PAGE  = 30    # pull a page, then filter + cap
+RESULTS_PAGE  = 30    # pull a page, then validate + cap
+
+_VALIDATE_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+}
+
+
+_DEAD_STATUSES = {404, 410}
+
+
+def _url_is_live(url: str) -> bool:
+    """Keep a URL unless it is CONFIRMED dead (404 / 410). We follow redirects
+    with a browser UA; ambiguous results (403 bot-walls, 5xx, timeouts, network
+    errors) are KEPT rather than risk dropping a live posting. The goal is to
+    keep broken 'Apply' links out of the newsletter, not to over-prune."""
+    if not url:
+        return False
+    try:
+        r = requests.head(url, headers=_VALIDATE_HEADERS, timeout=12, allow_redirects=True)
+        if r.status_code in (403, 405):
+            # Host won't answer HEAD — confirm with a bodyless GET.
+            r = requests.get(url, headers=_VALIDATE_HEADERS, timeout=15,
+                             allow_redirects=True, stream=True)
+        return r.status_code not in _DEAD_STATUSES
+    except Exception:
+        return True   # network hiccup — don't drop a possibly-live link
 
 
 def _location_for(newsletter: dict) -> str:
@@ -83,6 +109,7 @@ def fetch_adzuna_jobs(newsletter: dict, limit: int = 8) -> list[dict]:
 
     rows: list[dict] = []
     seen: set[str] = set()
+    dead = 0
     for j in results:
         url     = (j.get("redirect_url") or "").strip()
         title   = unescape((j.get("title") or "").strip())
@@ -92,6 +119,11 @@ def fetch_adzuna_jobs(newsletter: dict, limit: int = 8) -> list[dict]:
         if not (url and title) or url in seen:
             continue
         seen.add(url)
+
+        # Only pass through live apply links — drop ads Adzuna no longer serves.
+        if not _url_is_live(url):
+            dead += 1
+            continue
 
         salary = _salary_str(j)
         parts = [f"JOB POSTING: {title}"]
@@ -117,5 +149,6 @@ def fetch_adzuna_jobs(newsletter: dict, limit: int = 8) -> list[dict]:
         if len(rows) >= limit:
             break
 
-    print(f"  → Adzuna: {len(rows)} posting(s) near {where}")
+    print(f"  → Adzuna: {len(rows)} live posting(s) near {where}"
+          + (f" ({dead} dead link(s) skipped)" if dead else ""))
     return rows
