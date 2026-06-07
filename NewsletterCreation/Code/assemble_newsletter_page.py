@@ -16,6 +16,8 @@ import os
 import re
 import sys
 import json
+import base64
+import hashlib
 import requests
 from datetime import datetime, timedelta
 
@@ -2055,6 +2057,88 @@ def _extract_file_or_url(prop: dict) -> str:
     return ""
 
 
+_GH_OWNER = "peachyinsurance"
+_GH_REPO  = "newsletters"
+
+
+def _is_notion_temp_url(url: str) -> bool:
+    """True for Notion-hosted (uploaded) file URLs, whose signed S3 links
+    expire ~1 hour after they're generated — so embedding them directly in a
+    Notion page leaves a broken image once they lapse."""
+    u = (url or "").lower()
+    return ("amazonaws.com" in u and
+            ("x-amz-" in u or "notion-static" in u or "prod-files-secure" in u))
+
+
+def _publish_image_to_gh_pages(image_bytes: bytes, path: str) -> str:
+    """Commit `image_bytes` to gh-pages at `path` via the GitHub Contents API.
+    Idempotent: skips the commit when the existing blob is byte-identical.
+    gh-pages deploys use keep_files:true, so the file persists. Returns the
+    permanent gh-pages URL, or "" on any failure (caller falls back)."""
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if not token or not image_bytes:
+        return ""
+    api    = f"https://api.github.com/repos/{_GH_OWNER}/{_GH_REPO}/contents/{path}"
+    public = f"https://{_GH_OWNER}.github.io/{_GH_REPO}/{path}"
+    headers = {"Authorization": f"Bearer {token}",
+               "Accept": "application/vnd.github+json"}
+    # git blob sha = sha1("blob <len>\0<content>") — matches what the API returns.
+    blob_sha = hashlib.sha1(b"blob %d\0" % len(image_bytes) + image_bytes).hexdigest()
+    sha = None
+    try:
+        g = requests.get(api + "?ref=gh-pages", headers=headers, timeout=15)
+        if g.status_code == 200:
+            existing = g.json()
+            if existing.get("sha") == blob_sha:
+                return public  # already up to date — no commit
+            sha = existing.get("sha")
+    except Exception:
+        pass
+    body = {
+        "message": f"sponsor logo: {path} [skip ci]",
+        "content": base64.b64encode(image_bytes).decode(),
+        "branch":  "gh-pages",
+    }
+    if sha:
+        body["sha"] = sha
+    try:
+        p = requests.put(api, headers=headers, json=body, timeout=20)
+        if p.status_code in (200, 201):
+            return public
+        print(f"  ⚠ sponsor logo publish failed: {p.status_code} {p.text[:160]}")
+    except Exception as e:
+        print(f"  ⚠ sponsor logo publish error: {e}")
+    return ""
+
+
+def _stabilize_image_url(url: str, newsletter: str, kind: str) -> str:
+    """If `url` is a Notion-uploaded (expiring) file URL, download it and
+    re-host it on gh-pages so the embedded image never expires. Permanent /
+    external URLs pass through unchanged. Falls back to the original URL on
+    any problem (e.g. no GITHUB_TOKEN)."""
+    if not url or not _is_notion_temp_url(url):
+        return url
+    try:
+        r = requests.get(url, timeout=20)
+        if r.status_code != 200 or not r.content:
+            return url
+        ct  = (r.headers.get("Content-Type") or "").lower()
+        ext = (".png" if "png" in ct else
+               ".jpg" if ("jpeg" in ct or "jpg" in ct) else
+               ".gif" if "gif" in ct else
+               ".svg" if "svg" in ct else
+               ".webp" if "webp" in ct else ".png")
+        slug = re.sub(r"[^a-z0-9]+", "-", newsletter.lower()).strip("-")
+        path = f"sponsor_logos/{slug}_{kind}{ext}"
+        permanent = _publish_image_to_gh_pages(r.content, path)
+        if permanent:
+            # cache-bust so a changed sponsor logo refreshes in-page
+            return f"{permanent}?v={hashlib.md5(r.content).hexdigest()[:8]}"
+    except Exception as e:
+        print(f"  ⚠ sponsor logo re-host failed: {e}")
+    return url
+
+
 def get_sponsor(newsletter_name: str) -> dict | None:
     """Fetch this week's approved sponsor for the given newsletter.
     Sponsor DB schema (per the user's existing layout):
@@ -2117,8 +2201,8 @@ def get_sponsor(newsletter_name: str) -> dict | None:
         "blurb":     _rt("blurb"),
         "hours":     _rt("hours"),
         "website":   (props.get("website") or {}).get("url", "") or "",
-        "logo_url":  _extract_file_or_url(props.get("Logo") or {}),
-        "image_url": _extract_file_or_url(props.get("images") or {}),
+        "logo_url":  _stabilize_image_url(_extract_file_or_url(props.get("Logo") or {}), newsletter_name, "logo"),
+        "image_url": _stabilize_image_url(_extract_file_or_url(props.get("images") or {}), newsletter_name, "image"),
     }
 
 

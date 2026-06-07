@@ -41,6 +41,9 @@ on:
         required: false
         default: 'false'
 
+permissions:
+  contents: write   # assembler re-hosts the sponsor logo to gh-pages
+
 jobs:
   assemble:
     runs-on: ubuntu-latest
@@ -68,6 +71,7 @@ jobs:
           NOTION_IN_SEARCH_OF_DB_ID: ${{ secrets.NOTION_IN_SEARCH_OF_DB_ID }}
           NOTION_SPONSOR_DB_ID:     ${{ secrets.NOTION_SPONSOR_DB_ID }}
           NOTION_PARENT_PAGE_ID:    ${{ secrets.NOTION_PARENT_PAGE_ID }}
+          GITHUB_TOKEN:             ${{ secrets.GITHUB_TOKEN }}
           SECTION:                  ${{ github.event.inputs.section || 'all' }}
           NEWSLETTER:               ${{ github.event.inputs.newsletter || 'all' }}
           WEEKEND_AUDIENCE:         ${{ github.event.inputs.weekend_audience || 'both' }}
