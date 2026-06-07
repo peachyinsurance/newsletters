@@ -309,6 +309,43 @@ def export_insurance_tips():
     print(f"Exported {len(tips)} insurance tips to insurance_tips.json")
 
 
+def export_in_search_of():
+    """Export In Search Of rows (job postings + employer spotlights) for the
+    review app. Skips approved-old."""
+    db_id = os.environ.get("NOTION_IN_SEARCH_OF_DB_ID", "")
+    jobs = []
+    pages = []
+    if not db_id:
+        # In Search Of may not have a DB yet — still write an empty file so the
+        # deploy's cp step never fails and the review app shows "no candidates".
+        print("⚠ NOTION_IN_SEARCH_OF_DB_ID empty — writing empty in_search_of.json")
+    else:
+        from notion_helper import query_database  # local import (avoid top-of-file change)
+        pages = query_database(db_id)
+    for page in pages:
+        props = page["properties"]
+        status_val = extract_text(props.get("Status", {})) or "pending"
+        if status_val == "approved - old":
+            continue
+        jobs.append({
+            "employer":         extract_text(props.get("Employer", {})),
+            "job_listings_url": extract_text(props.get("Job Listings URL", {})),
+            "scraped_snippet":  extract_text(props.get("Scraped Snippet", {})),
+            "description":      extract_text(props.get("Description", {})),
+            "roles":            extract_text(props.get("Roles", {})),
+            "city":             extract_text(props.get("City", {})),
+            "image_url":        extract_text(props.get("Image URL", {})),
+            "bonus":            "yes" if extract_text(props.get("Bonus", {})) else "",
+            "date_generated":   extract_text(props.get("Date Generated", {})),
+            "status":           status_val,
+            "newsletter_name":  extract_text(props.get("Newsletter", {})),
+        })
+
+    with open("in_search_of.json", "w", encoding="utf-8") as f:
+        json.dump(jobs, f, indent=2, ensure_ascii=False)
+    print(f"Exported {len(jobs)} In Search Of rows to in_search_of.json")
+
+
 if __name__ == "__main__":
     export_pets()
     export_restaurants()
@@ -316,3 +353,4 @@ if __name__ == "__main__":
     export_business_briefs()
     export_memes()
     export_insurance_tips()
+    export_in_search_of()

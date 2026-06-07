@@ -6,6 +6,7 @@ import RestaurantTile from "./RestaurantTile";
 import FeaturedEventTile from "./FeaturedEventTile";
 import BusinessBriefTile from "./BusinessBriefTile";
 import InsuranceTipTile from "./InsuranceTipTile";
+import InSearchOfTile from "./InSearchOfTile";
 import MemeTile from "./MemeTile";
 
 
@@ -227,6 +228,39 @@ const SECTIONS = {
       h1Prefix:   "Pick This Week's",
       h1Emphasis: "Insurance Tip",
       sub:        "Review candidates and approve the one that best fits the newsletter.",
+    },
+  },
+
+  in_search_of: {
+    dataFile:        "in_search_of.json",
+    idField:         "job_listings_url",
+    nameField:       "employer",
+    approveWorkflow: "approve_in_search_of.yml",
+    approveInputs:   (item) => ({ job_listings_url: item.job_listings_url, newsletter: item.newsletter_name || "" }),
+    redoWorkflow:    (newsletter) => `redo_${newsletter.toLowerCase()}.yml`,
+    redoSection:     "in_search_of",
+    approvedStatus:  "approved",
+    rejectedStatus:  "rejected",
+    storageKey:      "approved_job_ids",
+    sectionPrefix:   "in_search_of",
+    TileComponent:   InSearchOfTile,
+    itemPropName:    "job",
+    label:           "In Search Of",
+    navIcon:         "🔍",
+    loadingText:     "Loading this week's job listings...",
+    emptyText:       "No pending listings found. Run the In Search Of scraper.",
+    statusBarText:   (count) => `${count} job listings this week — approve the ones to feature`,
+    emptyCandidatesText: () => ({ title: "No candidates", sub: "Run the In Search Of scraper (or set NOTION_IN_SEARCH_OF_DB_ID)." }),
+    filterCandidates: (items) => ({ candidates: items, extra: {} }),
+    renderDefaultWinners: () => ({ label: "Approval Progress", rows: [] }),
+    multiSelect:     true,
+    maxApprovals:    8,
+    rejectRemainingWorkflow: "approve_in_search_of.yml",
+    header: {
+      eyebrow:    "Newsletter In Search Of Review",
+      h1Prefix:   "Pick This Week's",
+      h1Emphasis: "Job Listings",
+      sub:        "Approve the listings to feature. After your picks, click \"Reject the rest\" to clear remaining pending rows.",
     },
   },
 
