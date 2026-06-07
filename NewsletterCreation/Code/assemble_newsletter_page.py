@@ -809,11 +809,11 @@ def _restaurant_row_to_dict(props: dict, status: str) -> dict:
     }
 
 
-# How many restaurants the published newsletter features. The review app
-# still tiers up to 5 candidates in Notion (1 Tier 1 Winner + N Tier 2), but
-# only this many — the top, Tier-1-first — are rendered into the Notion page,
-# the Beehiiv email, the subject-line context, and the "In Today's Connect"
-# teaser. Bump this if you ever want to surface runner-ups again.
+# How many restaurants the published newsletter features (single pick). The
+# review app surfaces several candidates in Notion; only this many — the
+# approved pick (or the default-winner fallback) — are rendered into the
+# Notion page, the Beehiiv email, the subject-line context, and the "In
+# Today's Connect" teaser.
 FEATURED_RESTAURANT_COUNT = 1
 
 
@@ -884,33 +884,18 @@ def get_restaurants(newsletter_name: str) -> list[dict]:
         latest = max(dates)
         dated = [t for t in dated if t[3] == latest]
 
-    # Promote default winner to Tier 1 stand-in; next 2 by score → Tier 2 stand-ins
-    default_winner = None
-    others = []
-    for page, props, status, _ in dated:
-        is_default = props.get("Default Winner", {}).get("checkbox") or False
-        if is_default and default_winner is None:
-            default_winner = props
-        else:
-            others.append(props)
-
-    fallback_results = []
-    if default_winner:
-        fb = _restaurant_row_to_dict(default_winner, "Tier 1 Winner")
-        fb["_is_fallback"] = True
-        fallback_results.append(fb)
-        print(f"  ⓘ Restaurants for {newsletter_name}: no winners, using default-winner fallback: {fb['name']}")
-    # Add up to 2 more high-scoring as Tier 2 stand-ins
-    others.sort(key=lambda p: -(p.get("Total Score", {}).get("number") or 0))
-    for o in others[:2]:
-        fb = _restaurant_row_to_dict(o, "Tier 2 Winner")
-        fb["_is_fallback"] = True
-        fallback_results.append(fb)
-
-    if fallback_results:
-        print(f"  ⓘ Restaurants fallback total: {len(fallback_results)} (default + top-scored), "
-              f"publishing top {FEATURED_RESTAURANT_COUNT}")
-    return fallback_results[:FEATURED_RESTAURANT_COUNT]
+    # Single featured restaurant: fall back to the default-winner row
+    # (auto-flagged by the pipeline) from the most recent batch.
+    default_winner = next(
+        (props for _p, props, _s, _d in dated
+         if props.get("Default Winner", {}).get("checkbox")), None)
+    if not default_winner:
+        return []
+    fb = _restaurant_row_to_dict(default_winner, "approved")
+    fb["_is_fallback"] = True
+    print(f"  ⓘ Restaurants for {newsletter_name}: no approved pick — "
+          f"using default-winner fallback: {fb['name']}")
+    return [fb][:FEATURED_RESTAURANT_COUNT]
 
 
 def get_latest_lowdown(newsletter_name: str) -> str | None:
