@@ -155,6 +155,17 @@ jobs:
           NEWSLETTER:                  ECC_PP
         run: python "Weekend Events/Code/Perimeter_Post/sandy_springs.py"
 
+      - name: Scrape Springs Cinema & Taphouse (ECC_PP shared — runs with ECC)
+        continue-on-error: true
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup'
+             && contains(fromJson('["all","East_Cobb_Connect"]'),
+                         github.event.inputs.newsletter || 'all') }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ECC_PP
+        run: python "Weekend Events/Code/Perimeter_Post/springs_cinema.py"
+
       # ── PP group ───────────────────────────────────────────────────────
       - name: Scrape discoverdunwoody.com (Perimeter Post)
         continue-on-error: true

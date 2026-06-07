@@ -86,6 +86,14 @@ jobs:
           NEWSLETTER:                  ECC_PP
         run: python "Weekend Events/Code/Perimeter_Post/sandy_springs.py"
 
+      - name: Refresh Springs Cinema & Taphouse (ECC_PP shared pool)
+        if: ${{ github.event.inputs.data_source == 'scrape' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ECC_PP
+        run: python "Weekend Events/Code/Perimeter_Post/springs_cinema.py"
+
       - name: Refresh discoverdunwoody.com (Perimeter Post)
         if: ${{ github.event.inputs.data_source == 'scrape' }}
         env:
