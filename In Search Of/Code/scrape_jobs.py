@@ -169,6 +169,27 @@ def _save_rows(rows: list[dict], existing: dict) -> tuple[int, int, int]:
     return saved, updated, dropped
 
 
+def _diagnose_db(db_id: str) -> None:
+    """Pinpoint a Notion 404: is this ID a database the integration can see,
+    a PAGE (wrong id), or invisible (shared with a different integration)?"""
+    import requests as _rq
+    from notion_helper import HEADERS as _H  # the NOTION_API_KEY integration
+    db = _rq.get(f"https://api.notion.com/v1/databases/{db_id}", headers=_H, timeout=20)
+    if db.ok:
+        title = "".join(t.get("plain_text", "") for t in (db.json().get("title") or []))
+        print(f"  ✓ Database is visible to the integration: '{title or '(untitled)'}'")
+        return
+    pg = _rq.get(f"https://api.notion.com/v1/pages/{db_id}", headers=_H, timeout=20)
+    if pg.ok:
+        print("  ✗ This ID is a PAGE, not a database. The database is likely INLINE inside "
+              "that page. Open the database as a full page (hover its title → Open / "
+              "'Copy link to view') and use THAT id for NOTION_IN_SEARCH_OF_DB_ID.")
+    else:
+        print("  ✗ The integration behind NOTION_API_KEY cannot see this id as a database OR a "
+              "page. It's shared with a DIFFERENT integration than the API key, or the id is "
+              f"wrong. (db retrieve: {db.status_code} {db.text[:140]})")
+
+
 def main() -> int:
     if not NOTION_IN_SEARCH_OF_DB_ID:
         print("✗ NOTION_IN_SEARCH_OF_DB_ID not set in env")
@@ -176,6 +197,7 @@ def main() -> int:
 
     print(f"In Search Of scrape — {NEWSLETTER}")
     print(f"  → Notion DB:  {NOTION_IN_SEARCH_OF_DB_ID[:8]}…")
+    _diagnose_db(NOTION_IN_SEARCH_OF_DB_ID)
 
     existing = existing_source_urls(NOTION_IN_SEARCH_OF_DB_ID, newsletter=NEWSLETTER)
     print(f"  → Existing:   {len(existing)} URLs already in DB for {NEWSLETTER}")
