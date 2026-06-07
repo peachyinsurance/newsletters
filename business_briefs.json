@@ -369,31 +369,6 @@
     "default_winner": ""
   },
   {
-    "source_url": "https://www.midtown.com/locations/atlanta/?utm_source=google&utm_medium=organic&utm_campaign=gbp",
-    "business_name": "Windy Hill Athletic Club",
-    "city": "Atlanta",
-    "blurb": "Fair warning: Windy Hill Athletic Club is a short drive from East Cobb, just over in the Cumberland area off Interstate North Parkway, but if you've been looking for a gym that feels like a real community rather than a membership card factory, this one is worth the commute.\n\nThey run group fitness classes including BodyPump, have personal trainers on staff, and a team at the front desk that reviewers keep singling out by name. Michelle at the front desk gets mentioned repeatedly, and trainer Dez has had members coming back for five-plus years. Those are not things you see at a Planet Fitness.\n\nA lot of parents in the reviews mention joining after having kids, partly because the class schedule gives them something to actually look forward to again. The staff apparently makes a point of checking in with members individually rather than just scanning badges.\n\nIf you've been meaning to get back into a routine, this is probably a friendlier place to restart than a warehouse-style gym.",
-    "price_level": "$$",
-    "hours": "Hours vary, see website",
-    "address": "135 Interstate N Pkwy, Atlanta, GA 30339",
-    "source_domain": "midtown.com",
-    "image_url": "https://peachyinsurance.github.io/newsletters/gifs/business_brief_gif_East_Cobb_Connect_Windy_Hill_Athletic_Club.gif?v=1780249322",
-    "image_candidates": [
-      "https://lh3.googleusercontent.com/place-photos/AJRVUZMwylHtkUd0Yr5OuGYvv0K6MY-wLzNfhGoVu2fOjVTAl-Arxr5_w9o7iwxKrnEE269iHd7yvI7uM3u4OTHXMu-fawLIif8UtmD6uH_wPVwSbFy5EVvO-fnU-EuLzLnbsnVFqaW5MfXMj_VxYA=s4800-h576",
-      "https://lh3.googleusercontent.com/place-photos/AJRVUZMx7LkuD90AKxuT_W18nbKTFuGXOIODoSCmDtr-WEKAuBtg8Xrz_HCH-M2VeA5GhFs65qVuPishiX1PK3A9MZmY168cnBYLO3d96UBnhsDcUnf-k3-CPt2hpSGtZfXoTYh4CNlNgYbYOxs0yg=s4800-h729",
-      "https://lh3.googleusercontent.com/place-photos/AJRVUZMzNmQAHY-Ki8jf80wUVTC3OyhdNCX4IG9fzYpSKWByu-2CkqsGeT8FfIJFuWyjKqNU4vZEum0ur3N5IL4L8sRGqsaeA_GlDoRaSxJ0Mp0bEGQIRkAiqC4371fzNkS_xIMZ7qMN9iuwOHu4=s4800-h729",
-      "https://lh3.googleusercontent.com/place-photos/AJRVUZM5gZnPyk2LjkUaPtF0RRt5lMXoX3u6B3ocgNitgLZxRz0Fty31ydtQZlNqe5jAOpf0EOwjY0cUK8aACgoFZcL2mNyhqTIxjJZbMkfnVrCfjJmMJCnGkcL7YI-SIFvIveA3snpRopAYlm4YDw=s4800-h800",
-      "https://lh3.googleusercontent.com/place-photos/AJRVUZM0Aj_DiwWRskJyzHcRUT8r4DVK9cEQ6cQvVzzP25Cti4a4r5_rYzS2sIpkihzrSWVJ9qgmOO--G62ET1tJtyKvAWpn9Z1YbM7kTptepy79nL0JBjgcutSoL5vQXfoPh4vqYkiA59gMjD645w=s4800-h729"
-    ],
-    "scoring_notes": "Strong community gym with specific staff callouts in reviews; outside coverage area but very close to East Cobb via I-75/285 corridor",
-    "relevance_score": "6",
-    "total_score": "6",
-    "date_generated": "2026-05-28",
-    "status": "approved",
-    "newsletter_name": "East_Cobb_Connect",
-    "default_winner": "yes"
-  },
-  {
     "source_url": "http://www.foxparts.com/",
     "business_name": "Fox Appliance Parts",
     "city": "Marietta",
