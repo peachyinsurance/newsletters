@@ -269,9 +269,50 @@ def export_memes():
     print(f"Exported {len(memes)} memes to memes.json")
 
 
+def export_insurance_tips():
+    """Export Insurance Tip candidates for the review app. Skips
+    `approved - old` so archived weeks don't appear."""
+    db_id = os.environ.get("NOTION_TIPS_DB_ID", "")
+    if not db_id:
+        print("⚠ NOTION_TIPS_DB_ID empty — skipping insurance tips export")
+        return
+    from notion_helper import query_database  # local import (avoid top-of-file change)
+    pages = query_database(db_id)
+    tips = []
+    for page in pages:
+        props = page["properties"]
+        status_val = extract_text(props.get("Status", {})) or "pending"
+        if status_val == "approved - old":
+            continue
+        tips.append({
+            "tip_title":           extract_text(props.get("Tip Title", {})),
+            "topic":               extract_text(props.get("Topic", {})),
+            "blurb":               extract_text(props.get("Blurb", {})),
+            "summary":             extract_text(props.get("Summary", {})),
+            "source_url":          extract_text(props.get("Source URL", {})),
+            "source_name":         extract_text(props.get("Source Name", {})),
+            "sponsor_name":        extract_text(props.get("Sponsor Name", {})),
+            "category":            extract_text(props.get("Category", {})),
+            "total_score":         str(extract_text(props.get("Total Score", {}))),
+            "relevance_score":     str(extract_text(props.get("Relevance Score", {}))),
+            "actionability_score": str(extract_text(props.get("Actionability Score", {}))),
+            "timeliness_score":    str(extract_text(props.get("Timeliness Score", {}))),
+            "scoring_notes":       extract_text(props.get("Scoring Notes", {})),
+            "date_generated":      extract_text(props.get("Date Generated", {})),
+            "status":              status_val,
+            "newsletter_name":     extract_text(props.get("Newsletter", {})),
+            "default_winner":      "yes" if extract_text(props.get("Default Winner", {})) else "",
+        })
+
+    with open("insurance_tips.json", "w", encoding="utf-8") as f:
+        json.dump(tips, f, indent=2, ensure_ascii=False)
+    print(f"Exported {len(tips)} insurance tips to insurance_tips.json")
+
+
 if __name__ == "__main__":
     export_pets()
     export_restaurants()
     export_events()
     export_business_briefs()
     export_memes()
+    export_insurance_tips()

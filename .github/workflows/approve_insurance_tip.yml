@@ -1,0 +1,44 @@
+name: Approve Insurance Tip
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_url:
+        description: 'Source URL of the insurance tip to approve'
+        required: true
+      newsletter:
+        description: 'Newsletter the tip belongs to (prevents cross-newsletter approvals)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+      - name: Sync approval to Notion
+        env:
+          NOTION_API_KEY:      ${{ secrets.NOTION_API_KEY }}
+          NOTION_TIPS_DB_ID:   ${{ secrets.NOTION_TIPS_DB_ID }}
+          APPROVED_URL:        ${{ github.event.inputs.source_url }}
+          APPROVED_NEWSLETTER: ${{ github.event.inputs.newsletter }}
+        run: python "Insurance Tip/Code/approve_insurance_tip.py"
+
+      - name: Trigger newsletter page rebuild
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
+            -d '{"ref":"main","inputs":{"section":"tip"}}'
+          echo "✓ Newsletter page rebuild triggered"

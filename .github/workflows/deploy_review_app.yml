@@ -33,6 +33,7 @@ jobs:
           NOTION_EVENTS_DB_ID:         ${{ secrets.NOTION_EVENTS_DB_ID }}
           NOTION_BUSINESS_BRIEF_DB_ID: ${{ secrets.NOTION_BUSINESS_BRIEF_DB_ID }}
           NOTION_MEMES_DB_ID:          ${{ secrets.NOTION_MEMES_DB_ID }}
+          NOTION_TIPS_DB_ID:           ${{ secrets.NOTION_TIPS_DB_ID }}
         run: |
           pip install requests
           cd NewsletterCreation/Code
@@ -42,6 +43,7 @@ jobs:
           cp events.json ../../review-app/public/events.json
           cp business_briefs.json ../../review-app/public/business_briefs.json
           cp memes.json ../../review-app/public/memes.json
+          cp insurance_tips.json ../../review-app/public/insurance_tips.json
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

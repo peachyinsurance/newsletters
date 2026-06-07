@@ -5,6 +5,7 @@ import PetTile from "./PetTile";
 import RestaurantTile from "./RestaurantTile";
 import FeaturedEventTile from "./FeaturedEventTile";
 import BusinessBriefTile from "./BusinessBriefTile";
+import InsuranceTipTile from "./InsuranceTipTile";
 import MemeTile from "./MemeTile";
 
 
@@ -186,6 +187,46 @@ const SECTIONS = {
       h1Prefix:   "Pick This Week's",
       h1Emphasis: "Featured Business",
       sub:        "Review the three candidates, pick the photo that fits, and approve.",
+    },
+  },
+
+  insurance_tips: {
+    dataFile:        "insurance_tips.json",
+    idField:         "source_url",
+    nameField:       "tip_title",
+    approveWorkflow: "approve_insurance_tip.yml",
+    approveInputs:   (item) => ({ source_url: item.source_url, newsletter: item.newsletter_name || "" }),
+    redoWorkflow:    (newsletter) => `redo_${newsletter.toLowerCase()}.yml`,
+    redoSection:     "tip",
+    approvedStatus:  "approved",
+    rejectedStatus:  "rejected",
+    storageKey:      "approved_insurance_ids",
+    sectionPrefix:   "insurance_tips",
+    TileComponent:   InsuranceTipTile,
+    itemPropName:    "tip",
+    label:           "Insurance Tip",
+    navIcon:         "🛡️",
+    loadingText:     "Loading this week's insurance tip candidates...",
+    emptyText:       "No pending insurance tips found. Run the Insurance Tip pipeline.",
+    statusBarText:   (count) => `${count} insurance tip candidates this week`,
+    emptyCandidatesText: () => ({ title: "No candidates", sub: "Run the Insurance Tip pipeline." }),
+    filterCandidates: (items) => ({ candidates: items, extra: {} }),
+    renderDefaultWinners: (visibleItems) => {
+      const defaultWinner = visibleItems.find(t => t.default_winner === "yes");
+      return {
+        label: "Default Winner",
+        rows: [
+          { badgeClass: "winner-badge-rest", badgeText: "Tip",
+            name: defaultWinner ? defaultWinner.tip_title : "None set",
+            score: defaultWinner ? `${defaultWinner.total_score}/30` : null },
+        ],
+      };
+    },
+    header: {
+      eyebrow:    "Newsletter Insurance Tip Review",
+      h1Prefix:   "Pick This Week's",
+      h1Emphasis: "Insurance Tip",
+      sub:        "Review candidates and approve the one that best fits the newsletter.",
     },
   },
 
