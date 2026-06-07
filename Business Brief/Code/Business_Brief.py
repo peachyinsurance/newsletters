@@ -119,7 +119,7 @@ CHAIN_NAME_TOKENS = {
     "planet fitness", "la fitness", "life time", "ymca", "orangetheory", "anytime fitness",
     "supercuts", "great clips", "sport clips", "fantastic sams",
     "massage envy", "european wax center",
-    "dick's", "academy sports", "rei",
+    "dick's sporting goods", "academy sports", "rei",  # NOTE: "DICK'S House of Sport" is intentionally allowed
 }
 
 
