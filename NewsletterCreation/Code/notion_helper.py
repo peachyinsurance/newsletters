@@ -1030,7 +1030,13 @@ def get_featured_place_ids(newsletter_name: str) -> set:
         return set()
     place_ids = set()
     for page in pages:
-        pid = page["properties"].get("Place ID", {}).get("rich_text", [{}])
+        props = page["properties"]
+        # Rejected restaurants stay ELIGIBLE for future pools — keep them out
+        # of the exclusion set. Approved / approved - old / pending stay excluded.
+        status = (props.get("Status", {}).get("select") or {}).get("name", "")
+        if status == "rejected":
+            continue
+        pid = props.get("Place ID", {}).get("rich_text", [{}])
         if pid:
             place_ids.add(pid[0].get("text", {}).get("content", ""))
     print(f"Loaded {len(place_ids)} existing restaurants to exclude")
@@ -1045,7 +1051,12 @@ def get_existing_place_ids(newsletter_name: str) -> set:
         })
         place_ids = set()
         for page in pages:
-            pid = page["properties"].get("Place ID", {}).get("rich_text", [])
+            props = page["properties"]
+            # Rejected restaurants stay eligible for future pools.
+            status = (props.get("Status", {}).get("select") or {}).get("name", "")
+            if status == "rejected":
+                continue
+            pid = props.get("Place ID", {}).get("rich_text", [])
             if pid:
                 place_ids.add(pid[0].get("text", {}).get("content", ""))
         return place_ids
@@ -1057,6 +1068,20 @@ def save_restaurants_to_notion(results: list, newsletter_name: str) -> None:
     print(f"Saving {len(results)} restaurants to Notion...")
     existing_ids = get_existing_place_ids(newsletter_name)
     print(f"  Found {len(existing_ids)} existing entries to skip")
+
+    # Previously-REJECTED rows for this newsletter: a re-surfaced restaurant
+    # reuses its row (flipped back to pending) instead of creating a duplicate.
+    rejected_rows = {}
+    try:
+        for page in query_database(NOTION_RESTAURANTS_DB_ID, filters={
+                "property": "Newsletter", "select": {"equals": newsletter_name}}):
+            p = page["properties"]
+            if (p.get("Status", {}).get("select") or {}).get("name", "") == "rejected":
+                pid = p.get("Place ID", {}).get("rich_text", [])
+                if pid:
+                    rejected_rows[pid[0].get("text", {}).get("content", "")] = page["id"]
+    except Exception:
+        rejected_rows = {}
 
     saved = 0
     for data in results:
@@ -1092,7 +1117,11 @@ def save_restaurants_to_notion(results: list, newsletter_name: str) -> None:
             "Scoring Notes":          {"rich_text": [{"text": {"content": safe_str(data.get("scoring_notes"))}}]},
             "Default Winner":         {"checkbox": data.get("default_winner", "") == "yes"},
         }
-        create_page(NOTION_RESTAURANTS_DB_ID, properties)
+        if place_id and place_id in rejected_rows:
+            update_page(rejected_rows[place_id], properties)
+            print(f"  ♻ Re-proposing previously rejected: {data.get('restaurant_name')}")
+        else:
+            create_page(NOTION_RESTAURANTS_DB_ID, properties)
         print(f"  ✓ {data.get('restaurant_name')}")
         saved += 1
     print(f"Saved {saved} new restaurants to Notion")
@@ -1137,7 +1166,7 @@ def approve_restaurant_in_notion(place_id: str, newsletter_hint: str = "") -> No
         print(f"✗ No restaurant found with place_id '{place_id}'{scope} — aborting")
         return
 
-    print(f"Selecting Tier 1 for newsletter: {approved_newsletter}")
+    print(f"Approving restaurant for newsletter: {approved_newsletter}")
 
     for page in pages:
         page_id    = page["id"]
@@ -1154,7 +1183,7 @@ def approve_restaurant_in_notion(place_id: str, newsletter_hint: str = "") -> No
             continue
 
         # Match by unique Notion page id (place_ids can duplicate if Claude hallucinates)
-        new_status = "Tier 1 Winner" if page_id == approved_page_id else "Tier 2 Winner"
+        new_status = "approved" if page_id == approved_page_id else "rejected"
         update_page(page_id, {"Status": {"select": {"name": new_status}}})
         name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
         print(f"{new_status}: {name}")
@@ -1205,7 +1234,7 @@ def cleanup_old_restaurants_notion(approved_old_weeks: int = 8) -> None:
         date_str = (props.get("Date Generated", {}).get("date") or {}).get("start", "") or ""
         name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
 
-        if status_name in ("Tier 1 Winner", "Tier 2 Winner"):
+        if status_name in ("approved", "Tier 1 Winner", "Tier 2 Winner"):
             update_page(page_id, {"Status": {"select": {"name": "approved - old"}}})
             print(f"  🔄 Flipped '{status_name}' → 'approved - old': {name}")
             flipped += 1

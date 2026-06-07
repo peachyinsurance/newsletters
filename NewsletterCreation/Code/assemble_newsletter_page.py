@@ -847,7 +847,7 @@ def get_restaurants(newsletter_name: str) -> list[dict]:
         props = page["properties"]
         status = ((props.get("Status", {}).get("select") or props.get("Status", {}).get("status") or {})
                   .get("name", ""))
-        if status in ("Tier 1 Winner", "Tier 2 Winner"):
+        if status == "approved":
             winners.append(_restaurant_row_to_dict(props, status))
 
     if winners:
@@ -1615,8 +1615,7 @@ def _build_restaurants(newsletter_name: str) -> list[dict]:
         return [callout_block("No restaurants selected yet. Run the pipeline and approve in the review app.", emoji="⏳")]
     out = []
     for r in restaurants:
-        tier_label = "⭐ TIER 1 — FEATURED" if r["tier"] == "Tier 1 Winner" else "TIER 2"
-        out.append(paragraph_block(f"[{tier_label}] {r['name']} (Score: {r['score']}/40)", bold=True))
+        out.append(paragraph_block(r["name"], bold=True))
         if r.get("gif"):
             out.append(image_block(r["gif"]))
         elif r.get("photo"):

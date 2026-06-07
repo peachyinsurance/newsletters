@@ -689,7 +689,9 @@ def demote_current_winners(newsletter_name: str) -> int:
     demoted = 0
     for r in rows:
         status = ((r["properties"].get("Status", {}) or {}).get("select") or {}).get("name", "")
-        if status not in ("Tier 1 Winner", "Tier 2 Winner"):
+        # Single-pick model: last cycle's "approved" pick (and any legacy
+        # Tier 1/2 Winner rows) get demoted to the historical pool.
+        if status not in ("approved", "Tier 1 Winner", "Tier 2 Winner"):
             continue
         try:
             update_page(r["id"], {
@@ -806,20 +808,10 @@ if __name__ == "__main__":
         # Select top 5
         results = results[:TARGET_TOP_5]
 
-        # Festive swap (inline): if an active holiday cuisine isn't represented,
-        # drop the lowest-scored result and promote a matching historical row
-        # from 'approved - old' instead. The dropped pick is never saved to
-        # Notion — it's thrown out entirely.
-        festive_boosts = get_festive_boosts()
-        if festive_boosts:
-            print(f"\n  Active festive boosts: {[b['name'] for b in festive_boosts]}")
-            results, festive_promotions = festive_swap_inline(
-                results, newsletter["name"], festive_boosts,
-            )
-        else:
-            festive_promotions = []
-
-        # Flag default winner (now operates on possibly-shrunken list)
+        # Flag the default winner — the auto-pick used when no one approves a
+        # restaurant manually in the review app this week. (Festive scoring
+        # still nudges seasonal cuisines up the ranking; the old festive Tier-2
+        # swap was removed with the move to a single featured restaurant.)
         results = flag_default_winner(results)
 
         # Generate GIFs for each restaurant (3 photos per restaurant)
@@ -860,14 +852,6 @@ if __name__ == "__main__":
 
         # Save
         save_restaurants_to_notion(results, newsletter["name"])
-
-        # Re-promote any historical rows displaced into the lineup by the
-        # festive swap. Done AFTER save so the new in-memory winners get
-        # written first; only then do we flip the historical rows back to
-        # Tier 2 Winner status (they already exist in Notion as approved-old).
-        if festive_promotions:
-            print(f"\n  Promoting {len(festive_promotions)} historical festive row(s)…")
-            _promote_historical_rows(festive_promotions, festive=True)
 
         print(f"Done with {newsletter['name']}.")
 
