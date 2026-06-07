@@ -1,21 +1,30 @@
 #!/usr/bin/env python3
-"""Springs Cinema & Taphouse weekend movie-showings scraper.
+"""Springs Cinema & Taphouse UNIQUE-PROGRAMMING weekend scraper.
 
 Tag: ECC_PP (shared) — Springs Cinema & Taphouse is on Roswell Rd in
-Sandy Springs, a shared coverage area, so its showings surface in both
+Sandy Springs, a shared coverage area, so its screenings surface in both
 East Cobb Connect and Perimeter Post via _SHARED_NEWSLETTER_TAGS.
 
-Platform notes (Filmbot): the public listing page (/unique-programming)
-renders only the CURRENT day's showtimes with no dates, and the GraphQL
-API gates showing data behind login. The reliable public source of dated
-showtimes is each film's /movie/<slug> detail page, which server-renders
-its full schedule as "Month Day, h:mm am/pm" anchor links. So we:
+We want ONLY the cinema's "unique programming" — the special / curated
+screenings (classics, anniversary nights, sing-alongs, film series, fan
+events like Risky Business, Goodfellas, Ace Ventura) — NOT the regular
+first-run showtimes.
 
-  1. enumerate the current film slugs from /unique-programming,
-  2. read each /movie/<slug> page's dated showtimes,
-  3. keep only Friday / Saturday / Sunday dates in the forward window,
-  4. emit ONE Notion row per (film, weekend date), with that day's
-     showtimes aggregated into the Time field.
+Platform notes (Filmbot): the /unique-programming page renders its
+special-programming list in a JavaScript carousel that is NOT in the page
+HTML, and the GraphQL API gates showing data behind login — so neither is
+scrapeable server-side. BUT the unique-programming films can be derived
+reliably from server-rendered sitemaps:
+
+  unique programming = (all /movie/<slug> in sitemap.xml)
+                       − (now-playing first-run films in /showtimes/ and
+                          /unique-programming)
+                       − (private rentals, whose slugs start with "-")
+
+Each film's /movie/<slug> page server-renders its full dated schedule as
+"Month Day, h:mm am/pm" anchors. We keep Fri/Sat/Sun dates in the forward
+window and emit ONE Notion row per (film, weekend date), with that day's
+showtimes aggregated into the Time field.
 """
 from __future__ import annotations
 
@@ -35,15 +44,17 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
 from notion_save import existing_source_urls, save_event           # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday   # noqa: E402
 
-BASE         = "https://www.springscinema.com"
-LISTING_URL  = f"{BASE}/unique-programming"
-VENUE        = "Springs Cinema & Taphouse"
-ADDRESS      = "5920 Roswell Rd, Sandy Springs, GA 30328"
-CITY         = "sandy springs"          # shared city → ECC_PP via normalize sweep
+BASE          = "https://www.springscinema.com"
+SITEMAP_URL   = f"{BASE}/sitemap.xml"
+# Pages whose /movie/ links are the regular first-run / now-playing slate
+# (everything NOT in here, minus private rentals, is unique programming).
+NOW_PLAYING_URLS = (f"{BASE}/showtimes/", f"{BASE}/unique-programming")
+VENUE         = "Springs Cinema & Taphouse"
+ADDRESS       = "5920 Roswell Rd, Sandy Springs, GA 30328"
+CITY          = "sandy springs"          # shared city → ECC_PP via normalize sweep
 NEWSLETTER_DEFAULT = "ECC_PP"
-# How far forward to look. Fri/Sat/Sun within [today, upcoming_friday + N].
-END_WINDOW_DAYS = 9
-WEEKEND_DAYS    = {4, 5, 6}              # Python weekday(): Fri=4, Sat=5, Sun=6
+END_WINDOW_DAYS = 9                       # Fri/Sat/Sun within [today, upcoming_friday + N]
+WEEKEND_DAYS    = {4, 5, 6}               # Python weekday(): Fri=4, Sat=5, Sun=6
 
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -52,15 +63,13 @@ _HEADERS = {
     "Accept-Language": "en-US,en;q=0.5",
 }
 
-# Slug appears in checkout links on both the listing and movie pages.
-_SLUG_RE     = re.compile(r"/checkout/showing/([a-z0-9-]+)/\d+", re.I)
+_MOVIE_SLUG_RE = re.compile(r"/movie/([a-z0-9-]+)", re.I)
 # Showtime anchor text on a /movie/<slug> page, e.g. "June 7, 1:00 pm".
-_SHOWTIME_RE = re.compile(r">\s*([A-Z][a-z]+ \d{1,2}),\s*(\d{1,2}:\d{2}\s*[apAP][mM])\s*<")
+_SHOWTIME_RE   = re.compile(r">\s*([A-Z][a-z]+ \d{1,2}),\s*(\d{1,2}:\d{2}\s*[apAP][mM])\s*<")
 
 
 def _fetch(url: str, retries: int = 3) -> str:
-    """GET with a browser UA, following redirects. Plain requests works on
-    this host (no TLS-fingerprint block). Returns '' on failure."""
+    """GET with a browser UA, following redirects. Returns '' on failure."""
     for attempt in range(retries):
         try:
             r = requests.get(url, headers=_HEADERS, timeout=20, allow_redirects=True)
@@ -73,24 +82,29 @@ def _fetch(url: str, retries: int = 3) -> str:
     return ""
 
 
+def _slugs(text: str) -> set[str]:
+    return {s.lower() for s in _MOVIE_SLUG_RE.findall(text)}
+
+
+def unique_programming_slugs() -> list[str]:
+    """All film slugs minus the now-playing first-run slate minus private
+    rentals → the special / curated 'unique programming' films."""
+    all_films = _slugs(_fetch(SITEMAP_URL))
+    now_playing: set[str] = set()
+    for u in NOW_PLAYING_URLS:
+        now_playing |= _slugs(_fetch(u))
+    unique = {s for s in (all_films - now_playing) if not s.startswith("-")}
+    return sorted(unique)
+
+
 def _og(prop: str, html: str) -> str:
     m = re.search(rf'<meta\s+property="og:{prop}"\s+content="([^"]*)"', html, re.I)
     return _htmllib.unescape(m.group(1).strip()) if m else ""
 
 
-def movie_slugs(listing_html: str) -> list[str]:
-    """Distinct film slugs currently listed, in first-seen order."""
-    seen: list[str] = []
-    for slug in _SLUG_RE.findall(listing_html):
-        s = slug.lower()
-        if s not in seen:
-            seen.append(s)
-    return seen
-
-
 def _resolve_year(month_day: str, today: date) -> date | None:
-    """'June 7' (no year) → a date. Assume the current year; if that lands
-    well in the past (a Dec→Jan rollover near year end), bump a year."""
+    """'June 7' (no year) → a date. Assume the current year; bump a year if
+    that lands well in the past (Dec→Jan rollover)."""
     for yr in (today.year, today.year + 1):
         try:
             d = datetime.strptime(f"{month_day} {yr}", "%B %d %Y").date()
@@ -103,7 +117,7 @@ def _resolve_year(month_day: str, today: date) -> date | None:
 
 def parse_movie(movie_html: str, slug: str, today: date) -> dict | None:
     """Parse a /movie/<slug> page into title/image/description + showings
-    grouped by date: {date: ['10:15 AM', '1:00 PM', ...]}."""
+    grouped by date."""
     by_date: dict[date, list[tuple[datetime, str]]] = defaultdict(list)
     for month_day, raw_time in _SHOWTIME_RE.findall(movie_html):
         d = _resolve_year(month_day, today)
@@ -116,10 +130,8 @@ def parse_movie(movie_html: str, slug: str, today: date) -> dict | None:
         by_date[d].append((t, t.strftime("%-I:%M %p")))
     if not by_date:
         return None
-    showings = {}
-    for d, times in by_date.items():
-        ordered = [label for _, label in sorted(set(times), key=lambda x: x[0])]
-        showings[d] = ordered
+    showings = {d: [lbl for _, lbl in sorted(set(v), key=lambda x: x[0])]
+                for d, v in by_date.items()}
     return {
         "slug":        slug,
         "title":       _og("title", movie_html) or slug.replace("-", " ").title(),
@@ -133,11 +145,9 @@ def build_events(movie: dict, today: date, window_end: date) -> list[dict]:
     """One event per (film, weekend date) within the window."""
     events: list[dict] = []
     synopsis = (movie["description"] or "").strip()
-    desc = (f"{synopsis} " if synopsis else "") + f"Now playing at {VENUE}."
+    desc = (f"{synopsis} " if synopsis else "") + f"Special screening at {VENUE}."
     for d, times in sorted(movie["showings"].items()):
-        if d.weekday() not in WEEKEND_DAYS:
-            continue
-        if not (today <= d <= window_end):
+        if d.weekday() not in WEEKEND_DAYS or not (today <= d <= window_end):
             continue
         events.append({
             "event_name":  movie["title"],
@@ -164,17 +174,15 @@ def run(newsletter: str | None = None, db_id: str | None = None) -> int:
 
     today      = date.today()
     window_end = _upcoming_friday(today) + timedelta(days=END_WINDOW_DAYS)
-    print("Springs Cinema & Taphouse scraper")
-    print(f"  → Listing:     {LISTING_URL}")
-    print(f"  → Notion DB:   {db_id[:8]}…")
-    print(f"  → Newsletter:  {newsletter}")
+    print("Springs Cinema & Taphouse — unique programming scraper")
+    print(f"  → Notion DB:   {db_id[:8]}…  Newsletter: {newsletter}")
     print(f"  → Weekend window: {today} → {window_end} (Fri/Sat/Sun only)\n")
 
-    listing = _fetch(LISTING_URL)
-    if not listing:
+    slugs = unique_programming_slugs()
+    if not slugs:
+        print("No unique-programming films found (sitemap empty?).")
         return 1
-    slugs = movie_slugs(listing)
-    print(f"Found {len(slugs)} current film(s): {', '.join(slugs) or '(none)'}\n")
+    print(f"{len(slugs)} unique-programming film(s): {', '.join(slugs)}\n")
 
     existing = existing_source_urls(db_id, newsletter=newsletter)
 
@@ -184,10 +192,9 @@ def run(newsletter: str | None = None, db_id: str | None = None) -> int:
         if not page:
             continue
         movie = parse_movie(page, slug, today)
-        if not movie:
-            continue
-        candidates.extend(build_events(movie, today, window_end))
-        time.sleep(0.5)
+        if movie:
+            candidates.extend(build_events(movie, today, window_end))
+        time.sleep(0.4)
 
     candidates.sort(key=lambda e: (e["start_date"], e["event_name"]))
 
