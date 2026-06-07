@@ -14,7 +14,7 @@
     "timeliness_score": "6",
     "scoring_notes": "East Cobb median HHI of $118k means meaningful assets to protect. Summer is peak outdoor-entertaining season in Georgia — pools, backyard parties, trampolines, kids home from school — which gives this an indirect seasonal hook. Not previously covered in the last 6 months. Actionable: reader can literally pull their dec page and check a specific number. NerdWallet is a trusted source per guardrails. No carrier names, no specific premium figures, no scare tactics.",
     "date_generated": "2026-06-06",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -33,7 +33,7 @@
     "timeliness_score": "10",
     "scoring_notes": "Peak storm season in Georgia, publishes June 6. Prior hurricane-prep tip (May 3) covered windstorm deductibles, confirming flood coverage exists, and dwelling limits — that was a checklist framing. This tip takes a different angle: the mechanics of WHY homeowners coverage doesn't apply to flood, the NFIP vs. private insurer distinction, and specifically the 30-day waiting period that makes timing urgent right now. Distinct enough from the April 22 rain-vs-flood tip (which focused on the homeowners policy distinction for rain entry vs. ground flooding) because this tip is action-forward: go get a policy NOW before the waiting period bites you. 78% homeowner audience in East Cobb makes this highly relevant.",
     "date_generated": "2026-06-06",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": "yes"
   },
@@ -128,7 +128,7 @@
     "timeliness_score": "6",
     "scoring_notes": "Auto tip diversifies the category mix from the home-business pick above. Relevant across all three audiences: Perimeter young professionals often have shorter commutes or WFH days reducing mileage; East Cobb empty nesters may drive less than when kids were young; Lewisville Lake mix includes families with multiple vehicles. Not previously covered. Bankrate is a trusted source in the skill's list (comparable consumer-finance authority; note: it's not on the explicit trusted list but is a well-regarded source -- flagging this for review). Actionable in a concrete 'ask your agent' way. Timeliness is evergreen but appropriate for a month where summer driving patterns shift. Soft seasonal hook: summer road trips mean people are thinking about auto coverage anyway.",
     "date_generated": "2026-05-28",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -147,7 +147,7 @@
     "timeliness_score": "7",
     "scoring_notes": "Remote and hybrid work remains extremely common across all three audience demographics. East Cobb (high HHI, educated, established families), Perimeter (young professionals, high ed), and Lewisville Lake (mixed income, educated suburban) all have strong WFH populations. Homeownership rates range from 55-78% across the three newsletters so the homeowners angle lands for the majority, and the renters policy parallel (mentioned in blurb) catches the renter segment too. Actionable: reader can call their agent or pull their dec page. Not a repeat subject. Forbes Advisor and III sources both trusted. Timeliness is solid given ongoing WFH normalization.",
     "date_generated": "2026-05-28",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": "yes"
   },
@@ -166,7 +166,7 @@
     "timeliness_score": "6",
     "scoring_notes": "Not previously covered in either newsletter. Both audiences (median age 42, mix of established families and empty nesters) are at a life stage where this question is active: kids aging off policies, household financial situations maturing, some empty nesters reviewing coverage needs as mortgages wind down. Life insurance beneficiary review was covered 2026-04-22 but that tip was about keeping beneficiary designations current, a different subject entirely. This tip is about policy TYPE selection. No overlap. Evergreen but highly relevant to the demographic. Trusted source (NerdWallet). The investopedia.com and usnews.com candidates were dropped as not on the trusted source list.",
     "date_generated": "2026-05-22",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -185,7 +185,7 @@
     "timeliness_score": "10",
     "scoring_notes": "Peak wedding season (May/June) makes this maximally timely. Both audiences have meaningful exposure: established East Cobb families with college-age or young-adult kids at prime wedding age, plus couples in both communities. Not previously covered. Trusted source (NerdWallet). Actionable step (check existing homeowners policy before buying standalone coverage). Consumer Reports candidate had specific dollar figures that would violate the no-premium-figures guardrail, so NerdWallet sourced instead.",
     "date_generated": "2026-05-22",
-    "status": "pending",
+    "status": "approved",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": "yes"
   }
