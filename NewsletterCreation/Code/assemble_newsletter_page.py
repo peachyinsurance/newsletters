@@ -847,7 +847,11 @@ def get_restaurants(newsletter_name: str) -> list[dict]:
         props = page["properties"]
         status = ((props.get("Status", {}).get("select") or props.get("Status", {}).get("status") or {})
                   .get("name", ""))
-        if status == "approved":
+        # "approved" is the single-pick status; "Tier 1 Winner" is accepted
+        # for backward compatibility so the current week's legacy pick still
+        # renders during the transition. (Tier 2 Winner is intentionally NOT
+        # included — the section features one restaurant now.)
+        if status in ("approved", "Tier 1 Winner"):
             winners.append(_restaurant_row_to_dict(props, status))
 
     if winners:
