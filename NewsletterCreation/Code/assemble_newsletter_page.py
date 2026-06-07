@@ -1431,13 +1431,16 @@ def get_business_brief(newsletter_name: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def display_domain(url: str) -> str:
-    """Strip protocol, strip path/params/fragment, KEEP `www.` if present.
+    """Strip protocol, strip path/params/fragment, and strip a leading
+    `www.` so links read as the bare root domain (e.g. `cityofmarietta.com`).
     Used for the visible anchor text in Weekend Planner event links."""
     if not url:
         return ""
     no_proto = url.split("://", 1)[-1]
-    host = no_proto.split("/", 1)[0]
-    return host.lower()
+    host = no_proto.split("/", 1)[0].lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host
 
 
 def weekend_event_paragraph(event: dict) -> dict:
