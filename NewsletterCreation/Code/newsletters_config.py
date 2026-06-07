@@ -65,6 +65,7 @@ NEWSLETTERS_DICT = {
         "name":                 "East_Cobb_Connect",
         "landing_page_id":      "370bf42b-7fd6-81a2-aab6-f4d6925fdec2",
         "display_area":         "East Cobb",
+        "job_location":         "Marietta, GA",   # Adzuna `where` for In Search Of
         "notion_color":         "purple",
         "state":                "GA",
         "zip":                  "30062",
@@ -93,6 +94,7 @@ NEWSLETTERS_DICT = {
         "name":                 "Perimeter_Post",
         "landing_page_id":      "370bf42b-7fd6-810e-83a2-d8e7dc54fe3a",
         "display_area":         "Perimeter",
+        "job_location":         "Sandy Springs, GA",   # Adzuna `where` for In Search Of
         "notion_color":         "pink",
         "state":                "GA",
         "zip":                  "30328",
@@ -134,6 +136,7 @@ NEWSLETTERS_DICT = {
         "name":                 "Lewisville_Lake_Lookout",
         "landing_page_id":      "370bf42b-7fd6-81b1-969e-efbd366bbc42",
         "display_area":         "Lewisville Lake",
+        "job_location":         "Lewisville, TX",   # Adzuna `where` for In Search Of
         "notion_color":         "blue",
         "state":                "TX",
         "zip":                  "75067",

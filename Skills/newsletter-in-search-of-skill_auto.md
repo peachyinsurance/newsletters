@@ -66,6 +66,20 @@ Some scraped sources are not employers but free job-help resources (e.g. WorkSou
 
 The pipeline marks the row's `Bonus` checkbox; the assembler renders it at the end of the section with the "Bonus help (free):" prefix.
 
+### Individual job postings
+
+Some rows are a single open ROLE pulled from a job board, not a whole employer. You can tell because the `scraped_snippet` starts with `JOB POSTING:` and carries structured fields like `Employer:`, `Location:`, `Salary:`, and `Details:`. Write these about the specific role, not the company at large:
+
+> **Front Desk Associate at the McCleskey-East Cobb YMCA**, around $15-17/hr. Steady, people-facing, and a few minutes from East Cobb. Good first job for a teen or a flexible shift for someone re-entering the workforce.
+>
+> 👉 Apply
+
+Rules for postings:
+- Lead with the **role + employer**. Pull the one or two details a neighbor actually cares about (pay, schedule, who it suits); don't restate the whole description.
+- Include the salary ONLY if the snippet's `Salary:` field has one. If it says "estimated", soften it ("about", "around").
+- Keep it to 1-3 sentences.
+- Same NO-FABRICATION rule — only facts present in the snippet.
+
 ---
 
 ## What you receive (per row)
@@ -74,7 +88,7 @@ Each row in the input array has these fields:
 
 - `candidate_index`: 1-based index. Reference this in your output, NOT raw URLs.
 - `employer`: Employer / business name (e.g. "McCleskey-East Cobb Family YMCA").
-- `scraped_snippet`: Raw meta description, OG description, or first paragraph from the scraped page. Could be sparse ("Join our team!"), generic ("X is an equal-opportunity employer"), or rich (full role list with details). Treat as the SOURCE of all factual claims you can make.
+- `scraped_snippet`: The source of all factual claims you can make. Two kinds: (a) an employer-page scrape (meta/OG description — could be sparse "Join our team!" or a rich role list), or (b) an individual posting that starts with `JOB POSTING:` and carries `Employer:` / `Location:` / `Salary:` / `Details:` fields. Never invent beyond what's here.
 - `city`: Normalized city name (lowercase). Useful for location context.
 - `newsletter`: Which newsletter this row is for. Use the coverage area to frame "nearby" / "close to home" language.
 - `is_resource_hint` (optional): true when the scraper thinks this is a career-help resource, not an employer. Use to set `bonus: true`.

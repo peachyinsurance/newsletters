@@ -64,6 +64,8 @@ jobs:
           NOTION_API_KEY:            ${{ secrets.NOTION_API_KEY }}
           NOTION_IN_SEARCH_OF_DB_ID: ${{ secrets.NOTION_IN_SEARCH_OF_DB_ID }}
           NEWSLETTER:                East_Cobb_Connect
+          ADZUNA_APP_ID:             ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY:            ${{ secrets.ADZUNA_APP_KEY }}
         run: python "In Search Of/Code/scrape_jobs.py"
 
       - name: Scrape job sources (Perimeter Post)
@@ -74,6 +76,8 @@ jobs:
           NOTION_API_KEY:            ${{ secrets.NOTION_API_KEY }}
           NOTION_IN_SEARCH_OF_DB_ID: ${{ secrets.NOTION_IN_SEARCH_OF_DB_ID }}
           NEWSLETTER:                Perimeter_Post
+          ADZUNA_APP_ID:             ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY:            ${{ secrets.ADZUNA_APP_KEY }}
         run: python "In Search Of/Code/scrape_jobs.py"
 
       - name: Scrape job sources (Lewisville Lake Lookout)
@@ -84,6 +88,8 @@ jobs:
           NOTION_API_KEY:            ${{ secrets.NOTION_API_KEY }}
           NOTION_IN_SEARCH_OF_DB_ID: ${{ secrets.NOTION_IN_SEARCH_OF_DB_ID }}
           NEWSLETTER:                Lewisville_Lake_Lookout
+          ADZUNA_APP_ID:             ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY:            ${{ secrets.ADZUNA_APP_KEY }}
         run: python "In Search Of/Code/scrape_jobs.py"
 
       # ── Write: runs Claude to rewrite scraped snippets into blurbs ────

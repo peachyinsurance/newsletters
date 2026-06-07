@@ -32,6 +32,10 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..",
                              "NewsletterCreation", "Code"))
 from notion_save import existing_source_urls, save_job  # noqa: E402
 from job_sources import sources_for  # noqa: E402
+from adzuna_jobs import fetch_adzuna_jobs  # noqa: E402
+from newsletters_config import get_newsletter  # noqa: E402
+
+ADZUNA_LIMIT = 8   # max individual postings to pull per newsletter per run
 
 
 NOTION_IN_SEARCH_OF_DB_ID = os.environ.get("NOTION_IN_SEARCH_OF_DB_ID", "")
@@ -139,49 +143,68 @@ def scrape_one(source: dict) -> dict | None:
     }
 
 
+def _save_rows(rows: list[dict], existing: dict) -> tuple[int, int, int]:
+    """Save a list of save_job-ready rows; returns (new, updated, dropped).
+    Mutates `existing` so duplicate URLs within one run aren't double-saved."""
+    saved = updated = dropped = 0
+    for row in rows:
+        url = row.get("job_listings_url")
+        if not url:
+            dropped += 1
+            continue
+        page_id = existing.get(url)
+        if page_id == "_saved_this_run":
+            continue
+        if save_job(NOTION_IN_SEARCH_OF_DB_ID, row, NEWSLETTER, page_id=page_id or None):
+            if page_id:
+                updated += 1
+                print(f"    ↻ {row.get('employer', '')[:55]}")
+            else:
+                saved += 1
+                print(f"    ✓ {row.get('employer', '')[:55]}")
+            existing[url] = page_id or "_saved_this_run"
+        else:
+            dropped += 1
+        time.sleep(0.3)
+    return saved, updated, dropped
+
+
 def main() -> int:
     if not NOTION_IN_SEARCH_OF_DB_ID:
         print("✗ NOTION_IN_SEARCH_OF_DB_ID not set in env")
         return 1
 
-    sources = sources_for(NEWSLETTER)
-    if not sources:
-        print(f"⚠ no job sources configured for {NEWSLETTER}; nothing to scrape")
-        return 0
-
     print(f"In Search Of scrape — {NEWSLETTER}")
     print(f"  → Notion DB:  {NOTION_IN_SEARCH_OF_DB_ID[:8]}…")
-    print(f"  → Sources:    {len(sources)}")
 
-    # Per-newsletter URL lookup so multi-newsletter sources (e.g.
-    # governmentjobs.com appears under both ECC and LLL) get separate
-    # rows per newsletter.
     existing = existing_source_urls(NOTION_IN_SEARCH_OF_DB_ID, newsletter=NEWSLETTER)
     print(f"  → Existing:   {len(existing)} URLs already in DB for {NEWSLETTER}")
 
-    saved = 0
-    updated = 0
-    dropped = 0
+    saved = updated = dropped = 0
+
+    # 1) Curated employer spotlights (the reliable backbone).
+    sources = sources_for(NEWSLETTER)
+    print(f"\n── Curated employer spotlights ({len(sources)}) ──")
+    spotlight_rows: list[dict] = []
     for src in sources:
-        url = src["url"]
-        print(f"\n  • {src['employer']} ({url})")
+        print(f"  • {src['employer']} ({src['url']})")
         row = scrape_one(src)
-        if not row:
-            dropped += 1
-            continue
-        page_id = existing.get(url)
-        ok = save_job(NOTION_IN_SEARCH_OF_DB_ID, row, NEWSLETTER,
-                      page_id=page_id)
-        if not ok:
-            dropped += 1
-            continue
-        if page_id:
-            updated += 1
-            print(f"    ↻ updated existing row")
+        if row:
+            spotlight_rows.append(row)
         else:
-            saved += 1
-            print(f"    ✓ saved as pending")
-        time.sleep(0.5)  # be polite
+            dropped += 1
+        time.sleep(0.4)  # be polite to employer sites
+    s, u, d = _save_rows(spotlight_rows, existing)
+    saved += s; updated += u; dropped += d
+
+    # 2) Adzuna individual local job postings (geo-queried).
+    print("\n── Adzuna local job postings ──")
+    nl_cfg = get_newsletter(NEWSLETTER)
+    if nl_cfg:
+        s, u, d = _save_rows(fetch_adzuna_jobs(nl_cfg, limit=ADZUNA_LIMIT), existing)
+        saved += s; updated += u; dropped += d
+    else:
+        print(f"  ⚠ no newsletter config for {NEWSLETTER}")
 
     print(f"\nDone. {saved} new, {updated} updated, {dropped} dropped.")
     return 0
