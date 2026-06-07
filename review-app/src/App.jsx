@@ -267,7 +267,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
         ? { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" }
         : { Accept: "application/vnd.github+json" };
       const fileUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${config.dataFile}?ref=gh-pages`;
-      const res = await fetch(fileUrl, { headers: ghHeaders });
+      const res = await fetch(fileUrl, { headers: ghHeaders, cache: "no-store" });
       if (!res.ok) throw new Error("Could not fetch data");
       const fileInfo = await res.json();
       const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));
@@ -330,7 +330,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
     try {
       // 1. Fetch current JSON from gh-pages
       const fileUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${config.dataFile}?ref=gh-pages`;
-      const fileRes = await fetch(fileUrl, { headers: ghHeaders });
+      const fileRes = await fetch(fileUrl, { headers: ghHeaders, cache: "no-store" });
       if (!fileRes.ok) throw new Error("Could not fetch data file from gh-pages");
       const fileInfo = await fileRes.json();
       const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));
@@ -415,7 +415,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
     try {
       // 1. Fetch current JSON from gh-pages
       const fileUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${config.dataFile}?ref=gh-pages`;
-      const fileRes = await fetch(fileUrl, { headers: ghHeaders });
+      const fileRes = await fetch(fileUrl, { headers: ghHeaders, cache: "no-store" });
       if (!fileRes.ok) throw new Error("Could not fetch data file from gh-pages");
       const fileInfo = await fileRes.json();
       const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));
@@ -511,7 +511,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
     try {
       // 1. Local JSON: flip every pending row for this newsletter to rejected.
       const fileUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${config.dataFile}?ref=gh-pages`;
-      const fileRes = await fetch(fileUrl, { headers: ghHeaders });
+      const fileRes = await fetch(fileUrl, { headers: ghHeaders, cache: "no-store" });
       if (!fileRes.ok) throw new Error("Could not fetch data file from gh-pages");
       const fileInfo = await fileRes.json();
       const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));

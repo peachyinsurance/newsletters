@@ -105,7 +105,7 @@ BUSINESS_EXCLUDED_TYPES = [
 CHAIN_NAME_TOKENS = {
     "walmart", "target", "lowe's", "home depot",
     "cvs", "walgreens", "rite aid",
-    "best buy", "costco", "sam's club", "kroger",
+    "best buy", "costco", "sam's club", "kroger", "micro center",
     "publix", "whole foods", "trader joe's", "aldi",
     "macy's", "kohl's", "nordstrom", "tj maxx", "marshalls",
     "dollar general", "dollar tree", "five below", "family dollar",
