@@ -703,6 +703,30 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
 WP_IMAGE_MAX_WIDTH_PX = 300
 
 
+def _rewrite_weekend_link_text(clone_soup, ev: dict) -> None:
+    """Swap the card's source-link visible text from the Beehiiv template's
+    hardcoded 'More Info' to the bare root URL (e.g. `www.example.com`), so
+    the Beehiiv render matches the Notion page's `display_domain` link text.
+    The href is left untouched — only the anchor's text changes.
+
+    Matches the source anchor by href (already substituted to the real URL by
+    `_expand_one_slot`) or, as a fallback, by the literal 'More Info'/'More'
+    label. Weekend event messages aren't markdown-converted, so the source
+    link is the only <a> in the card — no risk of clobbering inline links."""
+    url = (ev.get("source_url") or "").strip()
+    if not url:
+        return
+    label = display_domain(url)
+    if not label:
+        return
+    for a in clone_soup.find_all("a"):
+        href = (a.get("href") or "").strip()
+        txt = (a.get_text() or "").strip().lower()
+        if href == url or url in href or txt in ("more info", "more"):
+            a.clear()
+            a.append(label)
+
+
 def _weekend_image_mutator(clone_soup, ev: dict) -> None:
     """Per-card hook for Weekend Planner: render THIS event's photo inside its
     own card so multiple photos mix in among the events (the pipeline now keeps
@@ -711,9 +735,13 @@ def _weekend_image_mutator(clone_soup, ev: dict) -> None:
     the card. Events with no image have any stray placeholder <img> removed so
     no broken template token URL shows.
 
+    Also rewrites the source link's visible text to the root URL (see
+    `_rewrite_weekend_link_text`).
+
     The photo is sized responsively — width:100% capped at
     WP_IMAGE_MAX_WIDTH_PX — so it scales with the layout but never renders
     full-bleed."""
+    _rewrite_weekend_link_text(clone_soup, ev)
     img_url = (ev.get("image_url") or "").strip()
     existing = clone_soup.find("img")
     style = (f"display:block;width:100%;max-width:{WP_IMAGE_MAX_WIDTH_PX}px;"
