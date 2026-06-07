@@ -49,6 +49,56 @@ def existing_source_urls(db_id: str,
     return out
 
 
+_schema_ensured = False
+
+
+def _ensure_in_search_of_schema(db_id: str) -> None:
+    """Create the In Search Of DB properties if they don't exist (idempotent;
+    runs once per process). Notion's PATCH adds missing properties and leaves
+    existing ones — and your data — untouched. The title property is left
+    alone (a database already has exactly one)."""
+    global _schema_ensured
+    if _schema_ensured or not db_id:
+        return
+    props = {
+        "Employer":         {"rich_text": {}},
+        "Job Listings URL": {"url": {}},
+        "Scraped Snippet":  {"rich_text": {}},
+        "Image URL":        {"url": {}},
+        "City":             {"rich_text": {}},
+        "Roles":            {"rich_text": {}},
+        "Description":      {"rich_text": {}},
+        "Date Generated":   {"date": {}},
+        "Bonus":            {"checkbox": {}},
+        "Manually Edited":  {"checkbox": {}},
+        "Newsletter":       {"select": {"options": [
+            {"name": "East_Cobb_Connect",       "color": "purple"},
+            {"name": "Perimeter_Post",          "color": "pink"},
+            {"name": "Lewisville_Lake_Lookout", "color": "blue"},
+        ]}},
+        "Status":           {"select": {"options": [
+            {"name": "pending",        "color": "yellow"},
+            {"name": "approved",       "color": "green"},
+            {"name": "rejected",       "color": "red"},
+            {"name": "approved - old", "color": "gray"},
+        ]}},
+    }
+    try:
+        r = requests.patch(
+            f"https://api.notion.com/v1/databases/{db_id}",
+            headers=NOTION_HEADERS,
+            json={"properties": props},
+            timeout=30,
+        )
+        if r.ok:
+            print("  ✓ In Search Of schema ready")
+        else:
+            print(f"  ⚠ In Search Of schema update failed: {r.text[:200]}")
+    except Exception as e:
+        print(f"  ⚠ In Search Of schema update error: {e}")
+    _schema_ensured = True
+
+
 def save_job(db_id: str, row: dict, newsletter: str,
              page_id: str | None = None) -> bool:
     """Create a new In Search Of row, OR update an existing row when
@@ -59,6 +109,8 @@ def save_job(db_id: str, row: dict, newsletter: str,
     Manually Edited, Description (Claude blurb), Roles, and Bonus."""
     if not row.get("job_listings_url"):
         return False
+
+    _ensure_in_search_of_schema(db_id)
 
     employer = (row.get("employer") or "").strip()
     snippet  = (row.get("scraped_snippet") or "").strip()
