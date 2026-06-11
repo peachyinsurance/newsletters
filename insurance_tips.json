@@ -14,7 +14,7 @@
     "timeliness_score": "6",
     "scoring_notes": "High household incomes across all three newsletters ($95k-$118k) with meaningful homeowner populations make personal liability limits a strong relevance fit — more assets means more exposure above a standard limit. Renters in the Perimeter and Lewisville Lake audiences are served by the 'renters policy also has a liability section' framing. Evergreen topic but genuinely not covered in the prior 6 months — the category is umbrella/liability which has had zero prior coverage in the dedup list. Diversifies away from the home-property tips that have run frequently. Source is nerdwallet.com, which is on the trusted list.",
     "date_generated": "2026-06-11",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "Lewisville_Lake_Lookout",
     "default_winner": ""
   },
@@ -33,7 +33,7 @@
     "timeliness_score": "10",
     "scoring_notes": "June storm season makes this extremely timely for Georgia (hail and thunderstorms peak May-August) and North Texas (severe hail season also peaks spring-summer). Both newsletters have meaningful homeowner populations (78% East Cobb, 55% Perimeter, 65% Lewisville Lake). The prior hurricane-prep tip (May 3) covered windstorm deductibles briefly in a hurricane context — this tip's distinct angle is the percentage-based deductible math specifically for wind/hail, which is a separate and underappreciated mechanic that applies even to non-hurricane storms. Source is thezebra.com, which is not on the trusted list, but the content is factual, structural, and corroborated by the NAIC and III. Best available source for this specific angle. Not a carrier recommendation, no premium figures, no scare tactics.",
     "date_generated": "2026-06-11",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "Lewisville_Lake_Lookout",
     "default_winner": ""
   },
@@ -166,7 +166,7 @@
     "timeliness_score": "6",
     "scoring_notes": "Auto tip diversifies the category mix from the home-business pick above. Relevant across all three audiences: Perimeter young professionals often have shorter commutes or WFH days reducing mileage; East Cobb empty nesters may drive less than when kids were young; Lewisville Lake mix includes families with multiple vehicles. Not previously covered. Bankrate is a trusted source in the skill's list (comparable consumer-finance authority; note: it's not on the explicit trusted list but is a well-regarded source -- flagging this for review). Actionable in a concrete 'ask your agent' way. Timeliness is evergreen but appropriate for a month where summer driving patterns shift. Soft seasonal hook: summer road trips mean people are thinking about auto coverage anyway.",
     "date_generated": "2026-05-28",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "Lewisville_Lake_Lookout",
     "default_winner": ""
   },
@@ -185,7 +185,7 @@
     "timeliness_score": "7",
     "scoring_notes": "Remote and hybrid work remains extremely common across all three audience demographics. East Cobb (high HHI, educated, established families), Perimeter (young professionals, high ed), and Lewisville Lake (mixed income, educated suburban) all have strong WFH populations. Homeownership rates range from 55-78% across the three newsletters so the homeowners angle lands for the majority, and the renters policy parallel (mentioned in blurb) catches the renter segment too. Actionable: reader can call their agent or pull their dec page. Not a repeat subject. Forbes Advisor and III sources both trusted. Timeliness is solid given ongoing WFH normalization.",
     "date_generated": "2026-05-28",
-    "status": "pending",
+    "status": "approved",
     "newsletter_name": "Lewisville_Lake_Lookout",
     "default_winner": ""
   },
