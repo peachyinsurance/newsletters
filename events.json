@@ -439,7 +439,7 @@
     ],
     "header_image_url": "https://peachyinsurance.github.io/newsletters/gifs/Newsletter_Header_image_East_Cobb_Connect_Atlanta_Braves_vs_Milwaukee_Brewers.png?v=1781216106",
     "gif_url": "https://peachyinsurance.github.io/newsletters/gifs/event_gif_East_Cobb_Connect_Atlanta_Braves_vs_Milwaukee_Brewers.gif?v=1781216115",
-    "default_winner": "yes"
+    "default_winner": ""
   },
   {
     "source_url": "https://www.visitroswellga.com/events/music-on-the-hill-the-m-80s-explosive-80s-rock/",
@@ -451,7 +451,7 @@
     "blurb": "If you were anywhere near a radio in the 1980s, Friday night in Roswell is calling your name.\n\nThe M-80s bring their explosive 80s rock set to the lawn at Roswell City Hall for Music on the Hill, the monthly outdoor concert series that turns a Friday evening into something worth leaving the house for. It's free, it's outside, and it's the kind of music that makes people forget they have early morning plans.\n\nBring a blanket or some chairs, grab dinner nearby first, and settle in. First note drops at 7:00 PM. Two hours of 80s rock under the summer sky, no ticket required.",
     "ticket_url": "",
     "date_generated": "2026-06-06",
-    "status": "approved",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "total_score": "25",
     "demographic_fit_score": "9",
