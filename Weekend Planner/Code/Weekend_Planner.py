@@ -223,6 +223,7 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
             continue
         venue   = _rich_text_value(props.get("Location"))
         address = _rich_text_value(props.get("Address"))
+        time_str = _rich_text_value(props.get("Time"))
         if is_inappropriate_event(title, description, venue):
             dropped_inappropriate += 1
             continue
@@ -249,6 +250,7 @@ def fetch_weekend_events_from_notion(newsletter_name: str,
             "date":        start_str,
             "venue":       venue,
             "address":     address,
+            "time":        time_str,
             "image_url":   (props.get("Image URL", {}).get("url") or "").strip(),
             "notion_page_id": p.get("id"),
             "_from_notion": True,
@@ -493,6 +495,12 @@ YOUR JOB:
    - When in doubt → Family. Most local events are family-appropriate.
 2. Write `event_name`, `emoji`, and a short blurb per the skill schema.
 
+When a candidate already carries structured `time`, `address`, or `venue`
+fields, USE THEM VERBATIM (lightly tidy formatting only — e.g. "4:00 PM –
+5:00 PM"). These were scraped from the official event page and are
+authoritative. Only fall back to inferring or "Check website" when the
+field is genuinely absent — never overwrite a provided value with a guess.
+
 INCLUDE EVERY CANDIDATE. The scraper-driven pool IS the curation. There
 is no downstream filtering. Return exactly {len(candidates)} entries —
 one per `candidate_index` from 1 to {len(candidates)}, no skips. A
@@ -596,6 +604,7 @@ Candidates:
                 "summary":     blurb,
                 "venue":       c.get("venue", ""),
                 "address":     c.get("address", ""),
+                "time":        c.get("time", ""),
                 "audience":    "Family",
                 "source_url":  c.get("url", ""),
                 "_source_candidate": c,

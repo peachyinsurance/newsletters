@@ -34,9 +34,16 @@ import os
 import re
 import sys
 import time
-from datetime import date, datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import requests
+
+# cobbcounty.gov serves event start/end times as UTC ISO strings
+# (…T20:00:00+00:00). They must be converted to local Eastern before
+# display — 20:00 UTC is 4:00 PM EDT, the time the public page shows.
+EASTERN = ZoneInfo("America/New_York")
 
 # _shared/ holds the cross-newsletter helpers; NewsletterCreation/Code
 # holds the upstream date/image utilities.
@@ -118,23 +125,34 @@ def fetch_events(from_date: date, to_date: date) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Normalize one API event → our standard event dict
 # ---------------------------------------------------------------------------
-def _parse_iso(s: str) -> date | None:
+def _to_eastern(s: str) -> datetime | None:
+    """Parse an ISO datetime and convert to local Eastern. Naive strings
+    are assumed UTC (the API always returns +00:00). zoneinfo handles DST."""
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00")).date()
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
     except Exception:
         return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(EASTERN)
+
+
+def _parse_iso(s: str) -> date | None:
+    """ISO datetime → local Eastern *date* (so an 8 PM ET event stored as
+    next-day-midnight UTC lands on the correct calendar day)."""
+    dt = _to_eastern(s)
+    return dt.date() if dt else None
 
 
 def _format_time_range(start_str: str, end_str: str) -> str:
-    """ISO datetimes → '1:00 PM – 3:00 PM'. Empty if both are midnight."""
-    try:
-        sdt = datetime.fromisoformat((start_str or "").replace("Z", "+00:00"))
-        edt = datetime.fromisoformat((end_str or "").replace("Z", "+00:00")) \
-              if end_str else None
-    except Exception:
+    """ISO datetimes → '1:00 PM – 3:00 PM' in local Eastern. Empty if the
+    start is midnight (all-day / time-less listing)."""
+    sdt = _to_eastern(start_str)
+    if sdt is None:
         return ""
+    edt = _to_eastern(end_str)
     if not (sdt.hour or sdt.minute):
         return ""
     out = sdt.strftime("%-I:%M %p")
@@ -153,6 +171,81 @@ def _build_address(event_address: dict) -> str:
         event_address.get("postalCode"),
     ]
     return ", ".join(p for p in parts if p)
+
+
+# ---------------------------------------------------------------------------
+# Detail-page address backfill
+#
+# The listing API (and each event's own `eventAddress`) returns a null
+# address for cobbcounty.gov events — the real venue address only lives on
+# the event DETAIL page, inside the embedded `location.address` object
+# (e.g. North Cobb Regional Library → "3535 Old 41 Highway, Kennesaw, GA").
+# We anchor the regex on `"location":{ … "address":{ … }` so we grab the
+# VENUE address, never the county footer contact block (100 Cherokee St).
+# ---------------------------------------------------------------------------
+_LOCATION_ADDR_RE = re.compile(
+    r'"location":\{[^{}]*?"address":\{([^{}]*)\}', re.IGNORECASE)
+
+
+def _extract_venue_address(html: str) -> tuple[str, str]:
+    """From a cobbcounty.gov detail page, return (address, city) for the
+    venue. Returns ("", "") when no structured venue address is present."""
+    if not html:
+        return "", ""
+    # The detail page embeds its data as RSC-streamed JSON with escaped
+    # quotes (\"). Unescape just the quote/slash escapes so the regex sees
+    # normal JSON; full unicode_escape would choke on real \uXXXX content.
+    text = html.replace('\\"', '"').replace('\\/', '/')
+    m = _LOCATION_ADDR_RE.search(text)
+    if not m:
+        return "", ""
+    blob = m.group(1)
+
+    def _field(key: str) -> str:
+        mm = re.search(rf'"{key}":"([^"]*)"', blob)
+        return mm.group(1).strip() if mm else ""
+
+    line1    = _field("addressLine1")
+    line2    = _field("addressLine2")
+    locality = _field("locality")
+    state    = _field("administrativeArea")
+    postal   = _field("postalCode")
+    parts = [p for p in (line1, line2, locality, state, postal) if p]
+    return ", ".join(parts), locality.lower()
+
+
+def backfill_addresses(events: list[dict], max_workers: int = 6) -> int:
+    """For each event missing an address, fetch its detail page and pull the
+    venue address out of `location.address`. Mutates events in place;
+    returns the count filled. Concurrent — one HTTP GET per event."""
+    todo = [e for e in events if not (e.get("address") or "").strip()]
+    if not todo:
+        return 0
+
+    def _one(ev: dict) -> bool:
+        url = ev.get("source_url") or ""
+        if not url:
+            return False
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=15)
+            if r.status_code != 200 or not r.text:
+                return False
+            addr, city = _extract_venue_address(r.text)
+        except Exception:
+            return False
+        if not addr:
+            return False
+        ev["address"] = addr
+        if city and not (ev.get("city") or "").strip():
+            ev["city"] = city
+        return True
+
+    filled = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        for ok in pool.map(_one, todo):
+            if ok:
+                filled += 1
+    return filled
 
 
 def normalize_event(api_ev: dict) -> dict | None:
@@ -274,6 +367,13 @@ def main() -> int:
     filled = backfill_images(candidates)
     if filled:
         print(f"  ↳ Backfilled {filled} image(s) from event detail pages")
+
+    # The listing API returns a null address for every event — the real
+    # venue address lives only on the detail page. Backfill it so the
+    # Weekend Planner shows a real street address instead of a region guess.
+    filled_addr = backfill_addresses(candidates)
+    if filled_addr:
+        print(f"  ↳ Backfilled {filled_addr} venue address(es) from detail pages")
 
     inserted = 0
     updated = 0
