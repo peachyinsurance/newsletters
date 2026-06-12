@@ -14,7 +14,7 @@
     "timeliness_score": "9",
     "scoring_notes": "June is peak wedding month — highly timely. Both audiences skew toward families with college-age or young-adult kids, meaning a meaningful portion of readers either just got married themselves or have a child who did. Prior tip on wedding insurance covered cancellation and liability coverage for the event itself; this tip is a different angle entirely — what to do with your insurance after the wedding, not before it. No subject overlap with beneficiary review tip from April (that tip focused on outdated/wrong beneficiary names; this one frames the post-wedding policy review as a whole). Forbes Advisor is a trusted source on the preferred list. Category is life_event, different from the home category of the first pick — good diversification.",
     "date_generated": "2026-06-12",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -33,9 +33,9 @@
     "timeliness_score": "10",
     "scoring_notes": "Peak storm season in Georgia — June through August is prime hail risk. Both audiences are high-homeownership (78%), so this lands for nearly 8 in 10 readers. Percentage-based deductibles are a genuinely surprising mechanic for most homeowners and the $8,000 example on a $400k home makes it concrete and actionable. Not a repeat — prior hurricane tip covered windstorm/hurricane deductibles in the context of pre-season flood/wind prep; this tip goes one level deeper on the percentage-based deductible mechanic specifically. New angle: how the math actually works on a percentage deductible vs. the flat deductible readers assume they have. Source is thezebra.com, not on the preferred list but the content is factually sound and the topic is well-documented; cross-referenced with The Zebra's windstorm coverage page (June 2026 freshness). Acceptable trade given strong seasonal fit.",
     "date_generated": "2026-06-12",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
-    "default_winner": ""
+    "default_winner": "yes"
   },
   {
     "tip_title": "The Liability Limit Buried in Your Home Policy Might Not Be Enough Anymore",
@@ -128,7 +128,7 @@
     "timeliness_score": "6",
     "scoring_notes": "High household incomes across all three newsletters ($95k-$118k) with meaningful homeowner populations make personal liability limits a strong relevance fit — more assets means more exposure above a standard limit. Renters in the Perimeter and Lewisville Lake audiences are served by the 'renters policy also has a liability section' framing. Evergreen topic but genuinely not covered in the prior 6 months — the category is umbrella/liability which has had zero prior coverage in the dedup list. Diversifies away from the home-property tips that have run frequently. Source is nerdwallet.com, which is on the trusted list.",
     "date_generated": "2026-06-11",
-    "status": "rejected",
+    "status": "approved",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -149,7 +149,7 @@
     "date_generated": "2026-06-11",
     "status": "rejected",
     "newsletter_name": "East_Cobb_Connect",
-    "default_winner": ""
+    "default_winner": "yes"
   },
   {
     "tip_title": "The Liability Section of Your Home Policy Is Probably Set Way Too Low",
@@ -185,9 +185,9 @@
     "timeliness_score": "10",
     "scoring_notes": "Peak storm season in Georgia, publishes June 6. Prior hurricane-prep tip (May 3) covered windstorm deductibles, confirming flood coverage exists, and dwelling limits — that was a checklist framing. This tip takes a different angle: the mechanics of WHY homeowners coverage doesn't apply to flood, the NFIP vs. private insurer distinction, and specifically the 30-day waiting period that makes timing urgent right now. Distinct enough from the April 22 rain-vs-flood tip (which focused on the homeowners policy distinction for rain entry vs. ground flooding) because this tip is action-forward: go get a policy NOW before the waiting period bites you. 78% homeowner audience in East Cobb makes this highly relevant.",
     "date_generated": "2026-06-06",
-    "status": "approved",
+    "status": "rejected",
     "newsletter_name": "East_Cobb_Connect",
-    "default_winner": ""
+    "default_winner": "yes"
   },
   {
     "tip_title": "Your Phone Might Be Worth a Discount on Your Car Insurance",
@@ -301,7 +301,7 @@
     "date_generated": "2026-05-28",
     "status": "rejected",
     "newsletter_name": "East_Cobb_Connect",
-    "default_winner": ""
+    "default_winner": "yes"
   },
   {
     "tip_title": "Term Life or Whole Life? Here's the One-Paragraph Version.",
