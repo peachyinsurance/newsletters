@@ -42,6 +42,7 @@ from assemble_newsletter_page import (
     get_latest_free_events,
     get_latest_free_event_image,
     get_latest_free_event_images,
+    free_event_render_images,
     get_latest_poll,
     get_weekend_events,
     get_business_brief,
@@ -1545,13 +1546,12 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             # Alias: template URL fields sometimes drop the trailing `_1`
             repl["free_event_link"]          = link
 
-            # Up to 3 images scraped from the source page (og:image /
-            # twitter:image / article gallery). Upload each to Beehiiv and
-            # collect the hosted URLs; expand_free_event_images() later clones
-            # the template's single free-event <img> block once per URL (the
-            # same dynamic-duplication approach the Weekend Planner / Meme
-            # slots use), so we don't need static free-pic-2/3 placeholders.
-            for free_img in get_latest_free_event_images(newsletter_name)[:3]:
+            # Event photo(s): 2+ pictures are combined into a single cycling
+            # GIF (free_event_render_images → [gif_url]); 0-1 pass through as
+            # individual images. Upload each to Beehiiv and collect the hosted
+            # URLs; expand_free_event_images() later clones the template's
+            # single free-event <img> block once per URL.
+            for free_img in free_event_render_images(newsletter_name)[:3]:
                 hosted = upload_remote_image(client, publication_id, free_img)
                 if hosted:
                     image_swaps[free_img] = hosted

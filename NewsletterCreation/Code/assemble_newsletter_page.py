@@ -1085,6 +1085,47 @@ def get_latest_free_event_images(newsletter_name: str) -> list[str]:
     return urls[:3]
 
 
+def free_event_render_images(newsletter_name: str) -> list[str]:
+    """The image URL(s) to render for the Free Event of the Week.
+
+    When the featured event has 2+ photos, combine them into a single
+    animated GIF (cycling through the photos) hosted on gh-pages and return
+    [gif_url] — so the section shows ONE cycling image instead of stacked
+    photos. With 0-1 photos, returns the raw list unchanged.
+
+    The gh-pages path is content-addressed (hash of the source URLs), so the
+    GIF is built once and reused: a HEAD check returns the existing URL
+    without rebuilding (and without importing Pillow), which lets the
+    Beehiiv send reuse what the assembler already produced. Any failure
+    (no token, Pillow missing, download error) falls back to the photos."""
+    images = get_latest_free_event_images(newsletter_name)
+    if len(images) < 2:
+        return images
+    key  = hashlib.md5("|".join(images).encode()).hexdigest()[:10]
+    slug = re.sub(r"[^a-z0-9]+", "-", newsletter_name.lower()).strip("-")
+    path = f"free_events/{slug}_{key}.gif"
+    public = f"https://{_GH_OWNER}.github.io/{_GH_REPO}/{path}"
+
+    # Already built for this exact photo set? Reuse it without rebuilding.
+    try:
+        if requests.head(public, timeout=10).status_code == 200:
+            return [f"{public}?v={key}"]
+    except Exception:
+        pass
+
+    try:
+        from gif_maker import create_gif_from_urls
+        gif_bytes = create_gif_from_urls(images, duration_ms=2000)
+        if gif_bytes:
+            hosted = _publish_image_to_gh_pages(gif_bytes, path)
+            if hosted:
+                print(f"  ✓ Free Events: combined {len(images)} photos into a GIF")
+                return [f"{hosted}?v={key}"]
+    except Exception as e:
+        print(f"  ⚠ free-event GIF build failed, using individual photos: {e}")
+    return images
+
+
 def get_latest_poll(newsletter_name: str) -> dict | None:
     """Get the most recent approved poll for this newsletter."""
     if not NOTION_POLLS_DB_ID:
@@ -1949,8 +1990,9 @@ def _build_free_events(newsletter_name: str) -> list[dict]:
     if not free_events_text:
         return [callout_block("No Free Events generated yet. Run the Free Events pipeline.", emoji="⏳")]
     out = []
-    # Lead with up to 3 pictures scraped from the featured event's source page.
-    for img_url in get_latest_free_event_images(newsletter_name):
+    # Lead with the event photo(s) — combined into a single cycling GIF when
+    # there are 2+ pictures (see free_event_render_images).
+    for img_url in free_event_render_images(newsletter_name):
         out.append(image_block(img_url))
     for para in free_events_text.split("\n\n"):
         para = para.strip()
