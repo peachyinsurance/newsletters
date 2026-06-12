@@ -100,31 +100,6 @@
     "default_winner": ""
   },
   {
-    "source_url": "http://www.mariettamartialarts.com/",
-    "business_name": "Marietta Martial Arts",
-    "city": "Marietta",
-    "blurb": "Right on Roswell Road, Marietta Martial Arts has become one of those places East Cobb families keep coming back to — not just for the kicks and the belts, but for what happens to kids between the first class and the last. Parents in the reviews keep pointing to the same thing: their kids are calmer, more focused, more confident. One mom mentioned she joined her daughter in class and earned her yellow belt alongside her. That's not a typical Tuesday night.\n\nThe school runs structured programs by age, starting with Little Dragons for the youngest students and moving up through junior classes as kids progress. Coaches like Isaiah are called out repeatedly for being engaging and genuinely good with kids — they're teaching age-appropriate discipline and life skills, not just technique. The 4.7-star rating across 152 reviews is hard to fake. That kind of consistency usually means the culture at the top is doing something right. If your kid has been asking about martial arts, or if you've been looking for an activity that builds more than athletic ability, this one is worth a phone call.",
-    "price_level": "$$",
-    "hours": "",
-    "address": "2145 Roswell Rd Suite 200, Marietta, GA 30062, USA",
-    "source_domain": "mariettamartialarts.com",
-    "image_url": "https://peachyinsurance.github.io/newsletters/gifs/business_brief_gif_East_Cobb_Connect_Marietta_Martial_Arts.gif?v=1780834824",
-    "image_candidates": [
-      "https://lh3.googleusercontent.com/place-photos/AJRVUZMwJDvv3HIEdpp-xKSLiENOH2Gq6I3eMXzRRqhUNfuK0VVP-EbbD9ntlfgYq1eE0vrfQSNRKeZw3N4QUaZAVfW35bMdRW-s1yaEL9HWgSqLevsLI0RA-keTP-bqHB_XTixB_W2l45ODHY7Gyb8=s4800-h800",
-      "https://lh3.googleusercontent.com/place-photos/AJRVUZPlsPoW3Z3j9gcEOaIrVASpXISfVTDb9ako1qWhl4CY98BI_rqU9ET8XjBOUt7Ton1xyS-bpx-rcSetcCtjudiPEImLVrLcIqpZWAQVYFSV2FL9oJnLAdumXheqcQPDkZmX_oaFY42WEOvm=s4800-h800",
-      "https://lh3.googleusercontent.com/place-photos/AJRVUZNMmIq1lyc1GPCixwFTQrUgpK1i608Jy5FzYQ0oOp7RWARiwllET80s5y8Oa9t5TSiuKvydD5DUjZ5UHzjJhYJrPhKPHe6E6s-iSmyuL7dRWlxj_ucfPaY9RvKpiNUOhQ5P_212sGFXZmNPivs=s4800-h800",
-      "https://lh3.googleusercontent.com/place-photos/AJRVUZOvJxgSoUfYRZN0Y0a-53RpXKpxea61UlVJ6ct1YJQ2iXKGHENhCfpYKVBM5gL3j6xUwfQ_eu5IFeWpf7G6ah1m-iz7t4cD-eqTxCxBm8UJj3lzmZLxDKUB72xZO2dYFIdsJSNYQ-6ZtPNv=s4800-h800",
-      "https://lh3.googleusercontent.com/place-photos/AJRVUZOGGHdKBFJNkdhg_hVTq5dU5cqB8Kn8uyOf0GcE0VPJRE_ArmhDZIu2ewTgVyLNlNoO7igWGHW-m0tL-KrrCOLAdfzT3moXgrQPSFyQVtA6NWBPNu0G8AXGwZhh6uDPRLhQQJxEQ94FIiGi=s4800-h800"
-    ],
-    "scoring_notes": "Strong rating, local community fit, consistent reviewer praise for character development — exactly what East Cobb family-focused readers respond to.",
-    "relevance_score": "88",
-    "total_score": "88",
-    "date_generated": "2026-06-07",
-    "status": "rejected",
-    "newsletter_name": "East_Cobb_Connect",
-    "default_winner": ""
-  },
-  {
     "source_url": "https://palmettobath.com/atlanta-ga/",
     "business_name": "Palmetto Bath of Atlanta",
     "city": "Marietta",
@@ -264,7 +239,7 @@
     "relevance_score": "7",
     "total_score": "7",
     "date_generated": "2026-05-28",
-    "status": "rejected",
+    "status": "approved",
     "newsletter_name": "Lewisville_Lake_Lookout",
     "default_winner": ""
   },
@@ -291,7 +266,7 @@
     "date_generated": "2026-06-11",
     "status": "rejected",
     "newsletter_name": "Lewisville_Lake_Lookout",
-    "default_winner": ""
+    "default_winner": "yes"
   },
   {
     "source_url": "https://www.idealdiamond.com/",
@@ -341,7 +316,7 @@
     "date_generated": "2026-06-11",
     "status": "rejected",
     "newsletter_name": "Perimeter_Post",
-    "default_winner": ""
+    "default_winner": "yes"
   },
   {
     "source_url": "http://www.freeflite.com/",
@@ -364,9 +339,9 @@
     "relevance_score": "8",
     "total_score": "8",
     "date_generated": "2026-05-28",
-    "status": "rejected",
+    "status": "approved",
     "newsletter_name": "Perimeter_Post",
-    "default_winner": ""
+    "default_winner": "yes"
   },
   {
     "source_url": "https://www.totalwine.com/store-info/georgia-kennesaw/802?cid=referral:website_link::momentfeed:802_keenesaw_store_details_page:",
@@ -466,6 +441,6 @@
     "date_generated": "2026-06-11",
     "status": "rejected",
     "newsletter_name": "East_Cobb_Connect",
-    "default_winner": ""
+    "default_winner": "yes"
   }
 ]
