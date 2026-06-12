@@ -55,15 +55,52 @@ NEWSLETTERS = newsletter_names()
 # NOTION API HELPERS
 # ---------------------------------------------------------------------------
 
+def _notion_req(method: str, url: str, *, json_body: dict | None = None,
+                timeout: int = 30, max_attempts: int = 5,
+                ok_statuses: tuple = ()):
+    """Resilient Notion request. Retries transient network errors (read
+    timeouts, connection resets) and 429/5xx with exponential backoff
+    (honoring Retry-After), then raise_for_status() on the final result.
+
+    A single read-timeout used to crash a full rebuild mid-clear; this wraps
+    every raw call so one blip retries instead of aborting. Returns the
+    Response, or None when the status is in `ok_statuses` (e.g. a 404 on a
+    delete = block already gone)."""
+    import time as _t
+    last_exc = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            r = requests.request(method, url, headers=HEADERS,
+                                 json=json_body, timeout=timeout)
+        except requests.RequestException as e:
+            last_exc = e
+            wait = min(2 ** attempt, 30)
+            print(f"  ⚠ Notion network error (attempt {attempt}/{max_attempts}): {e} — sleeping {wait}s")
+            _t.sleep(wait)
+            continue
+        if r.status_code in ok_statuses:
+            return None
+        if r.status_code in (429, 500, 502, 503, 504) and attempt < max_attempts:
+            try:
+                wait = float(r.headers.get("Retry-After", "")) or min(2 ** attempt, 30)
+            except (ValueError, TypeError):
+                wait = min(2 ** attempt, 30)
+            print(f"  ⚠ Notion {r.status_code} (attempt {attempt}/{max_attempts}) — sleeping {wait}s")
+            _t.sleep(wait)
+            continue
+        r.raise_for_status()
+        return r
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Notion request failed after retries")
+
+
 def notion_search_page(title: str) -> str | None:
     """Search for an existing page by title. Returns page_id or None."""
-    r = requests.post(
-        "https://api.notion.com/v1/search",
-        headers=HEADERS,
-        json={"query": title, "filter": {"value": "page", "property": "object"}},
-        timeout=30,
+    r = _notion_req(
+        "POST", "https://api.notion.com/v1/search",
+        json_body={"query": title, "filter": {"value": "page", "property": "object"}},
     )
-    r.raise_for_status()
     for result in r.json().get("results", []):
         page_title = result.get("properties", {}).get("title", {}).get("title", [])
         if page_title and page_title[0].get("text", {}).get("content", "") == title:
@@ -74,18 +111,15 @@ def notion_search_page(title: str) -> str | None:
 
 def notion_create_page(title: str, parent_id: str) -> str:
     """Create a new page under a parent page. Returns page_id."""
-    r = requests.post(
-        "https://api.notion.com/v1/pages",
-        headers=HEADERS,
-        json={
+    r = _notion_req(
+        "POST", "https://api.notion.com/v1/pages",
+        json_body={
             "parent": {"page_id": parent_id},
             "properties": {
                 "title": {"title": [{"text": {"content": title}}]}
             },
         },
-        timeout=30,
     )
-    r.raise_for_status()
     return r.json()["id"]
 
 
@@ -107,28 +141,16 @@ def notion_clear_page(page_id: str) -> None:
     from concurrent.futures import ThreadPoolExecutor
 
     def delete_block(block_id):
-        for attempt in range(4):
-            r = requests.delete(
-                f"https://api.notion.com/v1/blocks/{block_id}",
-                headers=HEADERS, timeout=30,
-            )
-            if r.status_code == 200:
-                return
-            if r.status_code == 429 and attempt < 3:
-                # Notion sends Retry-After (seconds). Honor it; otherwise back off.
-                wait = float(r.headers.get("Retry-After", 0)) or (1.5 ** (attempt + 1))
-                _time.sleep(wait)
-                continue
-            # Non-429 error or out of retries — surface it
-            r.raise_for_status()
+        # _notion_req retries transient network errors / 429 / 5xx; a 404
+        # means the block is already gone, which we treat as success.
+        _notion_req("DELETE", f"https://api.notion.com/v1/blocks/{block_id}",
+                    ok_statuses=(404,))
 
     while True:
-        r = requests.get(
+        r = _notion_req(
+            "GET",
             f"https://api.notion.com/v1/blocks/{page_id}/children?page_size=100",
-            headers=HEADERS,
-            timeout=30,
         )
-        r.raise_for_status()
         blocks = r.json().get("results", [])
         if not blocks:
             break
@@ -151,8 +173,7 @@ def notion_get_blocks(page_id: str) -> list[dict]:
         url = f"https://api.notion.com/v1/blocks/{page_id}/children?page_size=100"
         if cursor:
             url += f"&start_cursor={cursor}"
-        r = requests.get(url, headers=HEADERS, timeout=30)
-        r.raise_for_status()
+        r = _notion_req("GET", url)
         data = r.json()
         blocks += data.get("results", [])
         has_more = data.get("has_more", False)
@@ -210,7 +231,8 @@ def update_section(page_id: str, heading_text: str, new_blocks: list[dict], appe
     else:
         # Clear the existing section content, insert directly after the heading.
         for block_id in section_ids:
-            requests.delete(f"https://api.notion.com/v1/blocks/{block_id}", headers=HEADERS, timeout=30)
+            _notion_req("DELETE", f"https://api.notion.com/v1/blocks/{block_id}",
+                        ok_statuses=(404,))
         insert_after_id = heading_id
 
     if new_blocks:
@@ -220,14 +242,14 @@ def update_section(page_id: str, heading_text: str, new_blocks: list[dict], appe
         # created blocks in order), so the section stays correctly ordered.
         for i in range(0, len(new_blocks), 100):
             chunk = new_blocks[i:i + 100]
-            r = requests.patch(
-                f"https://api.notion.com/v1/blocks/{page_id}/children",
-                headers=HEADERS,
-                json={"children": chunk, "after": insert_after_id},
-                timeout=30,
-            )
-            if not r.ok:
-                print(f"  Failed to insert blocks: {r.text[:300]}")
+            try:
+                r = _notion_req(
+                    "PATCH",
+                    f"https://api.notion.com/v1/blocks/{page_id}/children",
+                    json_body={"children": chunk, "after": insert_after_id},
+                )
+            except Exception as e:
+                print(f"  Failed to insert blocks: {e}")
                 return False
             created = (r.json() or {}).get("results", [])
             if created:
@@ -251,20 +273,22 @@ def notion_append_blocks(page_id: str, blocks: list[dict]) -> None:
         type_summary = ", ".join(f"{t}×{c}" for t, c in types.most_common())
         print(f"    → append batch {bi}/{n_batches}: blocks {i}–{i + len(chunk) - 1} "
               f"({len(chunk)} blocks) [{type_summary}]")
-        r = requests.patch(
-            f"https://api.notion.com/v1/blocks/{page_id}/children",
-            headers=HEADERS,
-            json={"children": chunk},
-            timeout=30,
-        )
-        if not r.ok:
+        try:
+            _notion_req(
+                "PATCH",
+                f"https://api.notion.com/v1/blocks/{page_id}/children",
+                json_body={"children": chunk},
+            )
+        except requests.HTTPError as e:
             # DEBUG: dump the failing batch's block types AND Notion's full
             # rejection reason so we can pinpoint the offending block.
+            resp = e.response
             print(f"  ✗ Block append FAILED on batch {bi}/{n_batches} "
                   f"(blocks {i}–{i + len(chunk) - 1})")
-            print(f"    HTTP {r.status_code}: {r.text[:600]}")
+            if resp is not None:
+                print(f"    HTTP {resp.status_code}: {resp.text[:600]}")
             print(f"    batch block types: {dict(types)}")
-        r.raise_for_status()
+            raise
 
 
 def get_bot_user_id() -> str:
@@ -696,11 +720,16 @@ def query_database(db_id: str, filters: dict = None) -> list:
     while has_more:
         if cursor:
             payload["start_cursor"] = cursor
-        r = requests.post(url, headers=HEADERS, json=payload, timeout=30)
-        if r.status_code == 400 and filters:
-            print(f"  ⚠ Notion 400 on filtered query of {db_id[:8]}… — retrying unfiltered")
-            return query_database(db_id, filters=None)
-        r.raise_for_status()
+        try:
+            r = _notion_req("POST", url, json_body=payload)
+        except requests.HTTPError as e:
+            # A filtered query can 400 if a property/select changed — retry
+            # once unfiltered. (_notion_req already retried timeouts/429/5xx.)
+            if (e.response is not None and e.response.status_code == 400
+                    and filters):
+                print(f"  ⚠ Notion 400 on filtered query of {db_id[:8]}… — retrying unfiltered")
+                return query_database(db_id, filters=None)
+            raise
         data = r.json()
         results += data.get("results", [])
         has_more = data.get("has_more", False)
