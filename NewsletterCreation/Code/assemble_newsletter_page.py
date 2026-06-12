@@ -1423,6 +1423,62 @@ def get_weekend_events(newsletter_name: str) -> list[dict]:
     return events
 
 
+def _parse_business_candidates(rt_text: str) -> list[str]:
+    """The Business Brief 'Image Candidates' column stores a JSON list of
+    Google Places photo URLs. Return it as a list[str] (empty on any error)."""
+    try:
+        v = json.loads(rt_text) if rt_text else []
+        return [u for u in v if isinstance(u, str) and u.strip()] if isinstance(v, list) else []
+    except Exception:
+        return []
+
+
+def _url_is_live(url: str) -> bool:
+    """True only when the URL currently returns 200 (follows redirects)."""
+    if not url:
+        return False
+    try:
+        r = requests.head(url, timeout=8, allow_redirects=True)
+        if r.status_code in (403, 405):
+            r = requests.get(url, timeout=10, allow_redirects=True, stream=True)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def _resolve_business_photo(photo_url: str, candidates: list[str],
+                            newsletter: str, name: str) -> str:
+    """Return a WORKING photo URL for a business brief.
+
+    The stored Photo URL is sometimes a gh-pages GIF that was never published
+    (the build/publish step is flaky) and now 404s — that's why a business
+    can show no photo even though Google Places returned images. When the
+    Photo URL is dead or empty, fall back to the first live Image Candidate
+    and re-host it on gh-pages for a stable URL (or use it directly when
+    hosting isn't available)."""
+    if _url_is_live(photo_url):
+        return photo_url
+    for cand in candidates:
+        if not _url_is_live(cand):
+            continue
+        try:
+            r = requests.get(cand, timeout=15)
+            if r.status_code == 200 and r.content:
+                slug = re.sub(r"[^a-z0-9]+", "-", f"{newsletter}-{name}".lower()).strip("-")[:60] or "business"
+                key = hashlib.md5(r.content).hexdigest()[:8]
+                hosted = _publish_image_to_gh_pages(r.content, f"business_brief/{slug}.jpg")
+                if hosted:
+                    print(f"  ↻ business photo re-hosted from a live candidate ({name})")
+                    return f"{hosted}?v={key}"
+        except Exception:
+            pass
+        print(f"  ↻ business photo using live candidate directly ({name})")
+        return cand
+    if photo_url:
+        print(f"  ⚠ business photo URL is dead and no live candidate found ({name})")
+    return photo_url
+
+
 def _business_brief_row_to_dict(props: dict) -> dict:
     """Parse a Business Brief DB row."""
     def _rt(key):
@@ -1439,6 +1495,7 @@ def _business_brief_row_to_dict(props: dict) -> dict:
         "source_url":       props.get("Source URL", {}).get("url", "") or "",
         "source_domain":    _rt("Source Domain"),
         "photo_url":        props.get("Photo URL", {}).get("url", "") or "",
+        "image_candidates": _parse_business_candidates(_rt("Image Candidates")),
         "status":           (props.get("Status", {}).get("select") or {}).get("name", ""),
         "default_winner":   props.get("Default Winner", {}).get("checkbox", False),
         "manually_edited":  props.get("Manually Edited", {}).get("checkbox", False),
@@ -1472,7 +1529,11 @@ def get_business_brief(newsletter_name: str) -> dict | None:
             key=lambda p: (p["properties"].get("Date Generated", {}).get("date") or {}).get("start", ""),
             reverse=True,
         )
-        return _business_brief_row_to_dict(approved[0]["properties"])
+        pick = _business_brief_row_to_dict(approved[0]["properties"])
+        pick["photo_url"] = _resolve_business_photo(
+            pick.get("photo_url", ""), pick.get("image_candidates") or [],
+            newsletter_name, pick.get("name", ""))
+        return pick
 
     # Fallback: highest-relevance pending row from the most recent batch
     candidates = [p for p in nl_pages
@@ -1492,6 +1553,9 @@ def get_business_brief(newsletter_name: str) -> dict | None:
         key=lambda p: -(p["properties"].get("Relevance Score", {}).get("number") or 0),
     )
     pick = _business_brief_row_to_dict(candidates[0]["properties"])
+    pick["photo_url"] = _resolve_business_photo(
+        pick.get("photo_url", ""), pick.get("image_candidates") or [],
+        newsletter_name, pick.get("name", ""))
     print(f"  ⓘ No approved business brief for {newsletter_name} — using highest-scored fallback: {pick.get('name')}")
     return pick
 
