@@ -1,0 +1,32 @@
+name: Scrape Visit Roswell (only)
+
+# Standalone, single-source scrape of visitroswellga.com unique events into
+# the Weekend Events Notion DB. Use this to refresh ONLY the Roswell rows
+# (e.g. to re-pull event gallery photos) without re-running the full
+# weekend-events scrape or the downstream chain.
+#
+# Tagged ECC_PP — Roswell is a shared coverage area, matching how the rows
+# are already stored so existing rows update in place rather than duplicate.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scrape_visit_roswell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests curl_cffi
+
+      - name: Scrape visitroswellga.com
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ECC_PP
+        run: python "Weekend Events/Code/Perimeter_Post/visit_roswell.py"
