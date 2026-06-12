@@ -9,8 +9,9 @@
     "image_url": "",
     "bonus": "",
     "date_generated": "2026-06-07",
-    "status": "approved",
-    "newsletter_name": "East_Cobb_Connect"
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
   },
   {
     "employer": "GLC On-The-Go",
@@ -22,8 +23,9 @@
     "image_url": "",
     "bonus": "",
     "date_generated": "2026-06-07",
-    "status": "approved",
-    "newsletter_name": "East_Cobb_Connect"
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
   },
   {
     "employer": "DUNEDIN MS LLC",
@@ -35,8 +37,9 @@
     "image_url": "",
     "bonus": "",
     "date_generated": "2026-06-07",
-    "status": "approved",
-    "newsletter_name": "East_Cobb_Connect"
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
   },
   {
     "employer": "ClinDCast LLC",
@@ -48,8 +51,9 @@
     "image_url": "",
     "bonus": "",
     "date_generated": "2026-06-07",
-    "status": "approved",
-    "newsletter_name": "East_Cobb_Connect"
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
   },
   {
     "employer": "GLC On-The-Go",
@@ -61,8 +65,9 @@
     "image_url": "",
     "bonus": "",
     "date_generated": "2026-06-07",
-    "status": "approved",
-    "newsletter_name": "East_Cobb_Connect"
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
   },
   {
     "employer": "Compunnel Healthcare",
@@ -74,8 +79,9 @@
     "image_url": "",
     "bonus": "",
     "date_generated": "2026-06-07",
-    "status": "approved",
-    "newsletter_name": "East_Cobb_Connect"
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
   },
   {
     "employer": "GLC On-The-Go",
@@ -87,8 +93,9 @@
     "image_url": "",
     "bonus": "",
     "date_generated": "2026-06-07",
-    "status": "approved",
-    "newsletter_name": "East_Cobb_Connect"
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
   },
   {
     "employer": "TravSource",
@@ -100,8 +107,9 @@
     "image_url": "",
     "bonus": "",
     "date_generated": "2026-06-07",
-    "status": "approved",
-    "newsletter_name": "East_Cobb_Connect"
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
   },
   {
     "employer": "WorkSource Cobb",
@@ -113,8 +121,9 @@
     "image_url": "https://octanecdn.com/worksourcecobborg/worksourcecobborg_628284848.jpg",
     "bonus": "yes",
     "date_generated": "2026-06-07",
-    "status": "rejected",
-    "newsletter_name": "East_Cobb_Connect"
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
   },
   {
     "employer": "Cobb County Sheriff's Office",
@@ -126,8 +135,9 @@
     "image_url": "",
     "bonus": "",
     "date_generated": "2026-06-07",
-    "status": "approved",
-    "newsletter_name": "East_Cobb_Connect"
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
   },
   {
     "employer": "Cobb County (governmentjobs.com)",
@@ -139,8 +149,9 @@
     "image_url": "https://www.governmentjobs.com/AgencyPages/cobbcounty/agencyImages/download?upscale=True",
     "bonus": "",
     "date_generated": "2026-06-07",
-    "status": "approved",
-    "newsletter_name": "East_Cobb_Connect"
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
   },
   {
     "employer": "Atlanta YMCA",
@@ -152,7 +163,8 @@
     "image_url": "",
     "bonus": "",
     "date_generated": "2026-06-07",
-    "status": "approved",
-    "newsletter_name": "East_Cobb_Connect"
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
   }
 ]
