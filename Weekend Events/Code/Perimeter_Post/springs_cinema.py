@@ -13,18 +13,26 @@ first-run showtimes.
 Platform notes (Filmbot): the /unique-programming page renders its
 special-programming list in a JavaScript carousel that is NOT in the page
 HTML, and the GraphQL API gates showing data behind login — so neither is
-scrapeable server-side. BUT the unique-programming films can be derived
-reliably from server-rendered sitemaps:
+scrapeable server-side. An earlier approach tried to derive the special
+films by subtracting the /showtimes/ + /unique-programming slugs from the
+sitemap, but /showtimes/ only server-renders a partial slate (~8 of ~35
+films), so first-run wide releases (Toy Story 5, The Odyssey, Supergirl,
+Minions) leaked straight through. That heuristic is abandoned.
 
-  unique programming = (all /movie/<slug> in sitemap.xml)
-                       − (now-playing first-run films in /showtimes/ and
-                          /unique-programming)
-                       − (private rentals, whose slugs start with "-")
+Instead we classify by SHOWTIME DENSITY, read from each film's own
+/movie/<slug> page (which server-renders its full dated schedule as
+"Month Day, h:mm am/pm" anchors). A regular first-run wide release plays a
+full daily slate (4–12 showtimes on a single day); curated "unique
+programming" — classics, the Retro Rewind / Summer Kid series, fan events,
+one-off screenings — runs only 1–3 shows on any given day. So:
 
-Each film's /movie/<slug> page server-renders its full dated schedule as
-"Month Day, h:mm am/pm" anchors. We keep Fri/Sat/Sun dates in the forward
-window and emit ONE Notion row per (film, weekend date), with that day's
-showtimes aggregated into the Time field.
+  unique programming = every /movie/<slug> in sitemap.xml
+                       − private rentals (slugs starting with "-")
+                       − any film with a full daily slate
+                         (>= FIRST_RUN_DAILY_SHOWTIMES on any one day)
+
+We keep Fri/Sat/Sun dates in the forward window and emit ONE Notion row
+per (film, weekend date), with that day's showtimes aggregated into Time.
 """
 from __future__ import annotations
 
@@ -46,15 +54,16 @@ from event_date_filter import upcoming_friday as _upcoming_friday   # noqa: E402
 
 BASE          = "https://www.springscinema.com"
 SITEMAP_URL   = f"{BASE}/sitemap.xml"
-# Pages whose /movie/ links are the regular first-run / now-playing slate
-# (everything NOT in here, minus private rentals, is unique programming).
-NOW_PLAYING_URLS = (f"{BASE}/showtimes/", f"{BASE}/unique-programming")
 VENUE         = "Springs Cinema & Taphouse"
 ADDRESS       = "5920 Roswell Rd, Sandy Springs, GA 30328"
 CITY          = "sandy springs"          # shared city → ECC_PP via normalize sweep
 NEWSLETTER_DEFAULT = "ECC_PP"
 END_WINDOW_DAYS = 9                       # Fri/Sat/Sun within [today, upcoming_friday + N]
 WEEKEND_DAYS    = {4, 5, 6}               # Python weekday(): Fri=4, Sat=5, Sun=6
+# A film playing this many showtimes on ANY single day is a regular
+# first-run wide release, not curated programming. Observed separation is
+# clean: special screenings peak at 3 shows/day, wide releases run 4–12.
+FIRST_RUN_DAILY_SHOWTIMES = 4
 
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -86,15 +95,18 @@ def _slugs(text: str) -> set[str]:
     return {s.lower() for s in _MOVIE_SLUG_RE.findall(text)}
 
 
-def unique_programming_slugs() -> list[str]:
-    """All film slugs minus the now-playing first-run slate minus private
-    rentals → the special / curated 'unique programming' films."""
-    all_films = _slugs(_fetch(SITEMAP_URL))
-    now_playing: set[str] = set()
-    for u in NOW_PLAYING_URLS:
-        now_playing |= _slugs(_fetch(u))
-    unique = {s for s in (all_films - now_playing) if not s.startswith("-")}
-    return sorted(unique)
+def candidate_film_slugs() -> list[str]:
+    """Every film slug in the sitemap, minus private rentals (slugs that
+    start with '-'). First-run wide releases are weeded out later by
+    showtime density (see peak_daily_showtimes / FIRST_RUN_DAILY_SHOWTIMES)."""
+    return sorted(s for s in _slugs(_fetch(SITEMAP_URL)) if not s.startswith("-"))
+
+
+def peak_daily_showtimes(movie: dict) -> int:
+    """The most showtimes the film plays on any single day across its full
+    schedule. Wide releases run a dense daily slate; curated screenings
+    don't — so this cleanly separates first-run from unique programming."""
+    return max((len(times) for times in movie["showings"].values()), default=0)
 
 
 def _og(prop: str, html: str) -> str:
@@ -178,23 +190,38 @@ def run(newsletter: str | None = None, db_id: str | None = None) -> int:
     print(f"  → Notion DB:   {db_id[:8]}…  Newsletter: {newsletter}")
     print(f"  → Weekend window: {today} → {window_end} (Fri/Sat/Sun only)\n")
 
-    slugs = unique_programming_slugs()
+    slugs = candidate_film_slugs()
     if not slugs:
-        print("No unique-programming films found (sitemap empty?).")
+        print("No films found (sitemap empty?).")
         return 1
-    print(f"{len(slugs)} unique-programming film(s): {', '.join(slugs)}\n")
+    print(f"{len(slugs)} film(s) in sitemap; filtering out first-run wide "
+          f"releases (>= {FIRST_RUN_DAILY_SHOWTIMES} shows/day)\n")
 
     existing = existing_source_urls(db_id, newsletter=newsletter)
 
     candidates: list[dict] = []
+    skipped_first_run = 0
     for slug in slugs:
         page = _fetch(f"{BASE}/movie/{slug}")
         if not page:
             continue
         movie = parse_movie(page, slug, today)
-        if movie:
-            candidates.extend(build_events(movie, today, window_end))
+        if not movie:
+            time.sleep(0.4)
+            continue
+        peak = peak_daily_showtimes(movie)
+        if peak >= FIRST_RUN_DAILY_SHOWTIMES:
+            print(f"  – first-run, skipped: {movie['title'][:45]} "
+                  f"({peak} shows/day)")
+            skipped_first_run += 1
+            time.sleep(0.4)
+            continue
+        print(f"  ✓ unique programming: {movie['title'][:45]} "
+              f"({peak} shows/day)")
+        candidates.extend(build_events(movie, today, window_end))
         time.sleep(0.4)
+    print(f"\n{skipped_first_run} first-run film(s) skipped; "
+          f"{len(candidates)} weekend showing-day(s) from unique programming\n")
 
     candidates.sort(key=lambda e: (e["start_date"], e["event_name"]))
 
