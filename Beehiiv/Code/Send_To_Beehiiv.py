@@ -1332,8 +1332,12 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["business_brief_price"]   = business.get("price_level", "")
         repl["business_brief_hours"]   = business.get("hours", "")
         repl["business_brief_address"] = business.get("address", "")
-        repl["business_brief_url"]     = bb_url
-        repl["business_brief_link"]    = bb_url  # alias for templates wired as `_link`
+        # `_url` is the token the template prints below the address — show the
+        # clean domain (palmettobath.com), not the raw https://… URL. `_link`
+        # keeps the full URL for any button/anchor href (when it fills a Beehiiv
+        # URL field, the auto-prepended http:// still resolves the bare domain).
+        repl["business_brief_url"]     = display_domain(bb_url) if bb_url else ""
+        repl["business_brief_link"]    = bb_url  # full URL for href-wired slots
         repl["business_brief_domain"]  = display_domain(bb_url) if bb_url else ""
         # Google Places photo (when populated on the Notion row). Uploaded
         # to Beehiiv up front so the long Places media URL doesn't ever
