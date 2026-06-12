@@ -1,0 +1,42 @@
+name: Scrape Springs Cinema (only)
+
+# Standalone, single-source scrape of Springs Cinema & Taphouse unique
+# programming into the Weekend Events Notion DB. Use this when you want to
+# refresh ONLY the cinema rows without re-running the full weekend-events
+# scrape or kicking off the downstream chain.
+#
+# Defaults to East_Cobb_Connect (ECC-only tag). Choose ECC_PP if you want
+# the rows shared into Perimeter Post as well.
+
+on:
+  workflow_dispatch:
+    inputs:
+      newsletter:
+        description: 'Newsletter tag for the scraped rows'
+        required: false
+        default: 'East_Cobb_Connect'
+        type: choice
+        options:
+          - 'East_Cobb_Connect'
+          - 'ECC_PP'
+          - 'Perimeter_Post'
+
+permissions:
+  contents: read
+
+jobs:
+  scrape_springs_cinema:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+
+      - name: Scrape Springs Cinema & Taphouse
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
+        run: python "Weekend Events/Code/Perimeter_Post/springs_cinema.py"
