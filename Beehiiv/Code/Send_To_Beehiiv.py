@@ -534,13 +534,20 @@ def _weekend_event_to_card(ev: dict, slot_key: str) -> dict[str, str]:
     """Render one event into the local-lowdown-style title/message/link
     triple. Title bolds the event name (with leading emoji); message
     chains venue / address / time / price with bullets and appends the
-    one-sentence description on its own line; link is the source URL."""
+    one-sentence description on its own line; link is the source URL.
+
+    The practical info — venue, address, time — is wrapped in <strong> so it
+    stands out in the Beehiiv render (the message placeholder renders HTML,
+    same as the Local Lowdown cards). Price is left plain."""
     emoji = (ev.get("emoji") or "").strip()
     name  = (ev.get("event_name") or "").strip()
     title = f"{emoji} {name}".strip() if emoji else name
 
-    meta_parts = [ev.get(k, "") for k in ("venue", "address", "time", "price")]
-    metadata = " • ".join(p for p in meta_parts if p)
+    bold_parts = [f"<strong>{v}</strong>" for v in
+                  ((ev.get(k) or "").strip() for k in ("venue", "address", "time"))
+                  if v]
+    price = (ev.get("price") or "").strip()
+    metadata = " • ".join(bold_parts + ([price] if price else []))
     desc = (ev.get("description") or "").strip()
     message = metadata + (f"\n\n{desc}" if desc else "")
 
