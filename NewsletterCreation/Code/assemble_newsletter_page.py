@@ -1760,15 +1760,13 @@ def _build_lowdown(newsletter_name: str) -> list[dict]:
     if not lowdown_text:
         return [callout_block("No Local Lowdown generated yet. Run the Local Lowdown pipeline.", emoji="⏳")]
 
-    # Lazy-import the shared og:image scraper (same one Free Events / Weekend
-    # Planner use) so each story can carry a lead image pulled from its first
-    # source article. Best-effort: if the import or any fetch fails, the
-    # section still renders text-only.
+    # Import the shared og:image scraper so each story can carry a lead image
+    # pulled from its first source article. Use event_image_scraper (a sibling
+    # module, deps: requests only) rather than Free_Events, which transitively
+    # imports anthropic — a package the assembler workflow doesn't install, so
+    # that import silently failed and the section rendered text-only.
     try:
-        import sys as _sys, os as _os
-        _sys.path.append(_os.path.join(_os.path.dirname(__file__), '..', '..',
-                                       'Free Events', 'Code'))
-        from Free_Events import fetch_event_image as _fetch_img  # noqa: E402
+        from event_image_scraper import fetch_event_image as _fetch_img  # noqa: E402
     except Exception as e:
         print(f"  ⚠ [lowdown] image scraper unavailable ({e}) — rendering text-only")
         _fetch_img = None
