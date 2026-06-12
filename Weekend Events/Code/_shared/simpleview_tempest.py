@@ -126,6 +126,27 @@ def _normalize_image(image) -> str:
     return ""
 
 
+# The Tempest JSON-LD/og image is usually a generic site-wide "meta-image"
+# (the same default photo on every event). The event's REAL photo lives in
+# the page's `figure.js-dir-gallery` — a lazy-loaded `/imager/` image whose
+# URL sits in the gallery anchor href (full size) or the img data-src.
+_GALLERY_FIGURE_RE = re.compile(r'<figure[^>]*js-dir-gallery.*?</figure>',
+                                re.IGNORECASE | re.DOTALL)
+_IMAGER_URL_RE = re.compile(
+    r'(?:href|data-src)=["\'](https?://[^"\']*?/imager/[^"\']+\.(?:png|jpe?g|webp))["\']',
+    re.IGNORECASE)
+
+
+def _extract_gallery_image(html: str) -> str:
+    """Return the event's primary gallery photo (first /imager/ image inside
+    the js-dir-gallery figure), or '' when there is no gallery."""
+    m = _GALLERY_FIGURE_RE.search(html or "")
+    if not m:
+        return ""
+    mm = _IMAGER_URL_RE.search(m.group(0))
+    return mm.group(1) if mm else ""
+
+
 def _normalize_location(location) -> tuple[str, str, str]:
     """Returns (location_name, address, city). City is returned separately
     for the Notion City column / shared-tag sweep."""
@@ -282,7 +303,10 @@ def _build_event(item: dict, html: str, url: str,
     time_str = _format_time_range_iso(item.get("startDate", ""),
                                       item.get("endDate", ""))
 
-    image_url = _normalize_image(item.get("image"))
+    # Prefer the event's real gallery photo; the JSON-LD image is usually a
+    # generic default shared across every event. Fall back to JSON-LD only
+    # when there's no gallery image.
+    image_url = _extract_gallery_image(html) or _normalize_image(item.get("image"))
     if image_url:
         image_url = urljoin(url, image_url)
 
