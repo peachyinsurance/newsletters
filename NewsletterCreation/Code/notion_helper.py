@@ -1189,7 +1189,9 @@ def approve_restaurant_in_notion(place_id: str, newsletter_hint: str = "") -> No
         print(f"{new_status}: {name}")
 
 def redo_restaurant_selection(newsletter_name: str) -> None:
-    """Reset all Tier 1/Tier 2 restaurants for a newsletter back to pending."""
+    """Reset the featured restaurant for a newsletter back to pending. Covers
+    the current single-pick statuses (approved/rejected) plus the legacy
+    Tier 1/Tier 2 Winner labels from before the single-pick migration."""
     pages = query_database(NOTION_RESTAURANTS_DB_ID)
     count = 0
     for page in pages:
@@ -1204,7 +1206,7 @@ def redo_restaurant_selection(newsletter_name: str) -> None:
         status     = props.get("Status", {}).get("select", {})
         status_name = status.get("name", "") if status else ""
 
-        if status_name in ("Tier 1 Winner", "Tier 2 Winner"):
+        if status_name in ("approved", "rejected", "Tier 1 Winner", "Tier 2 Winner"):
             update_page(page_id, {"Status": {"select": {"name": "pending"}}})
             name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
             print(f"  Reset to pending: {name}")
@@ -1549,6 +1551,50 @@ def redo_event_selection(newsletter_name: str) -> None:
             print(f"  Reset to pending: {name}")
             count += 1
     print(f"Reset {count} events to pending for {newsletter_name}")
+
+
+def _redo_selection_in_db(db_id: str, newsletter_name: str, label: str,
+                          reset_statuses=("approved", "rejected")) -> None:
+    """Generic redo: flip rows for `newsletter_name` in `db_id` whose Status
+    is in `reset_statuses` back to 'pending'. Shared by the review-app
+    sections that follow the approve/reject model (insurance tips, business
+    briefs, in search of, memes)."""
+    if not db_id:
+        print(f"  {label}: DB id not set — skipping")
+        return
+    try:
+        pages = query_database(db_id, filters={
+            "property": "Newsletter", "select": {"equals": newsletter_name}})
+    except Exception as e:
+        print(f"  {label}: query failed: {e}")
+        return
+    count = 0
+    for page in pages:
+        status_name = (page["properties"].get("Status", {}).get("select") or {}).get("name", "")
+        if status_name in reset_statuses:
+            update_page(page["id"], {"Status": {"select": {"name": "pending"}}})
+            count += 1
+    print(f"Reset {count} {label} row(s) to pending for {newsletter_name}")
+
+
+def redo_tip_selection(newsletter_name: str) -> None:
+    """Reset approved/rejected insurance tips back to pending."""
+    _redo_selection_in_db(NOTION_TIPS_DB_ID, newsletter_name, "insurance tips")
+
+
+def redo_business_brief_selection(newsletter_name: str) -> None:
+    """Reset approved/rejected business briefs back to pending."""
+    _redo_selection_in_db(NOTION_BUSINESS_BRIEF_DB_ID, newsletter_name, "business briefs")
+
+
+def redo_in_search_of_selection(newsletter_name: str) -> None:
+    """Reset approved/rejected In Search Of rows back to pending."""
+    _redo_selection_in_db(NOTION_IN_SEARCH_OF_DB_ID, newsletter_name, "in search of")
+
+
+def redo_meme_selection(newsletter_name: str) -> None:
+    """Reset approved/rejected memes back to pending."""
+    _redo_selection_in_db(NOTION_MEMES_DB_ID, newsletter_name, "memes")
 
 
 def get_existing_event_urls(newsletter_name: str) -> set:
