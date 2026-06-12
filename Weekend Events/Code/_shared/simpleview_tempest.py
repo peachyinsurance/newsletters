@@ -24,7 +24,7 @@ import os
 import re
 import sys
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from urllib.parse import urljoin
 
 import requests
@@ -151,6 +151,65 @@ def _normalize_location(location) -> tuple[str, str, str]:
     return "", "", ""
 
 
+# ---------------------------------------------------------------------------
+# Body fallbacks for events whose JSON-LD `location` is degenerate.
+#
+# Some Tempest events ship a JSON-LD location where the venue/address is
+# just the event title repeated (e.g. visitroswellga dance-camp →
+# {"address": "Dance Camp", "name": "Dance Camp"}). The page itself still
+# carries the real data: schema.org PostalAddress microdata for the
+# address and a bold "Location:" list item for the venue name.
+# ---------------------------------------------------------------------------
+def _extract_microdata_address(html: str) -> tuple[str, str]:
+    """Pull (address, city) from the page's <meta itemprop> PostalAddress
+    microdata. addressRegion is often blank in the meta — recover it from
+    the visible 'City, ST' text when needed."""
+    def _meta(prop: str) -> str:
+        m = re.search(rf'<meta\s+itemprop=["\']{prop}["\']\s+content=["\']([^"\']*)["\']',
+                      html, re.IGNORECASE)
+        return (m.group(1).strip() if m else "")
+
+    street   = _meta("streetAddress")
+    locality = _meta("addressLocality")
+    region   = _meta("addressRegion")
+    postal   = _meta("postalCode")
+    if not (street or locality):
+        return "", ""
+    if not region and locality:
+        mm = re.search(rf'{re.escape(locality)},\s*([A-Z]{{2}})\b', html)
+        region = mm.group(1) if mm else ""
+    parts = [p for p in (street, locality, region, postal) if p]
+    return _clean_html(", ".join(parts)), _clean_html(locality).lower()
+
+
+def _extract_body_venue(html: str) -> str:
+    """The real venue from the bold 'Location:' list item."""
+    m = re.search(r'Location:\s*</span>\s*([^<]+)</li>', html, re.IGNORECASE)
+    return _clean_html(m.group(1).strip()) if m else ""
+
+
+def _format_time_range_iso(start_str: str, end_str: str) -> str:
+    """JSON-LD start/end (e.g. '2026-06-01T10:00:00-04:00') → '10:00 AM –
+    3:30 PM'. The offset is the venue's own local time, so no conversion is
+    needed. Empty for all-day / midnight (time-less) listings."""
+    def _p(s: str):
+        if not s:
+            return None
+        try:
+            return datetime.fromisoformat(s)
+        except Exception:
+            return None
+    sdt = _p(start_str)
+    if sdt is None or not (sdt.hour or sdt.minute):
+        return ""
+    out = sdt.strftime("%-I:%M %p")
+    edt = _p(end_str)
+    if edt and (edt.hour or edt.minute) and \
+            (edt.hour, edt.minute) != (sdt.hour, sdt.minute):
+        out += " – " + edt.strftime("%-I:%M %p")
+    return out
+
+
 def _fetch_event(url: str, today: date, window_end: date) -> dict | None:
     """Fetch one event detail page, find its JSON-LD Event, normalize."""
     html = _fetch(url)
@@ -201,8 +260,27 @@ def _build_event(item: dict, html: str, url: str,
                        and (json_end - start).days <= 1) else None
 
     loc_name, address, city = _normalize_location(item.get("location"))
+
+    # A real street address contains a number. When the JSON-LD location is
+    # degenerate (no digits — usually the event title repeated), recover the
+    # real address from the page's PostalAddress microdata and the venue from
+    # the body "Location:" label.
+    if not re.search(r"\d", address or ""):
+        md_addr, md_city = _extract_microdata_address(html)
+        if md_addr:
+            address = md_addr
+            city = md_city or city
+        body_venue = _extract_body_venue(html)
+        if body_venue:
+            loc_name = body_venue
+
     if is_inappropriate_event(name, desc, loc_name):
         return None
+
+    # The listing hardcoded no time; derive it from the JSON-LD start/end,
+    # whose offsets are already the venue's local time.
+    time_str = _format_time_range_iso(item.get("startDate", ""),
+                                      item.get("endDate", ""))
 
     image_url = _normalize_image(item.get("image"))
     if image_url:
@@ -215,7 +293,7 @@ def _build_event(item: dict, html: str, url: str,
         "image_url":   image_url,
         "start_date":  start,
         "end_date":    end,
-        "time":        "",
+        "time":        time_str,
         "location":    loc_name,
         "address":     address,
         "city":        city,
