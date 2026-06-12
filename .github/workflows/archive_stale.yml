@@ -58,6 +58,8 @@ jobs:
           NOTION_POLLS_DB_ID:           ${{ secrets.NOTION_POLLS_DB_ID }}
           NOTION_WEEKEND_PLANNER_DB_ID: ${{ secrets.NOTION_WEEKEND_PLANNER_DB_ID }}
           NOTION_BUSINESS_BRIEF_DB_ID:  ${{ secrets.NOTION_BUSINESS_BRIEF_DB_ID }}
+          NOTION_IN_SEARCH_OF_DB_ID:    ${{ secrets.NOTION_IN_SEARCH_OF_DB_ID }}
+          NOTION_MEMES_DB_ID:           ${{ secrets.NOTION_MEMES_DB_ID }}
           NEWSLETTER:                   ${{ github.event.inputs.newsletter }}
           CUTOFF_DAYS:                  ${{ github.event.inputs.cutoff_days || '5' }}
         run: python NewsletterCreation/Code/archive_stale_rows.py

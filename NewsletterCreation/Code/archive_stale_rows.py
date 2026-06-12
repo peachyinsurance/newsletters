@@ -36,6 +36,8 @@ from notion_helper import (  # noqa: E402
     NOTION_POLLS_DB_ID,
     NOTION_WEEKEND_PLANNER_DB_ID,
     NOTION_BUSINESS_BRIEF_DB_ID,
+    NOTION_MEMES_DB_ID,
+    NOTION_IN_SEARCH_OF_DB_ID,
 )
 
 NEWSLETTER  = os.environ.get("NEWSLETTER", "all").strip()
@@ -59,6 +61,8 @@ SECTION_DBS = [
     (NOTION_FREE_EVENTS_DB_ID,     "Free Events"),
     (NOTION_TIPS_DB_ID,            "Insurance Tip"),
     (NOTION_BUSINESS_BRIEF_DB_ID,  "Business Brief"),
+    (NOTION_IN_SEARCH_OF_DB_ID,    "In Search Of"),
+    (NOTION_MEMES_DB_ID,           "Memes"),
     (NOTION_POLLS_DB_ID,           "Reader Poll"),
 ]
 
