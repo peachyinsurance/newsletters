@@ -1156,33 +1156,27 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         )
         alt_swaps["newsletter_header_image"] = header_url
 
-    # ---- Restaurants (Tier 1 + others) ----
+    # ---- Restaurant (single featured pick) ----
+    # Since the single-pick migration, get_restaurants returns ONE row whose
+    # tier is "approved" (or legacy "Tier 1 Winner"). The old code only matched
+    # "Tier 1 Winner", so the new approved pick was dropped and the whole
+    # Restaurant Radar card got pruned. Just take the first returned row.
     restaurants = get_restaurants(newsletter_name)
-    # restaurants is sorted Tier 1 first, then Tier 2 by score
-    tier1 = next((r for r in restaurants if r["tier"] == "Tier 1 Winner"), None)
-    others = [r for r in restaurants if r["tier"] != "Tier 1 Winner"]
-    if tier1:
-        repl["restaurant_radar_name"]    = tier1.get("name", "")
-        repl["restaurant_radar_message"] = tier1.get("blurb", "")
-        repl["restaurant_radar_url"]     = tier1.get("maps_url") or tier1.get("website") or ""
-        # upload tier 1 image
-        img_url = tier1.get("gif") or tier1.get("photo")
+    featured = restaurants[0] if restaurants else None
+    if featured:
+        print(f"  Restaurant pick for {newsletter_name}: {featured.get('name','')} "
+              f"(tier={featured.get('tier','')})")
+        repl["restaurant_radar_name"]    = featured.get("name", "")
+        repl["restaurant_radar_message"] = featured.get("blurb", "")
+        repl["restaurant_radar_url"]     = featured.get("maps_url") or featured.get("website") or ""
+        img_url = featured.get("gif") or featured.get("photo")
         if img_url:
             hosted = upload_remote_image(client, publication_id, img_url)
             if hosted:
                 image_swaps[img_url] = hosted
             alt_swaps["restaurant_radar_image"] = hosted or img_url
-    # Fill up to 4 additional tiers (slots 2..5) — template has 5 slots total
-    for i, r in enumerate(others[:4], start=2):
-        repl[f"restaurant_radar_{i}_name"]    = r.get("name", "")
-        repl[f"restaurant_radar_{i}_message"] = r.get("blurb", "")
-        repl[f"restaurant_radar_{i}_url"]     = r.get("maps_url") or r.get("website") or ""
-        img_url = r.get("gif") or r.get("photo")
-        if img_url:
-            hosted = upload_remote_image(client, publication_id, img_url)
-            if hosted:
-                image_swaps[img_url] = hosted
-            alt_swaps[f"restaurant_radar_{i}_image"] = hosted or img_url
+    else:
+        print(f"  ⚠ No restaurant found for {newsletter_name} — Restaurant Radar card will prune")
 
     # ---- Real Estate ----
     # Tier names from RE corner: "Starter Home", "Sweet Spot", "Showcase"
