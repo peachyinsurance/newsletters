@@ -20,7 +20,7 @@
     "relevance_score": "80",
     "total_score": "80",
     "date_generated": "2026-06-11",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "Lewisville_Lake_Lookout",
     "default_winner": ""
   },
@@ -70,7 +70,7 @@
     "relevance_score": "78",
     "total_score": "78",
     "date_generated": "2026-06-07",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -95,7 +95,7 @@
     "relevance_score": "82",
     "total_score": "82",
     "date_generated": "2026-06-07",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -120,7 +120,7 @@
     "relevance_score": "63",
     "total_score": "63",
     "date_generated": "2026-06-06",
-    "status": "approved",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -145,7 +145,7 @@
     "relevance_score": "75",
     "total_score": "75",
     "date_generated": "2026-06-06",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -170,7 +170,7 @@
     "relevance_score": "82",
     "total_score": "82",
     "date_generated": "2026-06-11",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -214,7 +214,7 @@
     "relevance_score": "83",
     "total_score": "83",
     "date_generated": "2026-06-11",
-    "status": "pending",
+    "status": "approved",
     "newsletter_name": "Lewisville_Lake_Lookout",
     "default_winner": ""
   },
@@ -239,7 +239,7 @@
     "relevance_score": "7",
     "total_score": "7",
     "date_generated": "2026-05-28",
-    "status": "pending",
+    "status": "approved",
     "newsletter_name": "Lewisville_Lake_Lookout",
     "default_winner": ""
   },
@@ -264,9 +264,9 @@
     "relevance_score": "88",
     "total_score": "88",
     "date_generated": "2026-06-11",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "Lewisville_Lake_Lookout",
-    "default_winner": ""
+    "default_winner": "yes"
   },
   {
     "source_url": "https://www.idealdiamond.com/",
@@ -364,7 +364,7 @@
     "relevance_score": "5",
     "total_score": "5",
     "date_generated": "2026-05-28",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -389,7 +389,7 @@
     "relevance_score": "74",
     "total_score": "74",
     "date_generated": "2026-06-12",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -414,7 +414,7 @@
     "relevance_score": "79",
     "total_score": "79",
     "date_generated": "2026-06-12",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -439,8 +439,8 @@
     "relevance_score": "88",
     "total_score": "88",
     "date_generated": "2026-06-12",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
-    "default_winner": ""
+    "default_winner": "yes"
   }
 ]
