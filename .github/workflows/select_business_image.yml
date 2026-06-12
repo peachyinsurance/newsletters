@@ -33,45 +33,19 @@ jobs:
           python-version: '3.11'
       - run: pip install requests Pillow
 
-      - name: Save selection (single photo or build GIF)
+      - name: Save selection (single photo or build + publish GIF)
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_BUSINESS_BRIEF_DB_ID: ${{ secrets.NOTION_BUSINESS_BRIEF_DB_ID }}
+          GITHUB_TOKEN:                ${{ secrets.GITHUB_TOKEN }}
           SOURCE_URL:                  ${{ github.event.inputs.source_url }}
           IMAGE_URLS:                  ${{ github.event.inputs.image_urls }}
           NEWSLETTER:                  ${{ github.event.inputs.newsletter }}
+        # The script now publishes the GIF straight to gh-pages via the GitHub
+        # Contents API (atomic + idempotent) — the old git-checkout-gh-pages
+        # step was unreliable and raced the review-app deploy, so every GIF
+        # 404'd. No separate publish step needed now.
         run: python "Business Brief/Code/select_business_image.py"
-
-      - name: Publish business brief GIF(s) to gh-pages
-        if: ${{ always() }}
-        run: |
-          set -e
-          shopt -s nullglob
-          gifs=("Beehiiv/Code/output/business_brief_gif_"*.gif)
-          if [ ${#gifs[@]} -eq 0 ]; then
-            echo "No GIF generated (single-photo selection); nothing to publish"
-            exit 0
-          fi
-          mkdir -p /tmp/bb_gifs
-          cp "${gifs[@]}" /tmp/bb_gifs/
-
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git stash --include-untracked || true
-          git fetch origin gh-pages
-          git checkout gh-pages
-          mkdir -p gifs
-          cp /tmp/bb_gifs/*.gif gifs/
-          git add gifs/
-          if git diff --staged --quiet; then
-            echo "No GIF changes to publish"
-          else
-            git commit -m "update business brief gif [skip ci]"
-            git push origin gh-pages
-            echo "✓ GIF published to gh-pages/gifs/"
-          fi
-          git checkout main
-          git stash pop || true
 
       - name: Refresh review app
         if: ${{ always() }}
