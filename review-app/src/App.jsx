@@ -256,11 +256,16 @@ const SECTIONS = {
     multiSelect:     true,
     maxApprovals:    8,
     rejectRemainingWorkflow: "approve_in_search_of.yml",
+    // Toggle-then-submit: tiles toggle a local selection (no commit per
+    // click); "Submit selection" writes the exact set in one go (handled by
+    // the approve workflow's SET_SELECTION mode). "Redo selection" resets all
+    // rows to pending.
+    deferredSubmit:  true,
     header: {
       eyebrow:    "Newsletter In Search Of Review",
       h1Prefix:   "Pick This Week's",
       h1Emphasis: "Job Listings",
-      sub:        "Approve the listings to feature. After your picks, click \"Reject the rest\" to clear remaining pending rows.",
+      sub:        "Toggle the listings you want, then click \"Submit selection\". Use \"Redo selection\" to reset everything to pending.",
     },
   },
 
@@ -309,6 +314,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
   const [error, setError]                   = useState("");
   const [success, setSuccess]               = useState("");
   const [redoing, setRedoing]               = useState(false);
+  const [submitting, setSubmitting]         = useState(false);
   const [approvedMap, setApprovedMap]       = useState(() => {
     const map = {};
     const savedApprovals = JSON.parse(localStorage.getItem(config.storageKey) || "{}");
@@ -479,6 +485,94 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
       setError(`Approval failed: ${e.message}`);
     } finally {
       setApproving(null);
+    }
+  }
+
+  // Deferred-submit (multi-select): toggle a listing in/out of the LOCAL
+  // selection. No gh-pages commit and no workflow dispatch — nothing is
+  // written until "Submit selection". Respects maxApprovals when adding.
+  function toggleSelect(item) {
+    const id = item[config.idField];
+    setApprovedMap(prev => {
+      const arr = Array.isArray(prev[selectedNewsletter]) ? [...prev[selectedNewsletter]] : [];
+      const at = arr.indexOf(id);
+      if (at >= 0) {
+        arr.splice(at, 1);                       // deselect
+      } else {
+        if (arr.length >= (config.maxApprovals || Infinity)) return prev;  // at limit
+        arr.push(id);                            // select
+      }
+      const saved = JSON.parse(localStorage.getItem(config.storageKey) || "{}");
+      saved[selectedNewsletter] = arr;
+      localStorage.setItem(config.storageKey, JSON.stringify(saved));
+      return { ...prev, [selectedNewsletter]: arr };
+    });
+  }
+
+  // Deferred-submit: commit the current local selection as the EXACT approved
+  // set — one gh-pages write + one workflow dispatch (SET_SELECTION mode, which
+  // returns any deselected-but-previously-approved row to pending).
+  async function handleSubmitSelection() {
+    if (!token) return;
+    setSubmitting(true);
+    setError("");
+    const ids = Array.isArray(approvedMap[selectedNewsletter]) ? approvedMap[selectedNewsletter] : [];
+    const ghHeaders = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" };
+    try {
+      const fileUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${config.dataFile}?ref=gh-pages&_=${Date.now()}`;
+      const fileRes = await fetch(fileUrl, { headers: ghHeaders, cache: "no-store" });
+      if (!fileRes.ok) throw new Error("Could not fetch data file from gh-pages");
+      const fileInfo = await fileRes.json();
+      const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));
+      const aLower = config.approvedStatus.toLowerCase();
+      for (const row of rows) {
+        if (row.newsletter_name !== selectedNewsletter) continue;
+        const isSel = ids.includes(row[config.idField]);
+        if (isSel) row.status = config.approvedStatus;
+        else if ((row.status || "").toLowerCase() === aLower) row.status = "pending";
+      }
+      const commitRes = await fetch(fileUrl, {
+        method: "PUT",
+        headers: ghHeaders,
+        body: JSON.stringify({
+          message: `submit selection: ${ids.length} ${config.redoSection} for ${selectedNewsletter}`,
+          content: btoa(unescape(encodeURIComponent(JSON.stringify(rows, null, 2)))),
+          sha: fileInfo.sha,
+          branch: "gh-pages",
+        }),
+      });
+      if (!commitRes.ok) throw new Error("Could not update data file on gh-pages");
+
+      const rLower = config.rejectedStatus.toLowerCase();
+      setItems(rows.map(row => {
+        const s = (row.status || "").toLowerCase();
+        if (s === aLower) return { ...row, _localStatus: "approved" };
+        if (s === rLower) return { ...row, _localStatus: "rejected" };
+        return { ...row, _localStatus: undefined };
+      }));
+      if (ids.length > 0) onApprove(selectedNewsletter); else onUnapprove(selectedNewsletter);
+      setSuccess({ newsletter: selectedNewsletter, name: `${ids.length} listing(s) submitted` });
+
+      // One dispatch: SET_SELECTION makes the list the exact approved set.
+      fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${config.approveWorkflow}/dispatches`,
+        {
+          method: "POST",
+          headers: ghHeaders,
+          body: JSON.stringify({
+            ref: "main",
+            inputs: {
+              newsletter:          selectedNewsletter,
+              set_selection:       "true",
+              approved_permalinks: ids.join(","),
+            },
+          }),
+        }
+      ).catch(() => {});
+    } catch (e) {
+      setError(`Submit failed: ${e.message}`);
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -673,7 +767,9 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
               </span>
               {limitReached && (
                 <span className="winner-name" style={{color: "#2A7F2A"}}>
-                  Limit reached — click "Reject the rest" below to finalize
+                  {config.deferredSubmit
+                    ? "Limit reached — deselect one to swap, or Submit selection below"
+                    : "Limit reached — click \"Reject the rest\" below to finalize"}
                 </span>
               )}
             </div>
@@ -696,7 +792,23 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
         {!config.multiSelect && " — select one to feature"}
       </div>
 
-      {config.multiSelect && approvedCount > 0 && (
+      {config.multiSelect && config.deferredSubmit && (
+        <div style={{textAlign: "center", margin: "16px 0 24px"}}>
+          <button className="btn btn-approve" onClick={handleSubmitSelection}
+                  disabled={submitting || redoing}
+                  style={{marginRight: 12}}>
+            {submitting ? "⏳ Submitting…" : `✓ Submit selection (${approvedCount})`}
+          </button>
+          <button className="btn btn-redo" onClick={handleRedo} disabled={submitting || redoing}>
+            {redoing ? "⏳ Resetting…" : "🔄 Redo selection"}
+          </button>
+          <div style={{marginTop: 8, fontSize: 13, color: "#6B5744"}}>
+            Toggle listings on/off, then Submit. Redo returns every listing for this newsletter to pending.
+          </div>
+        </div>
+      )}
+
+      {config.multiSelect && !config.deferredSubmit && approvedCount > 0 && (
         <div style={{textAlign: "center", margin: "16px 0 24px"}}>
           <button className="btn btn-redo" onClick={handleRejectRest} disabled={redoing}>
             {redoing ? "⏳ Rejecting…" : "✗ Reject the rest"}
@@ -752,7 +864,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
                 <TileComponent
                   key={id || idx}
                   {...{[config.itemPropName]: item}}
-                  onApprove={handleApprove}
+                  onApprove={config.deferredSubmit ? toggleSelect : handleApprove}
                   approving={approving}
                   approved={isApproved ? id : null}
                   disableApprove={config.multiSelect && limitReached && !isApproved}

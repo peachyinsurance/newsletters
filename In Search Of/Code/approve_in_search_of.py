@@ -16,6 +16,17 @@ by env vars:
     APPROVED_URLS    = comma-separated Job Listings URLs to KEEP (don't
                        reject), belt-and-suspenders alongside the status
                        check.
+
+  Mode 3 — SET SELECTION (the "Submit selection" button):
+    SET_SELECTION    = "true"
+    NEWSLETTER       = which newsletter's rows to set.
+    APPROVED_URLS    = comma-separated Job Listings URLs that should be
+                       Status=approved. Every listed URL → approved; any row
+                       that is currently approved but NOT in the list → back
+                       to pending (so deselecting a listing returns it to the
+                       candidate pool). Pending/rejected rows are left as-is.
+                       This makes Submit the single source of truth, so the
+                       reviewer can freely toggle picks and re-submit.
 """
 import os
 import sys
@@ -79,11 +90,40 @@ def reject_remaining(newsletter: str, keep_urls: list[str]) -> int:
     return 0
 
 
+def set_selection(newsletter: str, approved_urls: list[str]) -> int:
+    """Make `approved_urls` the EXACT set of approved rows for this newsletter:
+    listed URLs → approved; previously-approved rows not in the list → pending.
+    Pending/rejected rows are untouched."""
+    rows = query_database(NOTION_IN_SEARCH_OF_DB_ID, filters={
+        "property": "Newsletter", "select": {"equals": newsletter},
+    }) if newsletter else query_database(NOTION_IN_SEARCH_OF_DB_ID)
+    keep = {u.strip() for u in approved_urls if u.strip()}
+    approved = reset = 0
+    for p in rows:
+        if newsletter and _newsletter_of(p) != newsletter:
+            continue
+        url, cur = _url_of(p), _status_of(p)
+        if url in keep:
+            if cur != "approved":
+                update_page(p["id"], {"Status": {"select": {"name": "approved"}}})
+                approved += 1
+        elif cur == "approved":
+            # Deselected since last submit — return it to the candidate pool.
+            update_page(p["id"], {"Status": {"select": {"name": "pending"}}})
+            reset += 1
+    print(f"✓ Selection set: {len(keep)} approved "
+          f"({approved} newly approved, {reset} returned to pending)")
+    return 0
+
+
 if __name__ == "__main__":
     if not NOTION_IN_SEARCH_OF_DB_ID:
         print("✗ NOTION_IN_SEARCH_OF_DB_ID not set in env")
         sys.exit(1)
     nl = os.environ.get("NEWSLETTER", "").strip()
+    if os.environ.get("SET_SELECTION", "").strip().lower() == "true":
+        urls = os.environ.get("APPROVED_URLS", "").split(",")
+        sys.exit(set_selection(nl, urls))
     if os.environ.get("REJECT_REMAINING", "").strip().lower() == "true":
         keep = os.environ.get("APPROVED_URLS", "").split(",")
         sys.exit(reject_remaining(nl, keep))

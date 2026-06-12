@@ -15,8 +15,12 @@ on:
         description: 'If "true", flip all pending In Search Of rows for this newsletter to rejected. Use after approving your picks.'
         required: false
         default: ''
+      set_selection:
+        description: 'If "true", make approved_permalinks the EXACT approved set (Submit selection): listed URLs → approved, deselected approved rows → pending.'
+        required: false
+        default: ''
       approved_permalinks:
-        description: 'Comma-separated Job Listings URLs to KEEP when rejecting remaining (extra safety)'
+        description: 'Comma-separated Job Listings URLs (KEEP list for reject-remaining, or the exact approved set for set_selection)'
         required: false
         default: ''
 
@@ -40,6 +44,7 @@ jobs:
           JOB_LISTINGS_URL:          ${{ github.event.inputs.job_listings_url }}
           NEWSLETTER:                ${{ github.event.inputs.newsletter }}
           REJECT_REMAINING:          ${{ github.event.inputs.reject_remaining }}
+          SET_SELECTION:             ${{ github.event.inputs.set_selection }}
           APPROVED_URLS:             ${{ github.event.inputs.approved_permalinks }}
         run: python "In Search Of/Code/approve_in_search_of.py"
 
