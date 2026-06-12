@@ -70,7 +70,7 @@
     "relevance_score": "78",
     "total_score": "78",
     "date_generated": "2026-06-07",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -95,7 +95,7 @@
     "relevance_score": "82",
     "total_score": "82",
     "date_generated": "2026-06-07",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -120,7 +120,7 @@
     "relevance_score": "63",
     "total_score": "63",
     "date_generated": "2026-06-06",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -145,7 +145,7 @@
     "relevance_score": "75",
     "total_score": "75",
     "date_generated": "2026-06-06",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -170,7 +170,7 @@
     "relevance_score": "82",
     "total_score": "82",
     "date_generated": "2026-06-11",
-    "status": "approved",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -364,7 +364,7 @@
     "relevance_score": "5",
     "total_score": "5",
     "date_generated": "2026-05-28",
-    "status": "rejected",
+    "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -441,6 +441,6 @@
     "date_generated": "2026-06-12",
     "status": "pending",
     "newsletter_name": "East_Cobb_Connect",
-    "default_winner": "yes"
+    "default_winner": ""
   }
 ]
