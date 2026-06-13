@@ -182,10 +182,18 @@ def notion_get_blocks(page_id: str) -> list[dict]:
 
 
 def find_section_blocks(blocks: list[dict], heading_text: str) -> tuple[list[str], str | None]:
-    """Find block IDs between a heading and the next heading/divider.
-    Returns (block_ids_to_delete, heading_block_id)."""
+    """Find block IDs between a section heading and the next SECTION boundary.
+    Returns (block_ids_to_delete, heading_block_id).
+
+    The section ends at the next divider or the next heading whose level is the
+    SAME OR HIGHER than the section heading (a sibling/parent section). Deeper
+    sub-headings are part of this section and must be collected for clearing —
+    e.g. the Weekend Planner emits 'Family Events'/'Adult Events' as heading_3
+    blocks; if we stopped at the first one, the clear would bail immediately and
+    each re-assemble would stack new content on top of the old (duplication)."""
     found_heading = False
     heading_id = None
+    heading_level = 2
     section_block_ids = []
 
     for block in blocks:
@@ -199,11 +207,21 @@ def find_section_blocks(blocks: list[dict], heading_text: str) -> tuple[list[str
                 if heading_text.lower() in text.lower():
                     found_heading = True
                     heading_id = block["id"]
+                    try:
+                        heading_level = int(block_type.split("_")[1])
+                    except (IndexError, ValueError):
+                        heading_level = 2
                     continue
         else:
-            # Stop at the next heading or divider
-            if block_type.startswith("heading_") or block_type == "divider":
+            if block_type == "divider":
                 break
+            if block_type.startswith("heading_"):
+                try:
+                    lvl = int(block_type.split("_")[1])
+                except (IndexError, ValueError):
+                    lvl = 1
+                if lvl <= heading_level:
+                    break  # next section at same/higher level — stop here
             section_block_ids.append(block["id"])
 
     return section_block_ids, heading_id
