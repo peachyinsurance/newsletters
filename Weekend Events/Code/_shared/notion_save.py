@@ -72,7 +72,16 @@ def existing_source_urls(db_id: str,
         if not url:
             continue
         iso = ((props.get("Date") or {}).get("date") or {}).get("start") or ""
-        out[(url, iso[:10])] = p.get("id", "")
+        page_id = p.get("id", "")
+        # Key under both the trailing-slash and no-slash forms of the URL.
+        # Notion (and successive scraper/site versions) can store the same
+        # event URL with or without a trailing "/"; without this, a scraper
+        # that looks up the other form misses the existing row and inserts a
+        # DUPLICATE every run. Toggling the slash makes the dedup robust to
+        # that without each scraper having to normalize on its side.
+        bare = url.rstrip("/")
+        for variant in {url, bare, bare + "/"}:
+            out[(variant, iso[:10])] = page_id
     return out
 
 

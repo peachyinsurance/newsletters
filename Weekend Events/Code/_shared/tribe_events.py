@@ -282,17 +282,9 @@ def run_tribe_source(source_url: str, newsletter: str,
 
     inserted = 0
     updated  = 0
-    # TEMP DEBUG: dump existing dedup keys that look like the Braves so we can
-    # see why the (url, date) lookup misses and the rows duplicate each run.
-    _dbg_existing = [k for k in existing if "brewers" in (k[0] or "").lower()]
-    print(f"  [debug] existing 'brewers' dedup keys ({len(_dbg_existing)}):")
-    for k in _dbg_existing[:12]:
-        print(f"      {k!r}")
     print(f"━━ Saving {len(candidates)} occurrence(s) ━━")
     for ev in candidates:
         page_id = existing.get((ev["source_url"], ev["start_date"].isoformat()))
-        if "brewers" in (ev.get("source_url") or "").lower():
-            print(f"  [debug] lookup {(ev['source_url'], ev['start_date'].isoformat())!r} → page_id={page_id!r}")
         if save_event(db_id, ev, newsletter, page_id=page_id):
             if page_id:
                 updated += 1
