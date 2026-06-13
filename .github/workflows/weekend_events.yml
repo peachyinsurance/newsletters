@@ -75,7 +75,7 @@ jobs:
       # curl_cffi: Chrome TLS impersonation for sites that fingerprint
       # plain Python requests (dunwoody_gov.py needs it; without it the
       # Vision Internet CMS returns 403).
-      - run: pip install requests curl_cffi
+      - run: pip install requests curl_cffi pgeocode
 
       # Each scraper step runs only when the dropdown is "all" or its
       # newsletter. ECC owns Sandy Springs (shared ECC_PP) so the
@@ -267,17 +267,18 @@ jobs:
           NEWSLETTER:                  Lewisville_Lake_Lookout
         run: python "Weekend Events/Code/Lewisville_Lake_Lookout/denton_county.py"
 
-      # ── Post-scrape sweep: retag shared-city rows ──────────────────────
-      # After all scrapers run, flip rows whose venue City matches a
-      # shared coverage area (e.g. Roswell) from their per-newsletter
-      # tag to ECC_PP so both newsletters' pickers see them.
-      - name: Normalize city tags (shared-city sweep)
+      # ── Post-scrape sweep: distance-based newsletter tagging ───────────
+      # After all scrapers run, re-tag every row by straight-line distance
+      # from the event's ZIP centroid to each newsletter's anchor (≤10 mi):
+      # 0 anchors → untagged_group (unused); 1 → that newsletter; 2 → ECC_PP.
+      # Replaces the old hardcoded shared-city sweep (normalize_city_tags).
+      - name: Geo-tag events by distance
         continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
         env:
           NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
-        run: python "Weekend Events/Code/utilities/normalize_city_tags.py"
+        run: python "Weekend Events/Code/utilities/geo_tagger.py"
 
       - name: Archive past events
         continue-on-error: true
