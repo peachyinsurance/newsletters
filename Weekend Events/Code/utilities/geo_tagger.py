@@ -2,22 +2,28 @@
 """Distance-based newsletter tagging for the Weekend Events DB.
 
 Replaces the hardcoded city-name sweep (normalize_city_tags) with a real
-straight-line distance test against each newsletter's anchor.
+PER-EVENT straight-line distance test against each newsletter's anchor.
 
-For every event row:
-  1. Pull the event's ZIP out of its Address and look up that ZIP's centroid
-     (offline, via the `pgeocode` US dataset — no API key, no cost, no limits).
-  2. Haversine distance from that centroid to each newsletter's anchor
+For every (upcoming) event row:
+  1. Resolve the event's actual coordinates:
+       a. cached `Geo` field on the row (lat,lng) if present, else
+       b. geocode the full street Address via Nominatim/OSM (free, no key),
+          and cache the result back onto the row's `Geo` field, else
+       c. fall back to the ZIP centroid (offline pgeocode) when the full
+          geocode fails.
+  2. Haversine distance from those coordinates to each newsletter's anchor
      (lat/lng in newsletters_config).
   3. Tag by which anchors are within RADIUS_MILES:
-       0 anchors  -> 'untagged_group'   (used by NO newsletter)
-       1 anchor   -> that newsletter's name (e.g. East_Cobb_Connect)
-       2 anchors  -> the joint tag (East_Cobb_Connect + Perimeter_Post -> ECC_PP)
+       0 anchors -> 'untagged_group'  (used by NO newsletter)
+       1 anchor  -> that newsletter (e.g. East_Cobb_Connect)
+       2 anchors -> joint tag (East_Cobb_Connect + Perimeter_Post -> ECC_PP)
 
-Events we can't place (address has no ZIP and no stored coords) are LEFT ON
-THEIR CURRENT TAG (logged), not dropped — so a fixed venue whose address omits
-a ZIP (e.g. The Battery) keeps the tag its scraper assigned rather than
-silently vanishing.
+Per-event matters: ZIP centroids collapse a whole ZIP to one point (all of
+Roswell read 12 mi from East Cobb), but the actual addresses range 9-11 mi —
+so the southern edge of Roswell is correctly ECC_PP while the rest is PP-only.
+
+Events we can't place at all (no Address, no ZIP, no coords) are LEFT ON
+THEIR CURRENT TAG (logged) rather than dropped.
 
 Run:
     NOTION_WEEKEND_EVENTS_DB_ID=... python "Weekend Events/Code/utilities/geo_tagger.py"
@@ -25,11 +31,15 @@ Run:
 import os
 import re
 import sys
+import time
+from datetime import date
 from math import asin, cos, radians, sin, sqrt
+
+import requests
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
-from notion_helper import query_database, update_page  # noqa: E402
+from notion_helper import query_database, update_page, HEADERS  # noqa: E402
 from newsletters_config import NEWSLETTERS  # noqa: E402
 
 WEEKEND_EVENTS_DB_ID = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
@@ -47,16 +57,20 @@ ANCHORS = [(nl["name"], nl["lat"], nl["lng"]) for nl in NEWSLETTERS
            if nl.get("lat") is not None and nl.get("lng") is not None]
 
 _ZIP_RE = re.compile(r"\b(\d{5})(?:-\d{4})?\b")
+_NOMINATIM = "https://nominatim.openstreetmap.org/search"
+_GEO_HEADERS = {"User-Agent": "east-cobb-connect-newsletter-geotagger/1.0 "
+                              "(contact: peachyinsurance)"}
+_GEO_CACHE: dict[str, tuple] = {}   # per-run cache: address → (lat, lng) | None
 
 try:
     import pgeocode
     _NOMI = pgeocode.Nominatim("us")
 except Exception as e:  # pragma: no cover
     _NOMI = None
-    print(f"⚠ pgeocode unavailable ({e}) — cannot geo-tag")
+    print(f"⚠ pgeocode unavailable ({e}) — ZIP fallback disabled")
 
 
-def _haversine_miles(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+def _haversine_miles(lat1, lng1, lat2, lng2):
     R = 3958.7613  # mean earth radius, miles
     dlat = radians(lat2 - lat1)
     dlng = radians(lng2 - lng1)
@@ -64,10 +78,11 @@ def _haversine_miles(lat1: float, lng1: float, lat2: float, lng2: float) -> floa
     return 2 * R * asin(sqrt(a))
 
 
-def zip_centroid(address: str):
-    """(lat, lng) for the LAST 5-digit ZIP in `address`, or None. The ZIP is
-    taken last so a leading street number ('12345 Main St … 30301') doesn't
-    masquerade as the ZIP."""
+def _valid(lat, lng) -> bool:
+    return lat == lat and lng == lng and -90 <= lat <= 90 and -180 <= lng <= 180
+
+
+def _zip_centroid(address: str):
     if not address or _NOMI is None:
         return None
     zips = _ZIP_RE.findall(address)
@@ -78,14 +93,45 @@ def zip_centroid(address: str):
         lat, lng = float(rec.latitude), float(rec.longitude)
     except (TypeError, ValueError):
         return None
-    if lat != lat or lng != lng:  # NaN → unknown ZIP
-        return None
-    return (lat, lng)
+    return (lat, lng) if _valid(lat, lng) else None
+
+
+def _geocode_full(address: str):
+    """Precise (lat, lng) for a full street address via Nominatim. Rate-limited
+    to 1 req/sec per the OSM usage policy. None on miss/error."""
+    try:
+        time.sleep(1.1)
+        r = requests.get(_NOMINATIM,
+                         params={"q": address, "format": "json",
+                                 "limit": 1, "countrycodes": "us"},
+                         headers=_GEO_HEADERS, timeout=15)
+        if r.status_code == 200:
+            data = r.json() or []
+            if data:
+                lat, lng = float(data[0]["lat"]), float(data[0]["lon"])
+                if _valid(lat, lng):
+                    return (lat, lng)
+    except Exception as e:
+        print(f"    ⚠ geocode error for {address[:50]!r}: {e}")
+    return None
+
+
+def event_coords(address: str, cached: tuple | None):
+    """Best (lat, lng) for an event: cached row coords → full-address geocode
+    → ZIP centroid. Returns (coords, newly_geocoded_bool)."""
+    if cached:
+        return cached, False
+    if not address:
+        return None, False
+    key = address.strip().lower()
+    if key in _GEO_CACHE:
+        return _GEO_CACHE[key], False
+    coords = _geocode_full(address) or _zip_centroid(address)
+    _GEO_CACHE[key] = coords
+    return coords, bool(coords)
 
 
 def tag_for_coords(coords):
-    """Newsletter tag for an event at (lat, lng) per the radius rule.
-    Returns None when coords is None so the caller leaves the row unchanged."""
     if not coords:
         return None
     lat, lng = coords
@@ -103,41 +149,80 @@ def _rt(props: dict, key: str) -> str:
     return (rt[0].get("text", {}).get("content", "") if rt else "").strip()
 
 
+def _parse_geo(s: str):
+    try:
+        lat, lng = (float(x) for x in s.split(",", 1))
+        return (lat, lng) if _valid(lat, lng) else None
+    except Exception:
+        return None
+
+
+def _ensure_geo_field(db_id: str) -> None:
+    """Idempotently add a `Geo` rich_text column so coordinates can be cached
+    on the row (geocode once per address, ever)."""
+    try:
+        requests.patch(f"https://api.notion.com/v1/databases/{db_id}",
+                       headers=HEADERS,
+                       json={"properties": {"Geo": {"rich_text": {}}}},
+                       timeout=30)
+    except Exception as e:
+        print(f"  ⚠ could not ensure Geo field (caching disabled): {e}")
+
+
 def main() -> int:
     if not WEEKEND_EVENTS_DB_ID:
         print("✗ NOTION_WEEKEND_EVENTS_DB_ID is not set in env.")
         return 1
-    if _NOMI is None:
-        return 1
 
-    print("Geo-tagger — distance-based newsletter tagging")
+    print("Geo-tagger — per-event distance-based newsletter tagging")
     print(f"  Anchors ({RADIUS_MILES:g}-mi radius): "
           f"{[(n, round(a, 3), round(b, 3)) for n, a, b in ANCHORS]}")
+    _ensure_geo_field(WEEKEND_EVENTS_DB_ID)
     pages = query_database(WEEKEND_EVENTS_DB_ID) or []
+    today = date.today()
     print(f"  Loaded {len(pages)} rows\n")
 
-    retagged = already = unplaceable = 0
+    retagged = already = unplaceable = skipped_past = geocoded = 0
     for page in pages:
         props = page.get("properties", {})
+        # Only tag upcoming events — past rows are archived/irrelevant and not
+        # worth geocoding.
+        dstr = ((props.get("Date") or {}).get("date") or {}).get("start", "")[:10]
+        if dstr and dstr < today.isoformat():
+            skipped_past += 1
+            continue
+
         address = _rt(props, "Address")
         current = (props.get("Newsletter", {}).get("select") or {}).get("name", "")
-        target = tag_for_coords(zip_centroid(address))
+        cached  = _parse_geo(_rt(props, "Geo"))
+        coords, newly = event_coords(address, cached)
+        if newly:
+            geocoded += 1
+        target = tag_for_coords(coords)
         if target is None:
             unplaceable += 1
             continue
-        if target == current:
+
+        update_props: dict = {}
+        if target != current:
+            update_props["Newsletter"] = {"select": {"name": target}}
+        if newly and coords:
+            update_props["Geo"] = {"rich_text": [{"text": {"content": f"{coords[0]},{coords[1]}"}}]}
+        if not update_props:
             already += 1
             continue
-        title = _rt(props, "Event Name")[:55] or "?"
+        title = _rt(props, "Event Name")[:50] or "?"
         try:
-            update_page(page["id"], {"Newsletter": {"select": {"name": target}}})
-            retagged += 1
-            print(f"  ↻ {current or '∅'} → {target:16s} {title}")
+            update_page(page["id"], update_props)
+            if "Newsletter" in update_props:
+                retagged += 1
+                print(f"  ↻ {current or '∅'} → {target:16s} {title}")
         except Exception as e:
-            print(f"  ✗ failed to retag {title}: {e}")
+            print(f"  ✗ failed to update {title}: {e}")
 
     print(f"\n✓ Done. Retagged {retagged}, {already} already correct, "
-          f"{unplaceable} unplaceable (left on current tag).")
+          f"{unplaceable} unplaceable (left as-is), {skipped_past} past skipped. "
+          f"({geocoded} addresses geocoded this run)")
     return 0
 
 
