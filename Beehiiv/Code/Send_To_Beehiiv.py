@@ -1041,6 +1041,32 @@ def _in_search_of_to_card(row: dict, slot_key: str) -> dict[str, str]:
     }
 
 
+def prune_in_search_of_section(html: str, has_listings: bool) -> str:
+    """When there are no In Search Of listings, drop the WHOLE section — the
+    header graphic row and its table-of-contents entry — so the email doesn't
+    show an empty 'In Search Of' heading. No-op when listings exist or when
+    the template lacks the `in-search-of` anchor."""
+    if has_listings:
+        return html
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    removed = 0
+    anchor = soup.find(id="in-search-of")          # the header graphic cell
+    if anchor is not None:
+        (anchor.find_parent("tr") or anchor).decompose()
+        removed += 1
+    for a in soup.find_all("a", href="#in-search-of"):   # the TOC link
+        (a.find_parent("li") or a).decompose()
+        removed += 1
+    if removed:
+        print(f"    ✓ In Search Of — no listings, pruned section "
+              f"({removed} element(s) removed)")
+    return str(soup)
+
+
 def expand_in_search_of_slots(html: str, rows: list[dict]) -> str:
     """Duplicate the In Search Of template card once per approved listing.
     Slot key: `in_search_of`. The template should contain ONE card with
@@ -1963,6 +1989,7 @@ def main():
     body_html = expand_lowdown_slots(body_html, lowdown_stories)
     print("\n  Expanding In Search Of slots…")
     body_html = expand_in_search_of_slots(body_html, in_search_of_rows)
+    body_html = prune_in_search_of_section(body_html, bool(in_search_of_rows))
     print("\n  Expanding Meme Corner slots…")
     body_html = expand_meme_slots(body_html, memes)
     print("\n  Expanding Free Event images…")
