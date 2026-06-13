@@ -193,6 +193,13 @@ def main() -> int:
             continue
 
         address = _rt(props, "Address")
+        # Existing rows with a blank Address: build one from the venue (+ city)
+        # so they can be placed and so every event ends up with an address.
+        built_address = ""
+        if not address:
+            built_address = ", ".join(p for p in (_rt(props, "Location"),
+                                                   _rt(props, "City")) if p)
+            address = built_address
         current = (props.get("Newsletter", {}).get("select") or {}).get("name", "")
         cached  = _parse_geo(_rt(props, "Geo"))
         coords, newly = event_coords(address, cached)
@@ -208,6 +215,8 @@ def main() -> int:
             update_props["Newsletter"] = {"select": {"name": target}}
         if newly and coords:
             update_props["Geo"] = {"rich_text": [{"text": {"content": f"{coords[0]},{coords[1]}"}}]}
+        if built_address and coords:
+            update_props["Address"] = {"rich_text": [{"text": {"content": built_address[:200]}}]}
         if not update_props:
             already += 1
             continue

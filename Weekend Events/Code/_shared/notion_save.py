@@ -127,12 +127,22 @@ def save_event(db_id: str, ev: dict, newsletter: str,
     # when the city falls in a shared coverage area.
     city = (ev.get("city") or "").strip().lower()
 
+    # Every event needs a place the geo-tagger can locate. When a scraper
+    # can't get a street address (e.g. Cobb County library programs whose
+    # detail page has no structured address), fall back to the venue name
+    # (+ city) — named venues like "Sewell Mill Library, Marietta" geocode
+    # cleanly, so the row is still placeable instead of being dropped.
+    address = (ev.get("address") or "").strip()
+    if not address:
+        address = ", ".join(p for p in ((ev.get("location") or "").strip(),
+                                         (ev.get("city") or "").strip()) if p)
+
     content = {
         "Event Name":     {"rich_text": [{"text": {"content": ev["event_name"][:200]}}]},
         "Description":    {"rich_text": [{"text": {"content": ev["description"][:2000]}}]},
         "Image URL":      {"url": ev["image_url"] or None},
         "Location":       {"rich_text": [{"text": {"content": ev["location"][:200]}}]},
-        "Address":        {"rich_text": [{"text": {"content": ev["address"][:200]}}]},
+        "Address":        {"rich_text": [{"text": {"content": address[:200]}}]},
         "City":           {"rich_text": [{"text": {"content": city[:80]}}]},
         "Time":           {"rich_text": [{"text": {"content": ev["time"][:80]}}]},
         "Dates":          {"rich_text": [{"text": {"content": dates_display[:500]}}]},
