@@ -1,0 +1,31 @@
+name: Scrape Battery Atlanta (only)
+
+# Standalone, single-source scrape of The Battery Atlanta (batteryatl.com,
+# Tribe Events) into the Weekend Events Notion DB. Use this to refresh ONLY
+# the Battery rows (e.g. to re-pull the per-day-trimmed Braves series blurbs)
+# without re-running the full weekend-events scrape or the downstream chain.
+#
+# Tagged East_Cobb_Connect (the Battery's wrapper newsletter).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scrape_battery_atlanta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+
+      - name: Scrape batteryatl.com
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER:                  East_Cobb_Connect
+        run: python "Weekend Events/Code/East_Cobb_Connect/battery_atlanta.py"
