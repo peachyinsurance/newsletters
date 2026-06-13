@@ -216,7 +216,8 @@ def _image_looks_real(url: str) -> bool:
 
 def fetch_event_image(source_url: str,
                       *, validate: bool = False,
-                      allow_root_fallback: bool = True) -> str:
+                      allow_root_fallback: bool = True,
+                      _html: str | None = None) -> str:
     """Scrape a hero image URL from `source_url`. Tries (in order):
        1. og:image / twitter:image / image_src meta tags
        2. JSON-LD schema.org Event.image
@@ -249,17 +250,22 @@ def fetch_event_image(source_url: str,
             pass
         return ""
 
-    try:
-        r = requests.get(
-            source_url, timeout=10,
-            headers={"User-Agent": USER_AGENT},
-            allow_redirects=True,
-        )
-        if r.status_code != 200 or not r.text:
-            return _root_fallback(f"HTTP {r.status_code}")
-        html = r.text
-    except Exception:
-        return _root_fallback("fetch error")
+    if _html is not None:
+        # Caller already fetched the page (e.g. best_detail_image) — reuse it
+        # instead of issuing a second GET against the same URL.
+        html = _html
+    else:
+        try:
+            r = requests.get(
+                source_url, timeout=10,
+                headers={"User-Agent": USER_AGENT},
+                allow_redirects=True,
+            )
+            if r.status_code != 200 or not r.text:
+                return _root_fallback(f"HTTP {r.status_code}")
+            html = r.text
+        except Exception:
+            return _root_fallback("fetch error")
 
     candidates: list[str] = []
 
@@ -374,3 +380,139 @@ def backfill_images(events: list[dict],
                 events[idx][image_url_key] = img
                 filled += 1
     return filled
+
+
+# Button text that signals "the real promo lives on another page" (vs. a
+# ticketing / signup / mailing-list button). Matches "more information",
+# "more info", "learn more". Kept narrow so we don't follow Eventbrite/
+# ticketing buttons whose target og:image is just a marketplace banner.
+_MORE_INFO_RE = re.compile(r'more\s+info|learn\s+more', re.IGNORECASE)
+_SRCSET_RE = re.compile(r'([^\s,]+)\s+(\d+)w')
+
+
+def _best_from_srcset(srcset: str) -> str:
+    """Return the highest-resolution URL from a srcset / data-srcset value.
+    Lazyload heroes (e.g. mlbstatic.com) put the real, full-res image in a
+    width-descriptor srcset; pick the largest `w` so the card art is crisp."""
+    best_url, best_w = "", -1
+    for m in _SRCSET_RE.finditer(srcset or ""):
+        try:
+            w = int(m.group(2))
+        except ValueError:
+            continue
+        if w > best_w:
+            best_w, best_url = w, m.group(1).strip()
+    return best_url
+
+
+def _more_info_hero(html: str, source_url: str) -> str:
+    """If `html` (an event detail page) has a 'Click here for more
+    information!' style <a class="button"> linking out to a promo page,
+    follow it and return that page's hero image.
+
+    The Battery's event pages link out (e.g. mlb.com/braves/fans/block-party)
+    via such a button; the linked page carries the real event art as a
+    lazyload <img> whose source is in `data-srcset`. The Battery's own
+    listing thumbnail is frequently a generic placeholder or another
+    event's image, so the linked hero is preferred when present.
+
+    Returns "" when there's no qualifying button or no usable target image.
+    """
+    target = ""
+    for m in re.finditer(
+        r'<a\b[^>]*\bclass=["\'][^"\']*\bbutton\b[^"\']*["\'][^>]*>(.*?)</a>',
+        html, re.IGNORECASE | re.DOTALL,
+    ):
+        text = re.sub(r'<[^>]+>', '', m.group(1))
+        if not _MORE_INFO_RE.search(text):
+            continue
+        hm = re.search(r'href=["\']([^"\']+)["\']', m.group(0), re.IGNORECASE)
+        if not hm:
+            continue
+        cand = _absolutize(hm.group(1).strip().replace("&amp;", "&"), source_url)
+        # Don't chase ticketing/marketplace buttons — their og:image is a
+        # brand banner, not the event. Skip and keep looking for a real
+        # promo-page button.
+        host = (urlparse(cand).hostname or "").lower().removeprefix("www.")
+        if host and any(host == mk or host.endswith("." + mk)
+                        for mk in MARKETPLACE_HOSTS):
+            continue
+        target = cand
+        break
+    if not target:
+        return ""
+
+    try:
+        r = requests.get(target, timeout=10,
+                         headers={"User-Agent": USER_AGENT}, allow_redirects=True)
+        if r.status_code != 200 or not r.text:
+            return ""
+        page = r.text
+    except Exception:
+        return ""
+
+    # Prefer the largest (data-)srcset hero — lazyload <img> real source.
+    for attr in ("data-srcset", "srcset"):
+        for sm in re.finditer(attr + r'=["\']([^"\']+)["\']', page, re.IGNORECASE):
+            best = _best_from_srcset(sm.group(1))
+            if not best:
+                continue
+            best = _absolutize(best, target)
+            if best.startswith("data:"):
+                continue
+            if any(skip in best.lower() for skip in SKIP_TOKENS):
+                continue
+            return best
+    # No srcset hero — fall back to the target page's og:image / hero scan.
+    return fetch_event_image(target, allow_root_fallback=False)
+
+
+def best_detail_image(source_url: str) -> str:
+    """Best hero image for an event whose detail page is more reliable than
+    its listing thumbnail. Fetches the detail page once, then prefers a
+    'more information' button's external promo hero; otherwise the detail
+    page's own og:image / JSON-LD image. Returns "" on failure so callers
+    can keep the existing image."""
+    if not source_url:
+        return ""
+    try:
+        r = requests.get(source_url, timeout=10,
+                         headers={"User-Agent": USER_AGENT}, allow_redirects=True)
+        if r.status_code != 200 or not r.text:
+            return ""
+        html = r.text
+    except Exception:
+        return ""
+    hero = _more_info_hero(html, source_url)
+    if hero:
+        return hero
+    return fetch_event_image(source_url, _html=html, allow_root_fallback=False)
+
+
+def upgrade_detail_images(events: list[dict],
+                          *, source_url_key: str = "source_url",
+                          image_url_key: str = "image_url",
+                          max_workers: int = 6) -> int:
+    """Override each event's image with its detail-page hero (more-info
+    button target, else detail og:image). For sources whose LISTING
+    thumbnails are unreliable (e.g. The Battery, where the listing JSON-LD
+    image is often a shared placeholder or the wrong event's thumbnail).
+    Only overrides when a detail image is actually found, so a transient
+    fetch failure never blanks an existing image. Returns count upgraded."""
+    if not events:
+        return 0
+
+    def _one(idx_ev):
+        idx, ev = idx_ev
+        url = ev.get(source_url_key) or ev.get("url") or ""
+        if not url:
+            return idx, ""
+        return idx, best_detail_image(url)
+
+    upgraded = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        for idx, img in pool.map(_one, list(enumerate(events))):
+            if img and img != (events[idx].get(image_url_key) or ""):
+                events[idx][image_url_key] = img
+                upgraded += 1
+    return upgraded

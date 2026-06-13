@@ -35,7 +35,8 @@ from notion_save import existing_source_urls, save_event  # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
 from event_image_scraper import (is_cancelled_event,           # noqa: E402
                                  is_inappropriate_event,
-                                 backfill_images)
+                                 backfill_images,
+                                 upgrade_detail_images)
 
 USER_AGENT      = "Mozilla/5.0 (newsletter-automation)"
 END_WINDOW_DAYS = 14
@@ -214,7 +215,8 @@ def normalize_event(ev: dict) -> dict:
 
 def run_tribe_source(source_url: str, newsletter: str,
                      db_id: str | None = None,
-                     end_window_days: int = END_WINDOW_DAYS) -> int:
+                     end_window_days: int = END_WINDOW_DAYS,
+                     refine_detail_images: bool = False) -> int:
     """End-to-end: walk one Tribe Events source, group recurring events,
     backfill images, upsert into the Weekend Events Notion DB tagged with
     `newsletter`. Wrap in `if __name__ == '__main__': sys.exit(run_tribe_source(...))`
@@ -301,6 +303,19 @@ def run_tribe_source(source_url: str, newsletter: str,
     filled = backfill_images(candidates)
     if filled:
         print(f"  ↳ Backfilled {filled} image(s) from source pages")
+
+    # Some Tribe sources (notably The Battery) emit unreliable LISTING
+    # thumbnails — a shared placeholder graphic, or the wrong event's
+    # image. For those, re-derive each event's image from its DETAIL page:
+    # a "Click here for more information!" button's external promo hero
+    # (e.g. mlb.com/braves → mlbstatic), else the detail page's own
+    # og:image. This overrides the listing image only when a real detail
+    # image is found.
+    if refine_detail_images:
+        upgraded = upgrade_detail_images(candidates)
+        if upgraded:
+            print(f"  ↳ Upgraded {upgraded} image(s) from detail pages "
+                  f"(more-info button / og:image)")
 
     inserted = 0
     updated  = 0

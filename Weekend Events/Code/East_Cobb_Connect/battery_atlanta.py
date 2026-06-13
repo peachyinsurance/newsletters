@@ -15,4 +15,9 @@ if __name__ == "__main__":
     sys.exit(run_tribe_source(
         source_url="https://batteryatl.com/events-calendar/",
         newsletter=os.environ.get("NEWSLETTER", "East_Cobb_Connect"),
+        # The Battery's listing thumbnails are unreliable (shared placeholder
+        # graphics, or another event's image). Re-derive each event's image
+        # from its detail page: a "more information" button's external promo
+        # hero (e.g. mlb.com/braves → mlbstatic) else the detail og:image.
+        refine_detail_images=True,
     ))
