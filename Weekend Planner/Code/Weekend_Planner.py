@@ -22,6 +22,7 @@ primary-source link and swap it in when one is found.
 """
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
