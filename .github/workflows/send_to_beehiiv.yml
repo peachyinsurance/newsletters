@@ -54,6 +54,7 @@ jobs:
           NOTION_MEMES_DB_ID:            ${{ secrets.NOTION_MEMES_DB_ID }}
           NOTION_SPONSOR_DB_ID:          ${{ secrets.NOTION_SPONSOR_DB_ID }}
           NOTION_POLLS_DB_ID:            ${{ secrets.NOTION_POLLS_DB_ID }}
+          NOTION_IN_SEARCH_OF_DB_ID:     ${{ secrets.NOTION_IN_SEARCH_OF_DB_ID }}
           NOTION_PARENT_PAGE_ID:         ${{ secrets.NOTION_PARENT_PAGE_ID }}
           NEWSLETTER:               ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
         run: python "Beehiiv/Code/prepare_header_image.py"
@@ -100,6 +101,7 @@ jobs:
           NOTION_MEMES_DB_ID:            ${{ secrets.NOTION_MEMES_DB_ID }}
           NOTION_SPONSOR_DB_ID:          ${{ secrets.NOTION_SPONSOR_DB_ID }}
           NOTION_POLLS_DB_ID:            ${{ secrets.NOTION_POLLS_DB_ID }}
+          NOTION_IN_SEARCH_OF_DB_ID:     ${{ secrets.NOTION_IN_SEARCH_OF_DB_ID }}
           NOTION_PARENT_PAGE_ID:         ${{ secrets.NOTION_PARENT_PAGE_ID }}
           # Claude (subject line)
           CLAUDE_API_KEY:                ${{ secrets.CLAUDE_API_KEY }}
