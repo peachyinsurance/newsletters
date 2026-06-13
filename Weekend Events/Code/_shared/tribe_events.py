@@ -40,6 +40,51 @@ from event_image_scraper import (is_cancelled_event,           # noqa: E402
 USER_AGENT      = "Mozilla/5.0 (newsletter-automation)"
 END_WINDOW_DAYS = 14
 
+# Matches a per-day segment header like "Friday, June 19th" inside a
+# multi-day series blurb.
+_DAY_SEGMENT_RE = re.compile(
+    r'\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+'
+    r'([A-Z][a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?',
+    re.IGNORECASE,
+)
+
+
+def _trim_series_description(desc: str, occ_date) -> str:
+    """Keep only THIS occurrence's day from a multi-day series blurb.
+
+    Tribe series events (e.g. a Braves weekend homestand) describe every game
+    in one description: "…Friday, June 19th: First Pitch 7:15 pm  Saturday,
+    June 20th: …  Sunday, June 21st: … (Kids Giveaway: Braves LED Light)…".
+    Each per-date occurrence otherwise inherits the WHOLE blurb, so the writer
+    misattributes another day's promo (the Sunday giveaway showed up on the
+    Friday card). When such a per-day breakdown is present, return the intro
+    plus only the segment that matches `occ_date`. Returns `desc` unchanged
+    when there's no multi-day breakdown or the occurrence's day isn't found."""
+    if not desc or occ_date is None:
+        return desc
+    markers = list(_DAY_SEGMENT_RE.finditer(desc))
+    if len(markers) < 2:
+        return desc  # single-day / no per-day breakdown — leave as-is
+    intro = desc[:markers[0].start()].strip()
+    want_weekday = occ_date.strftime("%A").lower()
+    want_day = occ_date.day
+    chosen = None
+    for i, m in enumerate(markers):
+        seg = desc[m.start():(markers[i + 1].start() if i + 1 < len(markers) else len(desc))].strip()
+        weekday = m.group(1).lower()
+        day_num = int(m.group(3))
+        if weekday == want_weekday and day_num == want_day:
+            chosen = seg
+            break
+        if chosen is None and weekday == want_weekday:
+            chosen = seg  # weekday-only fallback (date text slightly off)
+    if not chosen:
+        return desc  # this occurrence's day not listed — keep full text
+    # Drop the generic series footer (subject-to-change / road closures / tickets).
+    chosen = re.split(r'\*\s*Date\s*&\s*Time|Please be advised|Purchase your single',
+                      chosen, maxsplit=1)[0].strip()
+    return (intro + " " + chosen).strip() if intro else chosen
+
 
 def fetch_page_events(source_url: str, page: int = 1) -> list[dict]:
     """Return a list of JSON-LD Event objects from one paginated page of
@@ -127,9 +172,13 @@ def normalize_event(ev: dict) -> dict:
                     time_str += " – " + edt.strftime("%-I:%M %p")
         except Exception:
             pass
+    # Multi-day series listings repeat every day's promo in one description;
+    # trim to just this occurrence's day so per-date cards don't inherit
+    # another day's giveaway/event (see _trim_series_description).
+    description = _trim_series_description(_clean_html(ev.get("description", "")), start)
     return {
         "event_name":  _clean_html(ev.get("name", "")),
-        "description": _clean_html(ev.get("description", ""))[:2000],
+        "description": description[:2000],
         "source_url":  ev.get("url", "") or "",
         "image_url":   ev.get("image", "") or "",
         "start_date":  start,
