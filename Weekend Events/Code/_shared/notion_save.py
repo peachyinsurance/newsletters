@@ -148,6 +148,12 @@ def save_event(db_id: str, ev: dict, newsletter: str,
         "Dates":          {"rich_text": [{"text": {"content": dates_display[:500]}}]},
         "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
     }
+    # Scraper-provided coordinates (e.g. Tribe/Battery JSON-LD) → cache on the
+    # row so the geo-tagger uses them directly instead of geocoding an address
+    # that may not resolve. (Notion drops this gracefully if the Geo column
+    # doesn't exist yet; the geo-tagger creates it.)
+    if ev.get("geo_lat") is not None and ev.get("geo_lng") is not None:
+        content["Geo"] = {"rich_text": [{"text": {"content": f"{ev['geo_lat']},{ev['geo_lng']}"}}]}
     if ev.get("start_date"):
         date_prop = {"start": ev["start_date"].isoformat()}
         if ev.get("end_date") and ev["end_date"] != ev["start_date"]:

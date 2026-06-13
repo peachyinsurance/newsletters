@@ -154,9 +154,29 @@ def _location_fields(loc) -> tuple[str, str, str]:
     return _clean_html(name), _clean_html(addr_str), _clean_html(city).lower()
 
 
+def _geo_coords(location) -> tuple:
+    """Pull (lat, lng) from a JSON-LD Place.geo GeoCoordinates block, if present.
+    Tribe sites (e.g. The Battery) ship exact coordinates — using them directly
+    beats geocoding a suite-number address that often won't resolve."""
+    if not isinstance(location, dict):
+        return (None, None)
+    geo = location.get("geo")
+    if not isinstance(geo, dict):
+        return (None, None)
+    try:
+        lat = float(geo.get("latitude"))
+        lng = float(geo.get("longitude"))
+    except (TypeError, ValueError):
+        return (None, None)
+    if -90 <= lat <= 90 and -180 <= lng <= 180:
+        return (lat, lng)
+    return (None, None)
+
+
 def normalize_event(ev: dict) -> dict:
     """Map a JSON-LD Event into our Notion row dict."""
     loc_name, address, city = _location_fields(ev.get("location", {}))
+    geo_lat, geo_lng = _geo_coords(ev.get("location", {}))
     start = _parse_iso_date(ev.get("startDate", ""))
     end   = _parse_iso_date(ev.get("endDate", ""))
     start_str = ev.get("startDate", "") or ""
@@ -187,6 +207,8 @@ def normalize_event(ev: dict) -> dict:
         "location":    loc_name,
         "address":     address,
         "city":        city,
+        "geo_lat":     geo_lat,
+        "geo_lng":     geo_lng,
     }
 
 

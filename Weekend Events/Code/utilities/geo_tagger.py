@@ -208,11 +208,6 @@ def main() -> int:
         target = tag_for_coords(coords)
         if target is None:
             unplaceable += 1
-            # TEMP DEBUG: surface which source leaves no address AND no venue.
-            src = (props.get("Source URL", {}).get("url") or "")
-            dom = src.split("/")[2] if "://" in src else (src[:30] or "?")
-            print(f"  · unplaceable [{dom:26}] loc={_rt(props,'Location')[:22]!r} "
-                  f"addr={_rt(props,'Address')[:22]!r} | {_rt(props,'Event Name')[:40]}")
             continue
 
         update_props: dict = {}
