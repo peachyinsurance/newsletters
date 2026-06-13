@@ -714,6 +714,24 @@ def _candidate_richness(c: dict, weekend_isos: frozenset = frozenset()) -> float
     return score
 
 
+def _members_uniform(members: list[dict]) -> bool:
+    """True when every day-member of a title group is the SAME event — same
+    time AND same description — so collapsing them into one shared blurb is
+    correct (e.g. a weekly farmers market at the same time each day).
+
+    A multi-day SERIES with per-day times or promos is NOT uniform: a Braves
+    homestand is 7:15 PM Fri / 4:10 PM Sat / 1:35 PM Sun, and only Sunday has
+    the Kids Giveaway. Collapsing those into one shared blurb stamps one day's
+    time/promo onto all three — so non-uniform groups must render per day."""
+    if len(members) <= 1:
+        return True
+    def _n(s: str) -> str:
+        return re.sub(r"\s+", " ", (s or "")).strip().lower()
+    times = {_n(m.get("time")) for m in members}
+    descs = {_n(m.get("description") or m.get("summary")) for m in members}
+    return len(times) == 1 and len(descs) == 1
+
+
 def group_candidates_by_title(candidates: list[dict],
                               target_weekend: dict | None = None) -> list[dict]:
     """Group same / near-same-title occurrences into ONE representative for
@@ -758,8 +776,9 @@ def group_candidates_by_title(candidates: list[dict],
             reps[match_idx] = c
             sigs[match_idx] = (c_norm, c_tok)
 
-    grouped = 0
+    grouped = split = 0
     order = {d: i for i, d in enumerate(DAYS)}
+    result: list[dict] = []
     for rep, members in zip(reps, groups):
         # De-dupe members per day (richest wins) — one card per day per event.
         by_day: dict[str, dict] = {}
@@ -771,16 +790,39 @@ def group_candidates_by_title(candidates: list[dict],
                     or _candidate_richness(m, weekend_isos)
                     > _candidate_richness(by_day[d], weekend_isos)):
                 by_day[d] = m
-        rep["_day_group"] = [by_day[d] for d in sorted(by_day, key=lambda x: order.get(x, 9))]
-        rep["days"] = sorted(by_day.keys(), key=lambda x: order.get(x, 9))
-        if len(members) > 1:
-            grouped += 1
-            print(f"    title-group: '{rep.get('title','')[:45]}' → "
-                  f"{len(rep['_day_group'])} day(s) {rep['days']}")
-    if grouped:
+        day_members = [by_day[d] for d in sorted(by_day, key=lambda x: order.get(x, 9))]
+        if not day_members:
+            rep["_day_group"] = []
+            rep["days"] = []
+            result.append(rep)
+            continue
+        # Collapse into ONE shared blurb only when every day is genuinely the
+        # same event (same time AND description). When the days differ — a
+        # series with per-day times/promos — emit EACH day as its own event so
+        # each card keeps its own time + day-specific text (fixes the Braves
+        # homestand card inheriting Sunday's time + giveaway on Friday).
+        if _members_uniform(day_members):
+            rep["_day_group"] = day_members
+            rep["days"] = [m.get("day") for m in day_members]
+            result.append(rep)
+            if len(day_members) > 1:
+                grouped += 1
+                print(f"    title-group (uniform): '{rep.get('title','')[:45]}' → "
+                      f"{len(day_members)} day(s) {rep['days']}")
+        else:
+            for m in day_members:
+                m["_day_group"] = [m]
+                m["days"] = [m["day"]] if m.get("day") else []
+                result.append(m)
+            if len(day_members) > 1:
+                split += 1
+                print(f"    title-split (days differ): '{rep.get('title','')[:45]}' → "
+                      f"{len(day_members)} per-day card(s) "
+                      f"{[m.get('day') for m in day_members]}")
+    if grouped or split:
         print(f"    Title grouping: {len(candidates)} occurrence(s) → "
-              f"{len(reps)} event(s) ({grouped} multi-occurrence)")
-    return reps
+              f"{len(result)} event(s) ({grouped} grouped, {split} split per-day)")
+    return result
 
 
 def process_pool(
