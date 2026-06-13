@@ -1,0 +1,67 @@
+name: Geo-tag Events (existing data)
+
+# Run the distance-based geo-tagger over whatever is ALREADY in the Weekend
+# Events Notion DB — no re-scrape — then (optionally) run the event pickers
+# (Weekend Planner / Free Events / Featured Event) in notion mode so Claude
+# only sees the freshly, correctly-tagged items.
+#
+# Use this to: (1) scrape via "Scrape Weekend Events" once, then (2) re-tag +
+# regenerate the event sections here without scraping again.
+
+on:
+  workflow_dispatch:
+    inputs:
+      newsletter:
+        description: 'Which newsletter the pickers generate for'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'East_Cobb_Connect'
+          - 'Perimeter_Post'
+          - 'Lewisville_Lake_Lookout'
+      run_pickers:
+        description: 'After tagging, run Weekend Planner / Free Events / Featured Event (notion mode)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: read
+  actions: write   # needed to dispatch the picker workflows
+
+jobs:
+  geo_tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests pgeocode
+
+      - name: Geo-tag existing Weekend Events rows
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+        run: python "Weekend Events/Code/utilities/geo_tagger.py"
+
+      - name: Run event pickers (notion mode, no re-scrape)
+        if: ${{ github.event.inputs.run_pickers != 'false' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NL:           ${{ github.event.inputs.newsletter || 'all' }}
+        run: |
+          set -e
+          for wf in featured_event free_events weekend_planner; do
+            curl -s -X POST \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/${wf}.yml/dispatches" \
+              -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"${NL}\",\"data_source\":\"notion\",\"chain\":\"false\"}}"
+            echo "→ Triggered ${wf} (newsletter=${NL}, notion mode)"
+          done
