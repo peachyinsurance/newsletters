@@ -2371,14 +2371,14 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str,
     archived = 0
     preserved = 0
     try:
-        if target_weekend:
-            filters = {"and": [
-                {"property": "Newsletter", "select": {"equals": newsletter_name}},
-                {"property": "Date", "date": {"on_or_after":  target_weekend["Friday"]}},
-                {"property": "Date", "date": {"on_or_before": target_weekend["Sunday"]}},
-            ]}
-        else:
-            filters = {"property": "Newsletter", "select": {"equals": newsletter_name}}
+        # Archive ALL prior auto-generated (pending) rows for this newsletter
+        # before writing the new pass — NOT just date-matched ones. The
+        # Weekend Planner only ever generates one weekend at a time, and the
+        # assembler renders every non-archived row regardless of date, so a
+        # re-run must clear every prior pending row or duplicates pile up.
+        # (The old Date-range filter silently matched nothing when a row's
+        # Date wasn't set exactly as expected, so re-runs appended.)
+        filters = {"property": "Newsletter", "select": {"equals": newsletter_name}}
         pages = query_database(NOTION_WEEKEND_PLANNER_DB_ID, filters=filters)
         # Statuses that mean "user actively curated this row — don't
         # overwrite, and treat as a dedup collision so we don't write a
@@ -2394,7 +2394,7 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str,
             aud    = (props.get("Audience", {}).get("select") or {}).get("name", "")
             day    = (props.get("Day", {}).get("select") or {}).get("name", "")
             status = (props.get("Status",   {}).get("select") or {}).get("name", "")
-            if status == "pending" and target_weekend:
+            if status == "pending":
                 # Archive stale pending rows from prior runs so the
                 # assembler doesn't render them alongside this run's
                 # output. They don't go into the dedup set — this run
