@@ -47,6 +47,7 @@ from assemble_newsletter_page import (
     get_weekend_events,
     get_business_brief,
     get_latest_tip,
+    get_in_search_of,
     get_memes,
     get_sponsor,
     display_domain,
@@ -1022,11 +1023,53 @@ def expand_lowdown_slots(html: str, stories: list[dict]) -> str:
     return str(soup)
 
 
+def _in_search_of_to_card(row: dict, slot_key: str) -> dict[str, str]:
+    """Map one In Search Of listing to the title/message/link placeholders.
+    Title is the employer; message is the blurb (markdown→HTML so bold/links
+    render) plus the city when present; link is the apply/careers URL. Bonus
+    'resource' rows get a 'Visit …' framing, regular rows 'Browse openings'."""
+    employer = (row.get("employer") or "").strip()
+    blurb    = (row.get("description") or "").strip()
+    city     = (row.get("city") or "").strip()
+    msg = blurb
+    if city:
+        msg = (msg + f"\n\n📍 {city}").strip()
+    return {
+        f"{slot_key}_title":   employer,
+        f"{slot_key}_message": md_to_html(msg),
+        f"{slot_key}_link":    (row.get("job_listings_url") or "").strip(),
+    }
+
+
+def expand_in_search_of_slots(html: str, rows: list[dict]) -> str:
+    """Duplicate the In Search Of template card once per approved listing.
+    Slot key: `in_search_of`. The template should contain ONE card with
+    {in_search_of_title}, {in_search_of_message}, {in_search_of_link}
+    placeholders in consecutive block elements (mirrors Local Lowdown)."""
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        print("  ⚠ beautifulsoup4 not installed; skipping In Search Of expansion")
+        return html
+
+    soup = BeautifulSoup(html, "html.parser")
+    n, width = _expand_one_slot(soup, "in_search_of", rows, _in_search_of_to_card)
+    if n == -1:
+        print(f"    · in_search_of — no {{in_search_of_title}} in template, "
+              f"skipping ({len(rows)} listing(s) will not render)")
+    elif n == 0:
+        print(f"    · in_search_of — 0 listings, placeholder card removed")
+    else:
+        warn = "  ⚠ card width=1 (only title) — message/link not in same parent" if width == 1 else ""
+        print(f"    ✓ in_search_of — expanded into {n} card(s) [card width: {width} block(s) each]{warn}")
+    return str(soup)
+
+
 # ---------------------------------------------------------------------------
 # 4. SECTION DATA → REPLACEMENT MAP
 # ---------------------------------------------------------------------------
 def build_replacements(client: BeehiivClient, publication_id: str,
-                      newsletter_name: str) -> tuple[dict, dict, dict, int, list, list, dict, list, list]:
+                      newsletter_name: str) -> tuple[dict, dict, dict, int, list, list, dict, list, list, list]:
     """Pull section data, upload images, return:
       (text_replacements, image_url_swaps, alt_image_swaps,
        lowdown_story_count, weekend_events, lowdown_stories,
@@ -1622,7 +1665,18 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     for day, friendly in weekend_dates_seen.items():
         repl[f"{day.lower()}_date"] = friendly
 
-    return repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose, memes, free_event_images
+    # ---- In Search Of (local job listings) ----
+    # get_in_search_of is approved-first with a pending fallback, so this is
+    # "use the approved swatch, else defaults". Expanded later by
+    # expand_in_search_of_slots (clones one template card per listing).
+    in_search_of_rows = get_in_search_of(newsletter_name) or []
+    if in_search_of_rows:
+        repl["in_search_of_1_title"] = in_search_of_rows[0].get("employer", "")
+        print(f"  In Search Of: {len(in_search_of_rows)} listing(s) for {newsletter_name}")
+    else:
+        print(f"  In Search Of: no approved/pending listings for {newsletter_name}")
+
+    return repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose, memes, free_event_images, in_search_of_rows
 
 
 def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
@@ -1894,7 +1948,7 @@ def main():
 
     # Gather all section data + upload images
     print("\n  Gathering section data + uploading images…")
-    repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose_fields, memes, free_event_images = build_replacements(
+    repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose_fields, memes, free_event_images, in_search_of_rows = build_replacements(
         client, cfg["publication_id"], NEWSLETTER,
     )
 
@@ -1907,6 +1961,8 @@ def main():
     body_html = expand_weekend_slots(body_html, weekend_events)
     print("\n  Expanding Local Lowdown slots…")
     body_html = expand_lowdown_slots(body_html, lowdown_stories)
+    print("\n  Expanding In Search Of slots…")
+    body_html = expand_in_search_of_slots(body_html, in_search_of_rows)
     print("\n  Expanding Meme Corner slots…")
     body_html = expand_meme_slots(body_html, memes)
     print("\n  Expanding Free Event images…")
