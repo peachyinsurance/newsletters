@@ -158,6 +158,16 @@ jobs:
         run: python "Weekend Events/Code/utilities/normalize_city_tags.py"
 
 
+      # Decide free/not-free ONCE here (scraped price → Free flag, keyword scan
+      # for no-price rows) so Generate Free Events can just read the flag.
+      # Runs unconditionally — the pipeline now depends on the flag being set.
+      - name: Tag free events
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+        run: python "Weekend Events/Code/utilities/free_tagger.py"
+
+
       - name: Generate Free Events
         env:
           CLAUDE_API_KEY:               ${{ secrets.CLAUDE_API_KEY }}

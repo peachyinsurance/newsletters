@@ -795,29 +795,12 @@ _SHARED_NEWSLETTER_TAGS = {
     "Lewisville_Lake_Lookout": ["Lewisville_Lake_Lookout"],
 }
 
-# Keyword patterns that mark an event as free. Run case-insensitively
-# against the concatenated Event Name + Description. We match whole
-# words / phrases so 'free parking' on a paid event still triggers
-# (false-positive risk is acceptable — Claude does final filtering).
-_FREE_PATTERNS = [
-    _re.compile(r"\bfree\b", _re.IGNORECASE),
-    _re.compile(r"\bno\s+(?:charge|cost|fee|admission)\b", _re.IGNORECASE),
-    _re.compile(r"\bcomplimentary\b", _re.IGNORECASE),
-    _re.compile(r"\$\s*0(?:\.00)?\b"),
-]
-
-
 def _rich_text(prop: dict) -> str:
     """Concatenate all rich_text/title runs in a Notion property."""
     if not isinstance(prop, dict):
         return ""
     chunks = prop.get("rich_text") or prop.get("title") or []
     return "".join(c.get("plain_text", "") for c in chunks).strip()
-
-
-def _looks_free(*texts: str) -> bool:
-    blob = " ".join(t for t in texts if t)
-    return any(p.search(blob) for p in _FREE_PATTERNS)
 
 
 def fetch_free_events_from_notion(newsletter_name: str,
@@ -857,7 +840,10 @@ def fetch_free_events_from_notion(newsletter_name: str,
         url   = (props.get("Source URL", {}).get("url") or "").strip()
         if not title or not url:
             continue
-        if not _looks_free(title, description):
+        # Free-ness is decided upstream by the post-scrape free_tagger (scraped
+        # price → 'Free' checkbox, falling back to a keyword scan for no-price
+        # rows). Here we just honor the flag instead of re-scanning the blurb.
+        if not (props.get("Free") or {}).get("checkbox", False):
             skipped_not_free += 1
             continue
         # Source hostname (best-effort — used by aggregator detection downstream).

@@ -33,8 +33,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
 from html_utils  import (_clean_html, _parse_iso_date,           # noqa: E402
-                         _normalize_title, format_dates_human,
-                         parse_jsonld_price)
+                         _normalize_title, parse_jsonld_price)
 from notion_save import existing_source_urls, save_event          # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
 from event_image_scraper import (is_cancelled_event,              # noqa: E402

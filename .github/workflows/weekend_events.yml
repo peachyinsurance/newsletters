@@ -280,6 +280,16 @@ jobs:
           NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
         run: python "Weekend Events/Code/utilities/geo_tagger.py"
 
+      # Flag free vs paid (scraped price → Free checkbox, keyword scan for the
+      # no-price tail) so downstream sections read a flag instead of guessing.
+      - name: Tag free events
+        continue-on-error: true
+        if: ${{ (github.event.inputs.mode || 'both') != 'cleanup' }}
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+        run: python "Weekend Events/Code/utilities/free_tagger.py"
+
       - name: Archive past events
         continue-on-error: true
         if: ${{ (github.event.inputs.mode || 'both') != 'scrape' }}
