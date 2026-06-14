@@ -992,8 +992,13 @@ def get_latest_free_events(newsletter_name: str) -> str | None:
              (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
     if not pages:
         return None
+    # Sort by Date Generated, then Notion's page-level created_time as the
+    # tiebreaker. Date Generated is date-only, so two same-day re-runs tie and
+    # the stale row could win; created_time is a full timestamp that always
+    # picks the newest row.
     pages.sort(
-        key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+        key=lambda p: (p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+                       p.get("created_time", "")),
         reverse=True
     )
     props = pages[0]["properties"]
@@ -1088,8 +1093,12 @@ def get_latest_free_event_images(newsletter_name: str) -> list[str]:
              (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
     if not pages:
         return []
+    # Date Generated (date-only) ties on same-day re-runs; created_time (full
+    # timestamp) breaks the tie so the GIF is built from the NEWEST row's
+    # images, not a stale same-day row.
     pages.sort(
-        key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+        key=lambda p: (p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+                       p.get("created_time", "")),
         reverse=True,
     )
     props = pages[0]["properties"]
