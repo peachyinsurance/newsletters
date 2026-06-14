@@ -353,6 +353,14 @@ def _upgrade_battery_free_event_images(source_url: str,
     Battery sources or when no better image is found."""
     if "batteryatl.com" not in (source_url or "").lower():
         return images
+    # Unwrap Eventbrite's signed img.evbuc.com proxy → the raw cdn.evbuc.com
+    # original on ANY incoming image (a reused Weekend Events row may still
+    # carry the signed, hotlink-protected URL that 403s in email).
+    try:
+        from event_image_scraper import best_detail_image, _unwrap_evbuc
+        images = [_unwrap_evbuc(u) for u in (images or [])]
+    except Exception:
+        best_detail_image = None
     # Already have a clean (non-placeholder) image — e.g. reused from the
     # initial Weekend Events scrape, which already upgraded Battery rows. Skip
     # the redundant detail-page CTA fetch; only the placeholder graphics need
@@ -360,9 +368,7 @@ def _upgrade_battery_free_event_images(source_url: str,
     clean = [u for u in (images or []) if u and not _is_battery_placeholder_img(u)]
     if clean:
         return clean[:3]
-    try:
-        from event_image_scraper import best_detail_image
-    except Exception:
+    if best_detail_image is None:
         return images
     try:
         better = best_detail_image(source_url)
