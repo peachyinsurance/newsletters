@@ -1102,7 +1102,8 @@ def expand_in_search_of_slots(html: str, rows: list[dict]) -> str:
 # 4. SECTION DATA → REPLACEMENT MAP
 # ---------------------------------------------------------------------------
 def build_replacements(client: BeehiivClient, publication_id: str,
-                      newsletter_name: str) -> tuple[dict, dict, dict, int, list, list, dict, list, list, list]:
+                      newsletter_name: str,
+                      template_html: str = "") -> tuple[dict, dict, dict, int, list, list, dict, list, list, list]:
     """Pull section data, upload images, return:
       (text_replacements, image_url_swaps, alt_image_swaps,
        lowdown_story_count, weekend_events, lowdown_stories,
@@ -1391,16 +1392,20 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     if business and business.get("blurb"):
         repl["business_brief_name"]    = business.get("name", "")
         bb_url = business.get("source_url", "") or ""
-        # Embed a clickable website link directly in the blurb prose so the
-        # email always has a working link, independent of whether the Beehiiv
-        # template wires the {business_brief_url}/{business_brief_link} token
-        # into an <a>. md_inline_to_html (used by both expand_paragraph_field
-        # and md_to_html) converts the [text](url) markdown into a real
-        # anchor. Appended as its own paragraph, mirroring the Notion page's
-        # "Website:" line. Skip if the URL is already in the blurb so an
-        # author/Claude-supplied link isn't double-rendered.
+        # Embed a clickable website link directly in the blurb prose ONLY when
+        # the template doesn't already print the URL itself. Templates that
+        # wire {business_brief_url}/{business_brief_link} below the address
+        # render the website there — appending a "**Website:**" line to the
+        # blurb on top of that produces the duplicate the user saw ("Website:
+        # palmettobath.com" in the blurb AND the domain below the address).
+        # When the template has no such token, the blurb append is the safety
+        # net that keeps a working link in the email. Also skip if the URL is
+        # already in the blurb so an author/Claude link isn't double-rendered.
+        template_prints_url = ("{business_brief_url}" in template_html
+                               or "{business_brief_link}" in template_html
+                               or "{business_brief_domain}" in template_html)
         bb_blurb = business.get("blurb", "")
-        if bb_url and bb_url not in bb_blurb:
+        if bb_url and bb_url not in bb_blurb and not template_prints_url:
             bb_blurb = bb_blurb.rstrip() + f"\n\n**Website:** [{display_domain(bb_url)}]({bb_url})"
         paragraph_prose["business_brief_blurb"] = bb_blurb
         repl["business_brief_blurb"]   = md_to_html(bb_blurb)
@@ -1982,7 +1987,7 @@ def main():
     # Gather all section data + upload images
     print("\n  Gathering section data + uploading images…")
     repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose_fields, memes, free_event_images, in_search_of_rows = build_replacements(
-        client, cfg["publication_id"], NEWSLETTER,
+        client, cfg["publication_id"], NEWSLETTER, template_html=body_html,
     )
 
     # Dynamic-slot expansions must run BEFORE prune_empty_slots so the
