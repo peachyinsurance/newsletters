@@ -2019,7 +2019,16 @@ def save_free_events_to_notion(result: dict, newsletter_name: str) -> None:
         existing = query_database(NOTION_FREE_EVENTS_DB_ID, filters={
             "property": "Newsletter",
             "select":   {"equals": newsletter_name}
-        })
+        }) or []
+        # CRITICAL: re-filter by Newsletter in Python. query_database falls back
+        # to an UNFILTERED fetch when Notion 400s the filtered query, so
+        # `existing` can contain EVERY newsletter's rows. Without this filter
+        # the flip loop below would archive OTHER newsletters' freshly-saved
+        # 'approved' rows — e.g. saving Perimeter_Post/Lewisville right after
+        # East Cobb would flip East Cobb's new row to 'approved - old', leaving
+        # zero approved rows and an empty Free Events section.
+        existing = [p for p in existing if
+                    (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
         # Only block on manual edits to a row that's still 'current'
         # (status = approved/pending). Archived ('approved - old'/'rejected')
         # AND blank-status rows are treated as not-current — blank typically
