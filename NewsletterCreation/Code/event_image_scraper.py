@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qs, unquote, urlparse, urlunparse
 
 import requests
 
@@ -382,12 +382,26 @@ def backfill_images(events: list[dict],
     return filled
 
 
-# Button text that signals "the real promo lives on another page" (vs. a
-# ticketing / signup / mailing-list button). Matches "more information",
-# "more info", "learn more". Kept narrow so we don't follow Eventbrite/
-# ticketing buttons whose target og:image is just a marketplace banner.
-_MORE_INFO_RE = re.compile(r'more\s+info|learn\s+more', re.IGNORECASE)
 _SRCSET_RE = re.compile(r'([^\s,]+)\s+(\d+)w')
+
+# CTA-button intent ranking. The event's primary "go here for the real
+# thing" button links to a page whose hero/og:image is the actual event
+# art — whether that's a promo page (mlb.com/braves), a signup page
+# (Eventbrite, whose og:image is the event's own flyer), or a ticket page.
+# Earlier phrases rank higher. A button whose text hits _CTA_SKIP is a
+# utility link (mailing list, directions, calendar share) and is never
+# followed — those go to generic pages.
+_CTA_RANK = (
+    "more information", "more info", "learn more", "full details",
+    "details", "read more", "event details", "see more",
+    "get tickets", "buy tickets", "tickets", "register", "registration",
+    "sign up", "rsvp", "reserve", "book now", "purchase",
+)
+_CTA_SKIP = (
+    "mailing list", "newsletter", "subscribe", "directions", "parking",
+    "get here", "getting here", "calendar", "add to", "google", "outlook",
+    "ical", "share", "facebook", "instagram", "twitter", "menu", "contact",
+)
 
 
 def _best_from_srcset(srcset: str) -> str:
@@ -405,65 +419,103 @@ def _best_from_srcset(srcset: str) -> str:
     return best_url
 
 
-def _more_info_hero(html: str, source_url: str) -> str:
-    """If `html` (an event detail page) has a 'Click here for more
-    information!' style <a class="button"> linking out to a promo page,
-    follow it and return that page's hero image.
+def _unwrap_next_image(url: str) -> str:
+    """Unwrap a Next.js image-optimizer proxy URL (`/_next/image?url=<enc>`)
+    to the real underlying image. Eventbrite serves its og:image through this
+    proxy; the real flyer is the percent-encoded `url` query param."""
+    if "/_next/image" in url and "url=" in url:
+        try:
+            q = parse_qs(urlparse(url).query)
+            if q.get("url"):
+                return unquote(q["url"][0])
+        except Exception:
+            pass
+    return url
 
-    The Battery's event pages link out (e.g. mlb.com/braves/fans/block-party)
-    via such a button; the linked page carries the real event art as a
-    lazyload <img> whose source is in `data-srcset`. The Battery's own
-    listing thumbnail is frequently a generic placeholder or another
-    event's image, so the linked hero is preferred when present.
 
-    Returns "" when there's no qualifying button or no usable target image.
+def _cta_link_hero(html: str, source_url: str) -> str:
+    """Follow the event's primary CTA button to its target page and return
+    that page's hero image.
+
+    The Battery's listing thumbnail is unreliable, but every Battery event
+    page has a prominent <a class="button"> CTA whose target carries the real
+    art: a promo page ("Click here for more information!" → mlb.com/braves,
+    hero in data-srcset / mlbstatic), or a signup page ("Sign up for your
+    spot here!" → Eventbrite, whose og:image is the event's own flyer). We
+    pick the highest-intent external CTA (see _CTA_RANK), skipping utility
+    links (mailing list, directions, calendar — see _CTA_SKIP), follow it,
+    and extract the hero (largest srcset, else og:image, Next.js-unwrapped).
+
+    Returns "" when there's no qualifying CTA or no usable target image.
     """
-    target = ""
+    src_host = (urlparse(source_url).hostname or "").lower().removeprefix("www.")
+    best_rank, target = len(_CTA_RANK), ""
     for m in re.finditer(
         r'<a\b[^>]*\bclass=["\'][^"\']*\bbutton\b[^"\']*["\'][^>]*>(.*?)</a>',
         html, re.IGNORECASE | re.DOTALL,
     ):
-        text = re.sub(r'<[^>]+>', '', m.group(1))
-        if not _MORE_INFO_RE.search(text):
+        text = re.sub(r'<[^>]+>', '', m.group(1)).strip().lower()
+        if not text or any(s in text for s in _CTA_SKIP):
             continue
         hm = re.search(r'href=["\']([^"\']+)["\']', m.group(0), re.IGNORECASE)
         if not hm:
             continue
         cand = _absolutize(hm.group(1).strip().replace("&amp;", "&"), source_url)
-        # Don't chase ticketing/marketplace buttons — their og:image is a
-        # brand banner, not the event. Skip and keep looking for a real
-        # promo-page button.
-        host = (urlparse(cand).hostname or "").lower().removeprefix("www.")
-        if host and any(host == mk or host.endswith("." + mk)
-                        for mk in MARKETPLACE_HOSTS):
+        if not cand.startswith("http"):
             continue
-        target = cand
-        break
+        host = (urlparse(cand).hostname or "").lower().removeprefix("www.")
+        # Only follow buttons that leave the event site — an on-site button
+        # (e.g. the event's own permalink) wouldn't improve on the detail
+        # page we already have.
+        if not host or host == src_host:
+            continue
+        rank = next((i for i, kw in enumerate(_CTA_RANK) if kw in text), None)
+        if rank is None:
+            continue  # unranked CTA text — don't guess
+        if rank < best_rank:
+            best_rank, target = rank, cand
     if not target:
         return ""
 
     try:
-        r = requests.get(target, timeout=10,
-                         headers={"User-Agent": USER_AGENT}, allow_redirects=True)
+        r = requests.get(
+            target, timeout=10,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                    "Chrome/124 Safari/537.36"},
+            allow_redirects=True,
+        )
         if r.status_code != 200 or not r.text:
             return ""
         page = r.text
     except Exception:
         return ""
 
-    # Prefer the largest (data-)srcset hero — lazyload <img> real source.
+    # 1. Largest (data-)srcset hero — lazyload <img> real source (mlbstatic).
     for attr in ("data-srcset", "srcset"):
         for sm in re.finditer(attr + r'=["\']([^"\']+)["\']', page, re.IGNORECASE):
             best = _best_from_srcset(sm.group(1))
             if not best:
                 continue
-            best = _absolutize(best, target)
+            best = _unwrap_next_image(_absolutize(best, target))
             if best.startswith("data:"):
                 continue
             if any(skip in best.lower() for skip in SKIP_TOKENS):
                 continue
             return best
-    # No srcset hero — fall back to the target page's og:image / hero scan.
+    # 2. og:image / twitter:image (Eventbrite flyer), Next.js-unwrapped.
+    for pat in (
+        r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+        r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
+    ):
+        mm = re.search(pat, page, re.IGNORECASE)
+        if mm:
+            img = _unwrap_next_image(_absolutize(mm.group(1).strip(), target))
+            if img and not img.startswith("data:") and \
+               not any(skip in img.lower() for skip in SKIP_TOKENS):
+                return img
+    # 3. Generic hero scan as a last resort.
     return fetch_event_image(target, allow_root_fallback=False)
 
 
@@ -483,7 +535,7 @@ def best_detail_image(source_url: str) -> str:
         html = r.text
     except Exception:
         return ""
-    hero = _more_info_hero(html, source_url)
+    hero = _cta_link_hero(html, source_url)
     if hero:
         return hero
     return fetch_event_image(source_url, _html=html, allow_root_fallback=False)
