@@ -65,23 +65,52 @@ _VALIDATE_HEADERS = {
 
 _DEAD_STATUSES = {404, 410}
 
+# A job's Adzuna redirect often lands on an ATS that serves a SOFT 404 — HTTP
+# 200 on a "page not found" / "job no longer available" page (e.g. the apply
+# link resolving to prod.gotoro.io/page-not-found). Catch those by the final
+# URL and by the page text so dead apply links stay out of the newsletter.
+_DEAD_URL_RE = re.compile(
+    r"(page-?not-?found|not-?found|/404\b|expired|no-?longer|"
+    r"job-?(?:not-?found|expired|removed|closed)|position-?(?:filled|closed)|"
+    r"jobs?/error|/error\b|removed)",
+    re.IGNORECASE,
+)
+_DEAD_BODY_RE = re.compile(
+    r"(page not found|404 error|we can'?t find (?:the )?page|"
+    r"(?:job|position|posting|listing|vacancy)[^.]{0,40}"
+    r"(?:no longer (?:available|active|open|accepting)|has expired|"
+    r"has been (?:filled|removed|closed)|is no longer|not found|been removed)|"
+    r"this (?:job|position|posting|opening)[^.]{0,40}"
+    r"(?:unavailable|expired|closed|filled|removed)|"
+    r"sorry,? this (?:job|position))",
+    re.IGNORECASE,
+)
+
 
 def _url_is_live(url: str) -> bool:
-    """Keep a URL unless it is CONFIRMED dead (404 / 410). We follow redirects
-    with a browser UA; ambiguous results (403 bot-walls, 5xx, timeouts, network
-    errors) are KEPT rather than risk dropping a live posting. The goal is to
-    keep broken 'Apply' links out of the newsletter, not to over-prune."""
+    """Keep a URL unless it is CONFIRMED dead. We follow redirects with a
+    browser UA and treat a posting as dead when the FINAL status is 404/410,
+    OR the final URL looks like a not-found/expired page, OR (for a 200) the
+    page TEXT says the job is gone (soft 404). Ambiguous results (403 bot-walls,
+    5xx, timeouts, network errors) are KEPT rather than risk dropping a live
+    posting — the goal is to keep broken 'Apply' links out, not to over-prune."""
     if not url:
         return False
     try:
-        r = requests.head(url, headers=_VALIDATE_HEADERS, timeout=12, allow_redirects=True)
-        if r.status_code in (403, 405):
-            # Host won't answer HEAD — confirm with a bodyless GET.
-            r = requests.get(url, headers=_VALIDATE_HEADERS, timeout=15,
-                             allow_redirects=True, stream=True)
-        return r.status_code not in _DEAD_STATUSES
+        r = requests.get(url, headers=_VALIDATE_HEADERS, timeout=15,
+                         allow_redirects=True)
     except Exception:
         return True   # network hiccup — don't drop a possibly-live link
+    if r.status_code in _DEAD_STATUSES:
+        return False
+    if r.status_code in (403, 405):
+        return True   # bot-wall — can't tell, keep
+    final = (r.url or "").lower()
+    if _DEAD_URL_RE.search(final):
+        return False
+    if r.status_code == 200 and r.text and _DEAD_BODY_RE.search(r.text[:12000]):
+        return False
+    return True
 
 
 def _location_for(newsletter: dict) -> str:
