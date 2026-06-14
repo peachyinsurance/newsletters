@@ -14,7 +14,7 @@ on:
           - 'Perimeter_Post'
           - 'Lewisville_Lake_Lookout'
       chain:
-        description: '(End of chain — no downstream)'
+        description: '(Chain: hand off to In Search Of, the new tail)'
         required: false
         default: 'true'
         type: choice
@@ -62,11 +62,11 @@ jobs:
             -d '{"ref":"main","inputs":{"section":"poll"}}'
           echo "✓ Newsletter page rebuild triggered (poll only)"
 
-      # ─── END OF CHAIN — fire ONE full rebuild + ONE deploy ───────────
-      # On chained runs every prior step skipped its per-section page
-      # rebuild + review-app deploy; the chain consolidates them here so
-      # we deploy exactly once with all sections fresh.
-      - name: Trigger full newsletter page rebuild (end of chain)
+      # ─── Hand off to In Search Of (the new chain tail) ──────────────
+      # In Search Of now runs last and consolidates the single full rebuild
+      # + review-app deploy for the whole chain. (It previously skipped the
+      # chain; Poll used to be the tail.)
+      - name: Trigger next in chain (In Search Of)
         if: ${{ (github.event.inputs.chain || 'true') == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -74,18 +74,6 @@ jobs:
           curl -s -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
-            -d '{"ref":"main","inputs":{"section":"all"}}'
-          echo "✓ Full newsletter rebuild triggered (end of chain)"
-
-      - name: Trigger review app deploy (end of chain)
-        if: ${{ (github.event.inputs.chain || 'true') == 'true' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          curl -s -X POST \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/deploy_review_app.yml/dispatches \
-            -d '{"ref":"main"}'
-          echo "✓ Review app deploy triggered (end of chain)"
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/in_search_of.yml/dispatches \
+            -d "{\"ref\":\"main\",\"inputs\":{\"newsletter\":\"${{ github.event.inputs.newsletter || 'all' }}\",\"chain\":\"true\"}}"
+          echo "→ Triggered In Search Of (chain tail)"
