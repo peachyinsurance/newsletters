@@ -23,7 +23,7 @@ from notion_helper import (
     NOTION_WEEKEND_EVENTS_DB_ID,
 )
 from url_validator import validate_url
-from newsletters_config import NEWSLETTERS, filter_by_env
+from newsletters_config import filter_by_env
 from event_date_filter import (
     filter_candidates_by_date,
     filter_candidates_in_date_range,
@@ -512,8 +512,6 @@ from voice_helper import with_voice  # noqa: E402
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-free-events-skill_auto.md"
 
 MAX_RESULTS_PER_QUERY = 10
-MIN_CANDIDATES        = 10  # fewer than this triggers broader fallback
-TARGET_EVENTS         = 5
 
 # Keep content friendly to the newsletter: drop obviously off-topic or unsafe items
 EXCLUDED_KEYWORDS = {
@@ -1421,7 +1419,6 @@ def drill_down_aggregator_url(source_url: str, event_name: str) -> str:
     if not event_tokens:
         return source_url
 
-    aggregator_host = _hostname(source_url)
     body = soup.find("article") or soup.find("main") or soup
 
     best_url = source_url
