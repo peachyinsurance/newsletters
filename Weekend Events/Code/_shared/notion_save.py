@@ -43,6 +43,31 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
 from notion_helper import HEADERS as NOTION_HEADERS, query_database  # noqa: E402
 from event_image_scraper import is_senior_event  # noqa: E402
 
+# DBs whose Price/Free columns we've already ensured this process (one PATCH
+# per scraper run, not per event).
+_columns_ensured: set[str] = set()
+
+
+def _ensure_event_columns(db_id: str) -> None:
+    """Idempotently add the `Price` (rich_text) and `Free` (checkbox) columns
+    before the first write into `db_id` this run. The scrapers write Price but
+    run BEFORE the post-scrape free_tagger that would otherwise create the
+    column, so without this the very first run after these columns were
+    introduced would silently drop every price. Cheap: one PATCH per process."""
+    if not db_id or db_id in _columns_ensured:
+        return
+    _columns_ensured.add(db_id)
+    try:
+        requests.patch(
+            f"https://api.notion.com/v1/databases/{db_id}",
+            headers=NOTION_HEADERS,
+            json={"properties": {"Price": {"rich_text": {}},
+                                 "Free":  {"checkbox": {}}}},
+            timeout=30,
+        )
+    except Exception as e:
+        print(f"    ⚠ could not ensure Price/Free columns: {e}")
+
 
 def existing_source_urls(db_id: str,
                          newsletter: str | None = None
@@ -102,6 +127,10 @@ def save_event(db_id: str, ev: dict, newsletter: str,
     in-window date, by the scraper."""
     if not ev.get("source_url"):
         return False
+
+    # Make sure the Price/Free columns exist before we write a price into them
+    # (scrapers run before free_tagger, which also ensures them).
+    _ensure_event_columns(db_id)
 
     # Global senior-citizen exclusion. Every scraper saves through this
     # helper, so gating here applies the exclusion uniformly. Sources that
