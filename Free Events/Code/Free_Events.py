@@ -353,6 +353,13 @@ def _upgrade_battery_free_event_images(source_url: str,
     Battery sources or when no better image is found."""
     if "batteryatl.com" not in (source_url or "").lower():
         return images
+    # Already have a clean (non-placeholder) image — e.g. reused from the
+    # initial Weekend Events scrape, which already upgraded Battery rows. Skip
+    # the redundant detail-page CTA fetch; only the placeholder graphics need
+    # replacing.
+    clean = [u for u in (images or []) if u and not _is_battery_placeholder_img(u)]
+    if clean:
+        return clean[:3]
     try:
         from event_image_scraper import best_detail_image
     except Exception:
@@ -854,6 +861,11 @@ def fetch_free_events_from_notion(newsletter_name: str,
         # Date string for display; downstream filter_candidates_by_date scans this.
         date_prop  = (props.get("Date") or {}).get("date") or {}
         date_iso   = (date_prop.get("start") or "")[:10]
+        # The image the INITIAL Weekend Events scrape already captured for this
+        # row (Battery rows carry the upgraded detail-page/CTA hero). Carry it
+        # so the winner reuses it instead of re-fetching the source page from
+        # scratch (which, for Battery, re-pulls the generic placeholder).
+        notion_img = (props.get("Image URL", {}).get("url") or "").strip()
         out.append({
             "title":     title,
             "url":       url,
@@ -866,6 +878,7 @@ def fetch_free_events_from_notion(newsletter_name: str,
             # already carry full_text.)
             "full_text": description,
             "_from_notion": True,
+            "_notion_image": notion_img,
         })
     print(f"  Notion: {len(out)} free-event row(s) "
           f"(skipped {skipped_not_free} non-free in-window rows)")
@@ -1253,7 +1266,15 @@ Candidates:
         # then prefer the first one that actually has a usable image.
         if fallback is None:
             fallback = s
-        imgs = fetch_event_images(s["source_url"], max_results=3)
+        # Reuse the image the initial Weekend Events scrape already captured
+        # (carried as _notion_image) instead of re-fetching the source page.
+        # The scrape's image is already curated/upgraded (e.g. Battery's CTA
+        # hero), so this is both faster and more accurate than a fresh fetch.
+        notion_img = (src or {}).get("_notion_image", "") if src else ""
+        if notion_img:
+            imgs = [notion_img]
+        else:
+            imgs = fetch_event_images(s["source_url"], max_results=3)
         if imgs:
             s["_image_urls"] = imgs
             winner = s
