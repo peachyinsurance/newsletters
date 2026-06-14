@@ -24,14 +24,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
 
+import requests
+
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..",
                              "NewsletterCreation", "Code"))
 from notion_helper import (  # noqa: E402
-    HEADERS as NOTION_HEADERS,
     query_database,
     update_page,
     NOTION_IN_SEARCH_OF_DB_ID,
@@ -193,6 +195,94 @@ def apply_results(pool: list[dict], results: list[dict]) -> tuple[int, int]:
     return updated, dropped
 
 
+_ADZUNA_DETAILS_RE = re.compile(r"adzuna\.com/details/\d+", re.IGNORECASE)
+_BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/124 Safari/537.36")
+
+
+def _resolve_adzuna(url: str) -> dict:
+    """Drill into an Adzuna details page and pull the real posting data.
+
+    Adzuna listings come in as a generic `adzuna.com/details/<id>` page — the
+    link that's wrong to send readers to, and (for raw API postings) often with
+    no scraped snippet, so the blurb comes out empty. This follows the page to:
+      - apply_url:    the 'Apply for this job' button → `/land/ad/<id>?aztt=…`
+                      (the tokenized apply link; the token is valid ~7 days,
+                      ample for one newsletter cycle)
+      - description:  the JobPosting JSON-LD description (the real job text)
+      - employer:     hiringOrganization.name
+    Returns {} on any failure (caller keeps the existing values)."""
+    try:
+        r = requests.get(url, timeout=20, headers={"User-Agent": _BROWSER_UA},
+                         allow_redirects=True)
+        if r.status_code != 200 or not r.text:
+            return {}
+        html = r.text
+    except Exception as e:
+        print(f"      ⚠ adzuna drill-down failed for {url[:60]}: {e}")
+        return {}
+
+    out: dict = {}
+    m = re.search(r'href=["\'](https://www\.adzuna\.com/land/ad/[^"\']+)["\']',
+                  html, re.IGNORECASE)
+    if m:
+        out["apply_url"] = m.group(1).replace("&amp;", "&")
+    for blob in re.findall(
+            r'application/ld\+json[^>]*>(.+?)</script>', html, re.DOTALL):
+        try:
+            data = json.loads(blob.strip())
+        except Exception:
+            continue
+        items = data if isinstance(data, list) else [data]
+        for it in items:
+            if isinstance(it, dict) and it.get("@type") == "JobPosting":
+                desc = re.sub(r"<[^>]+>", " ", it.get("description", "") or "")
+                desc = re.sub(r"\s+", " ", desc).strip()
+                if desc:
+                    out["description"] = desc
+                org = it.get("hiringOrganization")
+                if isinstance(org, dict) and org.get("name"):
+                    out["employer"] = org["name"].strip()
+                elif isinstance(org, str) and org.strip():
+                    out["employer"] = org.strip()
+    return out
+
+
+def enrich_adzuna_rows(pool: list[dict]) -> None:
+    """For pool rows whose Job Listings URL is a raw Adzuna details page, drill
+    in for the real apply link + job description + employer, persist them to
+    Notion, and update the in-memory row so the Claude blurb pass has the
+    description to work from. Mutates `pool` in place."""
+    for row in pool:
+        url = row.get("job_listings_url", "")
+        if not _ADZUNA_DETAILS_RE.search(url):
+            continue
+        data = _resolve_adzuna(url)
+        if not data:
+            continue
+        patch: dict = {}
+        if data.get("apply_url") and data["apply_url"] != url:
+            row["job_listings_url"] = data["apply_url"]
+            patch["Job Listings URL"] = {"url": data["apply_url"]}
+        # Fill the scraped snippet when blank so Claude has source text (this is
+        # the 'no description' fix — raw Adzuna rows arrive with no snippet).
+        if data.get("description") and not row.get("scraped_snippet"):
+            row["scraped_snippet"] = data["description"][:2000]
+            patch["Scraped Snippet"] = {
+                "rich_text": [{"text": {"content": data["description"][:2000]}}]}
+        if data.get("employer") and not row.get("employer"):
+            row["employer"] = data["employer"]
+            patch["Employer"] = {
+                "rich_text": [{"text": {"content": data["employer"][:200]}}]}
+        if patch:
+            try:
+                update_page(row["notion_page_id"], properties=patch)
+                print(f"    ↳ adzuna drill-down: {row.get('employer', '?')[:40]} "
+                      f"({', '.join(patch)})")
+            except Exception as e:
+                print(f"    ⚠ couldn't persist adzuna drill-down: {e}")
+
+
 def main() -> int:
     skill_prompt = load_skill_prompt()
     print("In Search Of pipeline — Claude blurb pass")
@@ -211,6 +301,9 @@ def main() -> int:
         if not pool:
             print(f"  No approved or pending rows for {nl_name}; skipping")
             continue
+        # Drill raw Adzuna details pages → real apply URL + job description
+        # (fills the snippet so the blurb isn't empty) before the Claude pass.
+        enrich_adzuna_rows(pool)
         results = call_claude(pool, nl_name, skill_prompt)
         if not results:
             print(f"  Claude returned nothing for {nl_name}")
