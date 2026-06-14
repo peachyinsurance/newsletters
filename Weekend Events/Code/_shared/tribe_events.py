@@ -30,7 +30,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
 from html_utils import (_clean_html, format_dates_human,           # noqa: E402
-                        _normalize_title, _parse_iso_date)
+                        _normalize_title, _parse_iso_date,
+                        parse_jsonld_price)
 from notion_save import existing_source_urls, save_event  # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
 from event_image_scraper import (is_cancelled_event,           # noqa: E402
@@ -210,6 +211,10 @@ def normalize_event(ev: dict) -> dict:
         "city":        city,
         "geo_lat":     geo_lat,
         "geo_lng":     geo_lng,
+        # Published ticket price from JSON-LD offers ('Free' / '$25' / '$10–$30'),
+        # blank when the source doesn't expose one. An explicit price beats
+        # scanning the blurb for 'free' when deciding what's actually free.
+        "price":       parse_jsonld_price(ev),
     }
 
 

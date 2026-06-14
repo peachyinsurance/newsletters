@@ -88,3 +88,77 @@ def _parse_iso_date(s: str) -> date | None:
         return datetime.fromisoformat(s.replace("Z", "+00:00")).date()
     except Exception:
         return None
+
+
+# Currency code → symbol for the few we'd ever see; default to the bare code.
+_CURRENCY_SYMBOLS = {"USD": "$", "CAD": "$", "GBP": "£", "EUR": "€"}
+
+
+def _fmt_amount(value, currency: str) -> str:
+    """Format a single numeric price: '0' → 'Free', else '$25' / '$25.50'."""
+    try:
+        amt = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if amt <= 0:
+        return "Free"
+    sym = _CURRENCY_SYMBOLS.get((currency or "USD").upper(), (currency or "").upper() + " ")
+    # Drop trailing .0 so whole-dollar prices read '$25' not '$25.00'.
+    return f"{sym}{amt:.2f}".rstrip("0").rstrip(".") if amt % 1 else f"{sym}{int(amt)}"
+
+
+def parse_jsonld_price(event: dict) -> str:
+    """Extract a human display price from a schema.org Event's `offers`.
+
+    Handles the shapes seen in the wild:
+      - a single Offer dict: {"price": "0"|"25", "priceCurrency": "USD"}
+      - a list of Offers (take the min non-zero, or 'Free' if any is 0)
+      - an AggregateOffer: {"lowPrice": "10", "highPrice": "30"}
+    Returns 'Free' for a 0 price, '$25' for a single price, '$10–$30' for a
+    range, or '' when no price is published (caller leaves the field blank).
+    A published price of 0 is the strongest 'this event is free' signal we
+    can get — far better than scanning the blurb for the word 'free'."""
+    offers = event.get("offers")
+    if not offers:
+        return ""
+    if isinstance(offers, dict):
+        offers = [offers]
+    if not isinstance(offers, list):
+        return ""
+
+    amounts: list[float] = []
+    currency = "USD"
+    saw_free = False
+    for off in offers:
+        if not isinstance(off, dict):
+            continue
+        currency = off.get("priceCurrency") or currency
+        # AggregateOffer range
+        lo, hi = off.get("lowPrice"), off.get("highPrice")
+        if lo is not None or hi is not None:
+            lo_s = _fmt_amount(lo, currency) if lo is not None else ""
+            hi_s = _fmt_amount(hi, currency) if hi is not None else ""
+            if lo_s == "Free" and not hi_s:
+                saw_free = True
+            elif lo_s and hi_s and lo_s != hi_s:
+                return f"{lo_s.replace('Free', '$0')}–{hi_s}"
+            elif lo_s or hi_s:
+                return (lo_s or hi_s)
+            continue
+        price = off.get("price")
+        if price is None:
+            continue
+        try:
+            amt = float(price)
+        except (TypeError, ValueError):
+            continue
+        if amt <= 0:
+            saw_free = True
+        else:
+            amounts.append(amt)
+
+    if amounts:
+        return _fmt_amount(min(amounts), currency)
+    if saw_free:
+        return "Free"
+    return ""

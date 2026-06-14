@@ -148,6 +148,14 @@ def save_event(db_id: str, ev: dict, newsletter: str,
         "Dates":          {"rich_text": [{"text": {"content": dates_display[:500]}}]},
         "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
     }
+    # Published ticket price ('Free' / '$25' / '$10–$30') when the scraper
+    # extracted one from the source's JSON-LD offers. Written to the `Price`
+    # column the Weekend Planner pool already reads (_rt("Price")). Only set
+    # when present so a re-scrape never blanks a manually-entered price; the
+    # missing-property heal drops it gracefully if the column doesn't exist.
+    price = (ev.get("price") or "").strip()
+    if price:
+        content["Price"] = {"rich_text": [{"text": {"content": price[:80]}}]}
     # Scraper-provided coordinates (e.g. Tribe/Battery JSON-LD) → cache on the
     # row so the geo-tagger uses them directly instead of geocoding an address
     # that may not resolve. (Notion drops this gracefully if the Geo column
