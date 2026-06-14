@@ -1286,6 +1286,26 @@ def get_latest_poll(newsletter_name: str) -> dict | None:
     }
 
 
+def _strip_leading_greeting(blurb: str, greeting: str) -> str:
+    """Drop a leading copy of the greeting from the blurb so the intro doesn't
+    show e.g. 'What's up neighbors' twice — once as the bold greeting line and
+    again as the first words of the editor's note (Claude sometimes repeats it
+    in the blurb body). Matches on words, punctuation-insensitive, so the
+    greeting 'What's up neighbors' also strips a blurb opening 'What's up,
+    neighbors!'. Only strips a multi-word greeting, and re-capitalizes the
+    remainder."""
+    if not blurb or not greeting:
+        return blurb
+    g_words = re.findall(r"[a-z0-9']+", greeting.lower())
+    if len(g_words) < 2:
+        return blurb
+    tokens = list(re.finditer(r"[a-z0-9']+", blurb.lower()))
+    if [m.group(0) for m in tokens[:len(g_words)]] != g_words:
+        return blurb
+    rest = re.sub(r"^[\s,!.;:—–\-]+", "", blurb[tokens[len(g_words) - 1].end():])
+    return (rest[0].upper() + rest[1:]) if rest else blurb
+
+
 def get_latest_intro(newsletter_name: str) -> dict | None:
     """Get the most recent Welcome Intro blurb. Skips rows in
     `approved - old` / `rejected` so archived weeks don't keep rendering."""
@@ -1328,7 +1348,9 @@ def get_latest_intro(newsletter_name: str) -> dict | None:
     if blurb:
         return {
             "greeting":          greeting,
-            "blurb":             blurb,
+            # Strip a duplicate greeting from the blurb body so it doesn't
+            # render twice (bold greeting line + blurb opening).
+            "blurb":             _strip_leading_greeting(blurb, greeting),
             "subject_line":      subject,
             "preview_text":      preview,
             "in_todays_connect": teaser,
