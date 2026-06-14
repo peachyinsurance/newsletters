@@ -76,14 +76,105 @@ HEADERS = {
 # ---------------------------------------------------------------------------
 # GENERIC HELPERS
 # ---------------------------------------------------------------------------
+def _eval_notion_leaf(prop: dict, ptype: str, cond: dict):
+    """Evaluate one leaf filter condition against a page property value.
+    Returns True / False / None (None = unsupported operator → can't tell)."""
+    if not isinstance(cond, dict):
+        return None
+    if ptype in ("select", "status"):
+        actual = (prop.get(ptype) or {}).get("name")
+        if "equals" in cond:          return actual == cond["equals"]
+        if "does_not_equal" in cond:  return actual != cond["does_not_equal"]
+        if cond.get("is_empty"):      return not actual
+        if cond.get("is_not_empty"):  return bool(actual)
+        return None
+    if ptype == "multi_select":
+        names = {o.get("name") for o in (prop.get("multi_select") or [])}
+        if "contains" in cond:         return cond["contains"] in names
+        if "does_not_contain" in cond: return cond["does_not_contain"] not in names
+        if cond.get("is_empty"):       return not names
+        if cond.get("is_not_empty"):   return bool(names)
+        return None
+    if ptype in ("rich_text", "title"):
+        text = "".join((t.get("plain_text") or t.get("text", {}).get("content", ""))
+                       for t in (prop.get(ptype) or []))
+        if "equals" in cond:          return text == cond["equals"]
+        if "does_not_equal" in cond:  return text != cond["does_not_equal"]
+        if "contains" in cond:        return cond["contains"] in text
+        if cond.get("is_empty"):      return not text
+        if cond.get("is_not_empty"):  return bool(text)
+        return None
+    if ptype == "date":
+        start = ((prop.get("date") or {}).get("start") or "")[:10]
+        if cond.get("is_empty"):     return not start
+        if cond.get("is_not_empty"): return bool(start)
+        if not start:                return None
+        def _d(v): return (v or "")[:10]
+        if "equals" in cond:        return start == _d(cond["equals"])
+        if "on_or_after" in cond:   return start >= _d(cond["on_or_after"])
+        if "on_or_before" in cond:  return start <= _d(cond["on_or_before"])
+        if "after" in cond:         return start >  _d(cond["after"])
+        if "before" in cond:        return start <  _d(cond["before"])
+        return None
+    if ptype == "checkbox":
+        if "equals" in cond: return prop.get("checkbox") == cond["equals"]
+        return None
+    if ptype == "number":
+        actual = prop.get("number")
+        if actual is None: return None
+        if "equals" in cond:       return actual == cond["equals"]
+        if "greater_than" in cond: return actual >  cond["greater_than"]
+        if "less_than" in cond:    return actual <  cond["less_than"]
+        return None
+    return None
+
+
+def _eval_notion_filter(props: dict, filt: dict):
+    """Best-effort Python evaluation of a Notion filter against a page's
+    `properties`. Returns True (matches), False (definitely doesn't), or None
+    (indeterminate — unsupported operator/shape). Supports and/or composition
+    and the leaf operators the codebase uses (select/status equals, date
+    range, rich_text/title contains, multi_select contains, checkbox, number).
+    Conservative by design: the caller keeps rows that are not explicitly
+    False, so an unsupported clause never drops a row that might match."""
+    if not isinstance(filt, dict):
+        return None
+    if "and" in filt:
+        sub = [_eval_notion_filter(props, c) for c in filt["and"]]
+        if any(r is False for r in sub): return False
+        if all(r is True for r in sub):  return True
+        return None
+    if "or" in filt:
+        sub = [_eval_notion_filter(props, c) for c in filt["or"]]
+        if any(r is True for r in sub):  return True
+        if all(r is False for r in sub): return False
+        return None
+    name = filt.get("property")
+    if not name or name not in props:
+        # Property absent from this page — indeterminate, so the caller keeps
+        # the row. This also fails safe if the filter's property name doesn't
+        # match the schema (every row indeterminate → kept → same as the old
+        # unfiltered behavior, never wrongly drops everything).
+        return None
+    prop = props.get(name) or {}
+    for ptype in ("select", "status", "multi_select", "rich_text", "title",
+                  "date", "checkbox", "number"):
+        if ptype in filt:
+            return _eval_notion_leaf(prop, ptype, filt[ptype])
+    return None
+
+
 def query_database(db_id: str, filters: dict = None) -> list:
     """Query a Notion database with optional filter, paginating until done.
 
     If a filter is provided and Notion returns HTTP 400 (typically because
     a `select` filter references an option that doesn't yet exist in the
-    schema — e.g. a newsletter name introduced this run), retry once
-    without the filter and let the caller filter results in Python.
-    Returns an empty list if both attempts fail."""
+    schema — e.g. a newsletter name introduced this run), retry once WITHOUT
+    the filter and RE-APPLY the same filter in Python before returning, so the
+    fallback can never hand back rows that don't match (a row from another
+    newsletter, etc.). Rows the Python evaluator can't judge are kept, so it
+    only ever drops definite non-matches. Returns an empty list if both
+    attempts fail."""
     url     = f"https://api.notion.com/v1/databases/{db_id}/query"
     payload = {"filter": filters} if filters else {}
     results = []
@@ -98,8 +189,15 @@ def query_database(db_id: str, filters: dict = None) -> list:
         except requests.exceptions.HTTPError as e:
             if filters and e.response is not None and e.response.status_code == 400:
                 print(f"  ⚠ Notion 400 on filtered query of {db_id[:8]}… — "
-                      f"retrying unfiltered (callers should filter in Python)")
-                return query_database(db_id, filters=None)
+                      f"retrying unfiltered and re-applying the filter in Python")
+                rows = query_database(db_id, filters=None)
+                kept = [p for p in rows
+                        if _eval_notion_filter(p.get("properties", {}), filters) is not False]
+                dropped = len(rows) - len(kept)
+                if dropped:
+                    print(f"    ↳ Python-filter kept {len(kept)}, dropped "
+                          f"{dropped} non-matching row(s)")
+                return kept
             raise
         data     = r.json()
         results += data.get("results", [])
