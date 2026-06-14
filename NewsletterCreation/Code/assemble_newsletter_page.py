@@ -1298,6 +1298,12 @@ def get_latest_intro(newsletter_name: str) -> dict | None:
         })
     except Exception:
         return None
+    # Filter by Newsletter in Python — query_database falls back to an
+    # UNFILTERED fetch when Notion 400s the filtered query, so without this a
+    # 400 would let another newsletter's intro win the date sort (e.g. LLL
+    # rendering East Cobb's welcome). Same fix as the Free Events getters.
+    pages = [p for p in pages
+             if (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
     pages = [p for p in pages
              if (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
              not in ("approved - old", "rejected")]
