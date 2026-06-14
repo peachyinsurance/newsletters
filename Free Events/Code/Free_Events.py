@@ -327,6 +327,50 @@ def fetch_event_image(source_url: str, _allow_root_fallback: bool = True) -> str
     return _try_root_fallback(f"no usable image on {source_url}")
 
 
+# Generic Battery template graphics that stand in for real event art on the
+# listing/detail page (e.g. 'Family-Series-Square.png', 'I-need-a-square…',
+# 'I-Need-A-Website-Graphic…'). These are the wrong/stale images that show up
+# in the Free Events GIF; drop them in favor of the detail-page CTA hero.
+_BATTERY_PLACEHOLDER_TOKENS = ("i-need-a", "family-series-square",
+                               "website-graphic", "i-need-a-square")
+
+
+def _is_battery_placeholder_img(url: str) -> bool:
+    u = (url or "").lower()
+    return any(tok in u for tok in _BATTERY_PLACEHOLDER_TOKENS)
+
+
+def _upgrade_battery_free_event_images(source_url: str,
+                                       images: list[str]) -> list[str]:
+    """For a Battery free event, re-derive the hero from the detail page's CTA.
+
+    The Battery ships generic placeholder graphics as its og:image / gallery,
+    so Free Events' own scrape pulls those (the 'same stale images' in the
+    GIF). Mirror the Weekend Events Battery fix: follow the detail page's
+    primary CTA ('Sign up'/'more information' button) to the real promo art —
+    the Eventbrite flyer or mlbstatic hero — via the shared best_detail_image,
+    put it first, and drop the known placeholder graphics. No-op for non-
+    Battery sources or when no better image is found."""
+    if "batteryatl.com" not in (source_url or "").lower():
+        return images
+    try:
+        from event_image_scraper import best_detail_image
+    except Exception:
+        return images
+    try:
+        better = best_detail_image(source_url)
+    except Exception as e:
+        print(f"  ⚠ [free-events] Battery image upgrade failed: {e}")
+        return images
+    kept = [u for u in (images or []) if u and not _is_battery_placeholder_img(u)]
+    if better:
+        result = [better] + [u for u in kept if u != better]
+        print(f"  ↳ [free-events] upgraded Battery hero via detail CTA: {better[:80]}")
+    else:
+        result = kept
+    return result[:3] if result else images
+
+
 def fetch_event_images(source_url: str, max_results: int = 8,
                        _allow_root_fallback: bool = True) -> list[str]:
     """Like `fetch_event_image()` but returns a deduped list of every plausible
@@ -1255,6 +1299,8 @@ Candidates:
         ev["image_urls"] = cached_imgs
     else:
         ev["image_urls"] = fetch_event_images(ev["source_url"], max_results=3)
+    ev["image_urls"] = _upgrade_battery_free_event_images(
+        ev.get("source_url", ""), ev["image_urls"])
     ev["image_url"]              = ev["image_urls"][0] if ev["image_urls"] else ""
 
     # Restore body_markdown from Claude's events[] (the all_scored entry we
