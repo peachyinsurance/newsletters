@@ -1126,6 +1126,9 @@ def free_event_render_images(newsletter_name: str) -> list[str]:
     Beehiiv send reuse what the assembler already produced. Any failure
     (no token, Pillow missing, download error) falls back to the photos."""
     images = get_latest_free_event_images(newsletter_name)
+    print(f"  [free-events] {len(images)} source image(s) from latest approved row:")
+    for u in images:
+        print(f"      • {u}")
     if len(images) < 2:
         return images
     key  = hashlib.md5("|".join(images).encode()).hexdigest()[:10]
@@ -1134,8 +1137,11 @@ def free_event_render_images(newsletter_name: str) -> list[str]:
     public = f"https://{_GH_OWNER}.github.io/{_GH_REPO}/{path}"
 
     # Already built for this exact photo set? Reuse it without rebuilding.
+    # (Content-addressed by the SOURCE URLs, so a different photo set always
+    # yields a different path and forces a fresh build — see the key above.)
     try:
         if requests.head(public, timeout=10).status_code == 200:
+            print(f"  [free-events] reusing existing GIF {path} (same photo set)")
             return [f"{public}?v={key}"]
     except Exception:
         pass
