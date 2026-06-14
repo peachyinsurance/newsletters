@@ -2026,7 +2026,11 @@ def _build_weekend_planner(newsletter_name: str) -> list[dict]:
             return day
         try:
             dt = datetime.fromisoformat(iso)
-            return f"{day}, {dt.strftime('%B')} {dt.day}"
+            # Ordinal suffix: 1st/2nd/3rd/…/11th–13th are all "th".
+            n = dt.day
+            suffix = "th" if 11 <= (n % 100) <= 13 else \
+                {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+            return f"{day}, {dt.strftime('%B')} {n}{suffix} {dt.year}"
         except Exception:
             return day
 
