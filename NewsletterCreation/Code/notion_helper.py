@@ -221,7 +221,6 @@ def create_page(db_id: str, properties: dict) -> dict:
 
     Logs which property was dropped so it's visible in run output (run
     Setup Notion Databases to add it permanently)."""
-    import json as _json
     try:
         r = _notion_request(
             "POST",
@@ -1515,10 +1514,16 @@ def approve_business_brief_in_notion(source_url: str, newsletter_hint: str = "")
         page_newsletter = (props.get("Newsletter", {}).get("select") or {}).get("name", "")
         if page_newsletter != approved_newsletter:
             continue
-        new_status = "approved" if page_id == approved_page_id else "rejected"
-        update_page(page_id, {"Status": {"select": {"name": new_status}}})
         name = (props.get("Name", {}).get("title") or [{}])[0].get("text", {}).get("content", "")
-        print(f"  {new_status}: {name}")
+        if page_id == approved_page_id:
+            update_page(page_id, {"Status": {"select": {"name": "approved"}}})
+            print(f"  approved: {name}")
+        else:
+            # Delete the non-picked briefs outright (archive → Notion trash)
+            # rather than leaving 'rejected' rows behind — they'd otherwise
+            # linger in the DB and resurface in the review pool.
+            archive_page(page_id)
+            print(f"  deleted (not picked): {name}")
 
 
 def approve_tip_in_notion(source_url: str, newsletter_hint: str = "") -> None:

@@ -202,7 +202,11 @@ def export_business_briefs():
     for page in pages:
         props = page["properties"]
         status_val = extract_text(props.get("Status", {})) or "pending"
-        if status_val == "approved - old":
+        # Drop archived AND rejected rows so a rejected brief never resurfaces
+        # in the review pool (matches the pets/restaurants exporters; the
+        # approve flow now deletes non-picks outright, so this mainly covers
+        # any legacy 'rejected' rows).
+        if status_val in ("approved - old", "rejected"):
             continue
         ic_text = extract_text(props.get("Image Candidates", {}))
         try:
