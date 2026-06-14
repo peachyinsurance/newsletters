@@ -109,6 +109,25 @@ def _salary_str(j: dict) -> str:
     return s + (" (estimated)" if predicted else "")
 
 
+# Hard exclusion for truck-driving roles — a reliable backstop to Adzuna's
+# keyword `what_exclude`, which can miss titles like "Class A Driver" or "OTR".
+# Matched against the posting TITLE (explicit) so we don't false-drop an office
+# job that merely mentions "valid driver's license" in its description.
+_TRUCK_RE = re.compile(
+    r"\b("
+    r"truck\s*driver|truck\s*driving|trucking|"
+    r"cdl|tractor[\s-]?trailer|owner[\s-]?operator|"
+    r"18[\s-]?wheeler|semi[\s-]?truck|\botr\b|"
+    r"class\s*[ab]\s*(?:driver|cdl)|cdl[\s-]?[ab]"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _is_truck_driving(title: str) -> bool:
+    return bool(_TRUCK_RE.search(title or ""))
+
+
 def _job_to_row(j: dict, newsletter: dict) -> dict | None:
     """Turn one Adzuna result into a save_job-ready row (or None if unusable)."""
     url     = (j.get("redirect_url") or "").strip()
@@ -235,8 +254,12 @@ def fetch_adzuna_jobs(newsletter: dict, limit: int = 8) -> list[dict]:
 
     rows: list[dict] = []
     seen_emp: set[str] = set()
-    dead = 0
+    dead = trucks = 0
     for j in ordered:
+        # Hard-drop truck-driving postings (belt-and-suspenders to what_exclude).
+        if _is_truck_driving(unescape(j.get("title") or "")):
+            trucks += 1
+            continue
         row = _job_to_row(j, newsletter)
         if not row:
             continue
@@ -255,5 +278,6 @@ def fetch_adzuna_jobs(newsletter: dict, limit: int = 8) -> list[dict]:
 
     print(f"  → Adzuna: {len(rows)} live posting(s) near {where} across "
           f"{len(specs)} targeted quer(y/ies)"
+          + (f" ({trucks} truck-driving skipped)" if trucks else "")
           + (f" ({dead} dead link(s) skipped)" if dead else ""))
     return rows
