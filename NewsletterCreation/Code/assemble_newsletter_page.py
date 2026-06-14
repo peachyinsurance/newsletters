@@ -987,16 +987,22 @@ def get_latest_free_events(newsletter_name: str) -> str | None:
         })
     except Exception:
         return None
+    raw_n = len(pages or [])
     # Filter by Newsletter in Python — NOT just on the query. query_database
     # falls back to an UNFILTERED fetch when Notion 400s the filtered query
     # ("retrying unfiltered"), which would otherwise leak other newsletters'
     # rows here and let a different (e.g. Lewisville) approved row win the sort.
     pages = [p for p in pages if
              (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
+    nl_n = len(pages)
     # Only show current 'approved' rows (not 'approved - old' which are exclusion-only)
+    statuses = [(p["properties"].get("Status", {}).get("select") or {}).get("name") for p in pages]
     pages = [p for p in pages if
              (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
     if not pages:
+        print(f"  [free-events] no approved {newsletter_name} row "
+              f"(DB returned {raw_n} row(s); {nl_n} for this newsletter; "
+              f"statuses={statuses})")
         return None
     # Sort by Date Generated, then Notion's page-level created_time as the
     # tiebreaker. Date Generated is date-only, so two same-day re-runs tie and
