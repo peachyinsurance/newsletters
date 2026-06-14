@@ -433,6 +433,24 @@ def _unwrap_next_image(url: str) -> str:
     return url
 
 
+def _unwrap_evbuc(url: str) -> str:
+    """Unwrap Eventbrite's signed image proxy to the raw CDN original.
+
+    Eventbrite serves transformed images via `img.evbuc.com/<inner-cdn-url>?
+    …&s=<signature>`. That signed/transformed proxy URL 403s without the live
+    signature AND is hotlink-protected — so it renders nowhere outside a live
+    browser session (broken image in email). The INNER `cdn.evbuc.com/...` URL
+    is the ORIGINAL, unsigned, publicly fetchable image (verified 200 with a
+    plain request). Extract it (dropping the proxy host + transform/signature
+    query) so we get a stable, re-hostable, renderable URL."""
+    if "img.evbuc.com/" not in (url or ""):
+        return url
+    inner = unquote(url.split("img.evbuc.com/", 1)[1])
+    if inner.startswith("http"):
+        return inner.split("?", 1)[0]
+    return url
+
+
 def _cta_link_hero(html: str, source_url: str) -> str:
     """Follow the event's primary CTA button to its target page and return
     that page's hero image.
@@ -497,13 +515,13 @@ def _cta_link_hero(html: str, source_url: str) -> str:
             best = _best_from_srcset(sm.group(1))
             if not best:
                 continue
-            best = _unwrap_next_image(_absolutize(best, target))
+            best = _unwrap_evbuc(_unwrap_next_image(_absolutize(best, target)))
             if best.startswith("data:"):
                 continue
             if any(skip in best.lower() for skip in SKIP_TOKENS):
                 continue
             return best
-    # 2. og:image / twitter:image (Eventbrite flyer), Next.js-unwrapped.
+    # 2. og:image / twitter:image (Eventbrite flyer), proxy-unwrapped.
     for pat in (
         r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
         r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
@@ -511,7 +529,7 @@ def _cta_link_hero(html: str, source_url: str) -> str:
     ):
         mm = re.search(pat, page, re.IGNORECASE)
         if mm:
-            img = _unwrap_next_image(_absolutize(mm.group(1).strip(), target))
+            img = _unwrap_evbuc(_unwrap_next_image(_absolutize(mm.group(1).strip(), target)))
             if img and not img.startswith("data:") and \
                not any(skip in img.lower() for skip in SKIP_TOKENS):
                 return img

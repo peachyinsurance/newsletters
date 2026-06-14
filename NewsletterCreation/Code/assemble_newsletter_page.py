@@ -1112,6 +1112,62 @@ def get_latest_free_event_images(newsletter_name: str) -> list[str]:
     return urls[:3]
 
 
+def _sniff_image_ext(content: bytes, content_type: str) -> str:
+    """Pick a file extension from magic bytes first (content-type is often a
+    generic 'binary/octet-stream' for CDN-served originals), falling back to
+    the Content-Type header, then .jpg."""
+    if content[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if content[:8] == b"\x89PNG\r\n\x1a\n":
+        return ".png"
+    if content[:6] in (b"GIF87a", b"GIF89a"):
+        return ".gif"
+    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return ".webp"
+    ct = (content_type or "").lower()
+    return (".png" if "png" in ct else ".gif" if "gif" in ct
+            else ".webp" if "webp" in ct else ".jpg")
+
+
+def _rehost_free_event_image(url: str, slug: str) -> str:
+    """Re-host a single external free-event image on gh-pages so it renders
+    reliably in Beehiiv / email — a stable URL with a correct image/* content-
+    type. Needed because some sources are hotlink-hostile or serve a generic
+    content-type (e.g. the raw cdn.evbuc.com Eventbrite original →
+    binary/octet-stream). Content-addressed + HEAD-cached so it's fetched once.
+    Already-gh-pages URLs pass through. Returns the original on any failure."""
+    if not url or f"{_GH_OWNER}.github.io" in url:
+        return url
+    key = hashlib.md5(url.encode()).hexdigest()[:10]
+    base = f"https://{_GH_OWNER}.github.io/{_GH_REPO}/free_events/{slug}_img_{key}"
+    # Reuse a prior re-host (any of the common extensions) without re-fetching.
+    try:
+        for ext in (".jpg", ".png", ".webp", ".gif"):
+            if requests.head(f"{base}{ext}", timeout=8).status_code == 200:
+                return f"{base}{ext}?v={key}"
+    except Exception:
+        pass
+    try:
+        r = requests.get(url, timeout=20, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/124 Safari/537.36"})
+        if r.status_code == 200 and r.content:
+            ext = _sniff_image_ext(r.content, r.headers.get("Content-Type", ""))
+            hosted = _publish_image_to_gh_pages(
+                r.content, f"free_events/{slug}_img_{key}{ext}")
+            if hosted:
+                print(f"  ↳ [free-events] re-hosted image on gh-pages: "
+                      f"{hosted.rsplit('/', 1)[-1]}")
+                return f"{hosted}?v={key}"
+        else:
+            print(f"  ⚠ [free-events] image fetch for re-host returned "
+                  f"HTTP {r.status_code} — using original URL")
+    except Exception as e:
+        print(f"  ⚠ [free-events] image re-host failed ({e}) — using original URL")
+    return url
+
+
 def free_event_render_images(newsletter_name: str) -> list[str]:
     """The image URL(s) to render for the Free Event of the Week.
 
@@ -1129,10 +1185,14 @@ def free_event_render_images(newsletter_name: str) -> list[str]:
     print(f"  [free-events] {len(images)} source image(s) from latest approved row:")
     for u in images:
         print(f"      • {u}")
-    if len(images) < 2:
-        return images
-    key  = hashlib.md5("|".join(images).encode()).hexdigest()[:10]
     slug = re.sub(r"[^a-z0-9]+", "-", newsletter_name.lower()).strip("-")
+    if len(images) < 2:
+        # Single image: re-host external/hotlink-protected sources (e.g. the
+        # raw cdn.evbuc.com Eventbrite original, which serves as
+        # binary/octet-stream) on gh-pages so it renders reliably in Beehiiv /
+        # email with a correct image/* content-type and a stable URL.
+        return [_rehost_free_event_image(u, slug) for u in images]
+    key  = hashlib.md5("|".join(images).encode()).hexdigest()[:10]
     path = f"free_events/{slug}_{key}.gif"
     public = f"https://{_GH_OWNER}.github.io/{_GH_REPO}/{path}"
 
