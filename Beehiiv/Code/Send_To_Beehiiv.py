@@ -507,6 +507,47 @@ def expand_paragraph_field(html: str, placeholder_key: str, text: str) -> str:
     return str(soup)
 
 
+def add_pet_shelter_spacer(html: str) -> str:
+    """Insert a real spacer <p> before the pet shelter-info block so it isn't
+    flush against the adoption blurb.
+
+    The Beehiiv template stacks {PET_BLURB} and the {PET_SHELTER_NAME} block
+    with no gap, so the email reads '…set up a visit.\\nMostly Mutts Animal
+    Rescue\\n…' with the shelter details butted right up against the blurb. A
+    sibling <p> inserted via the DOM tree survives Beehiiv's sanitizer (unlike
+    a <br><br> injected into a token's text, which Beehiiv strips — see
+    expand_paragraph_field). No-op when the shelter token or its block can't
+    be located, so a template without it is unaffected."""
+    token = "{PET_SHELTER_NAME}"
+    if token not in html:
+        return html
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    node = soup.find(string=lambda t: t and token in str(t))
+    if not node:
+        return html
+    block_tags = ("p", "div", "li", "td", "h1", "h2", "h3", "h4", "h5", "h6")
+    block = node.parent
+    while block is not None and getattr(block, "name", None) not in block_tags:
+        block = block.parent
+    if block is None:
+        print("    · pet — shelter block not found, no spacer added")
+        return html
+    spacer = BeautifulSoup(
+        '<p style="margin:0;line-height:18px;font-size:14px">&nbsp;</p>',
+        "html.parser",
+    )
+    if block.name == "td":
+        block.insert(0, spacer)        # gap at the top of the shelter cell
+    else:
+        block.insert_before(spacer)    # gap above the shelter block
+    print("    ✓ pet — inserted spacer before shelter info")
+    return str(soup)
+
+
 def hide_unused_lowdown_slots(html: str, used_count: int) -> str:
     """For Local Lowdown placeholders we don't fill (e.g., we have 3 stories, slots
     4-5 are unused), wipe the remaining placeholders so they don't render literally."""
@@ -2006,6 +2047,8 @@ def main():
     body_html = expand_meme_slots(body_html, memes)
     print("\n  Expanding Free Event images…")
     body_html = expand_free_event_images(body_html, free_event_images)
+    print("\n  Spacing pet shelter info…")
+    body_html = add_pet_shelter_spacer(body_html)
 
     # Long-form prose fields: split each into real sibling <p> blocks via
     # DOM ops so Beehiiv renders paragraph spacing. Done here (vs. inside
