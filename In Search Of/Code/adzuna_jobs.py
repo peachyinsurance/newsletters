@@ -22,10 +22,40 @@ import requests
 ADZUNA_APP_ID  = os.environ.get("ADZUNA_APP_ID", "")
 ADZUNA_APP_KEY = os.environ.get("ADZUNA_APP_KEY", "")
 
-_BASE         = "https://api.adzuna.com/v1/api/jobs/us/search/1"
+_COUNTRY      = "us"
+_BASE         = f"https://api.adzuna.com/v1/api/jobs/{_COUNTRY}/search/1"
+_CATEGORIES   = f"https://api.adzuna.com/v1/api/jobs/{_COUNTRY}/categories"
 DISTANCE_KM   = 24    # ~15 miles
 MAX_DAYS_OLD  = 21
-RESULTS_PAGE  = 30    # pull a page, then validate + cap
+RESULTS_PAGE  = 25    # per category query
+
+# ── Demo targeting (module defaults; override per newsletter via
+#    cfg["job_categories"] / cfg["job_exclude"]) ───────────────────────────
+# Keywords Adzuna excludes from every query (`what_exclude`, space-separated;
+# a posting containing any is dropped). Targets: no truck/CDL driving, no
+# staffing-agency reposts, no work-from-home. ('remote' is intentionally
+# omitted — postings often say "not a remote role", which would self-exclude;
+# the where+distance radius already does the locality filtering.)
+DEFAULT_EXCLUDE = ["truck", "trucking", "cdl", "freight",
+                   "staffing", "recruiter", "recruiting", "headhunter",
+                   "telecommute", "telework", "work-from-home"]
+
+# Adzuna category tags to pull (one query each, merged + interleaved) so the
+# pool skews to the readership: healthcare & care, and local professional /
+# admin / teaching / trades. Validated against the live /categories list at run
+# time; any tag the API doesn't recognize is skipped. (Part-time is NOT a
+# category — it's a separate contract-time filter, handled below — so it isn't
+# listed here; that keeps full-time healthcare/professional roles in scope.)
+DEFAULT_CATEGORIES = ["healthcare-nursing-jobs",
+                      "social-work-jobs",
+                      "domestic-help-cleaning-jobs",
+                      "teaching-jobs",
+                      "admin-jobs",
+                      "trade-construction-jobs"]
+
+# Also run one part-time query (across all fields) so flexible/part-time roles
+# — for parents, students, retirees — surface alongside the career categories.
+INCLUDE_PART_TIME = True
 
 _VALIDATE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -79,15 +109,49 @@ def _salary_str(j: dict) -> str:
     return s + (" (estimated)" if predicted else "")
 
 
-def fetch_adzuna_jobs(newsletter: dict, limit: int = 8) -> list[dict]:
-    """Return up to `limit` recent local postings as save_job-ready rows."""
-    if not (ADZUNA_APP_ID and ADZUNA_APP_KEY):
-        print("  ⚠ ADZUNA_APP_ID / ADZUNA_APP_KEY not set — skipping Adzuna postings")
-        return []
-    where = _location_for(newsletter)
-    if not where:
-        print("  ⚠ No location to query Adzuna with — skipping")
-        return []
+def _job_to_row(j: dict, newsletter: dict) -> dict | None:
+    """Turn one Adzuna result into a save_job-ready row (or None if unusable)."""
+    url     = (j.get("redirect_url") or "").strip()
+    title   = unescape((j.get("title") or "").strip())
+    if not (url and title):
+        return None
+    company = ((j.get("company") or {}).get("display_name") or "").strip()
+    loc     = ((j.get("location") or {}).get("display_name") or "").strip()
+    desc    = unescape(re.sub(r"<[^>]+>", " ", j.get("description") or "")).strip()
+    salary  = _salary_str(j)
+    parts = [f"JOB POSTING: {title}"]
+    if company: parts.append(f"Employer: {company}")
+    if loc:     parts.append(f"Location: {loc}")
+    if salary:  parts.append(f"Salary: {salary}")
+    if desc:    parts.append(f"Details: {desc}")
+    return {
+        "employer":         company or title,
+        "scraped_snippet":  ". ".join(parts)[:2000],
+        "job_listings_url": url,
+        "image_url":        "",
+        "city":             (loc.split(",")[0].strip().lower()
+                             if loc else (newsletter.get("display_area", "") or "").lower()),
+        "is_resource_hint": False,
+    }
+
+
+def _valid_category_tags() -> set:
+    """The set of category tags Adzuna actually recognizes (from /categories),
+    so a typo'd / renamed tag is skipped instead of erroring the run. Empty set
+    on failure → caller treats all configured tags as usable (best effort)."""
+    try:
+        r = requests.get(_CATEGORIES, params={"app_id": ADZUNA_APP_ID,
+                                              "app_key": ADZUNA_APP_KEY}, timeout=15)
+        if r.status_code == 200:
+            return {c.get("tag") for c in (r.json() or {}).get("results", []) if c.get("tag")}
+    except Exception as e:
+        print(f"  ⚠ Adzuna /categories lookup failed ({e}); using configured tags as-is")
+    return set()
+
+
+def _query(where: str, exclude: str, *, category: str | None = None,
+           part_time: bool = False, label: str = "") -> list[dict]:
+    """One Adzuna search call. Returns its results list ([] on any error)."""
     params = {
         "app_id":           ADZUNA_APP_ID,
         "app_key":          ADZUNA_APP_KEY,
@@ -97,58 +161,99 @@ def fetch_adzuna_jobs(newsletter: dict, limit: int = 8) -> list[dict]:
         "max_days_old":     MAX_DAYS_OLD,
         "sort_by":          "date",
     }
+    if exclude:
+        params["what_exclude"] = exclude
+    if category:
+        params["category"] = category
+    if part_time:
+        params["part_time"] = 1
     try:
         r = requests.get(_BASE, params=params, timeout=20)
         if r.status_code != 200:
-            print(f"  ⚠ Adzuna HTTP {r.status_code}: {r.text[:160]}")
+            print(f"    ⚠ Adzuna HTTP {r.status_code} ({label}): {r.text[:120]}")
             return []
-        results = (r.json() or {}).get("results", []) or []
+        return (r.json() or {}).get("results", []) or []
     except Exception as e:
-        print(f"  ⚠ Adzuna request failed: {e}")
+        print(f"    ⚠ Adzuna request failed ({label}): {e}")
         return []
 
-    rows: list[dict] = []
-    seen: set[str] = set()
-    dead = 0
-    for j in results:
-        url     = (j.get("redirect_url") or "").strip()
-        title   = unescape((j.get("title") or "").strip())
-        company = ((j.get("company") or {}).get("display_name") or "").strip()
-        loc     = ((j.get("location") or {}).get("display_name") or "").strip()
-        desc    = unescape(re.sub(r"<[^>]+>", " ", j.get("description") or "")).strip()
-        if not (url and title) or url in seen:
-            continue
-        seen.add(url)
 
+def fetch_adzuna_jobs(newsletter: dict, limit: int = 8) -> list[dict]:
+    """Return up to `limit` recent LOCAL postings, targeted to the newsletter's
+    readership: one query per configured category (healthcare/care, part-time,
+    local professional/admin/teaching/trades), an exclusion list (truck/CDL,
+    staffing agencies, work-from-home), within the where+distance radius.
+    Results are merged, deduped, and interleaved across categories for variety,
+    then live-link-validated and capped at `limit`."""
+    if not (ADZUNA_APP_ID and ADZUNA_APP_KEY):
+        print("  ⚠ ADZUNA_APP_ID / ADZUNA_APP_KEY not set — skipping Adzuna postings")
+        return []
+    where = _location_for(newsletter)
+    if not where:
+        print("  ⚠ No location to query Adzuna with — skipping")
+        return []
+
+    exclude = " ".join(newsletter.get("job_exclude") or DEFAULT_EXCLUDE)
+    categories = list(newsletter.get("job_categories") or DEFAULT_CATEGORIES)
+    valid = _valid_category_tags()
+    if valid:
+        kept = [c for c in categories if c in valid]
+        dropped = [c for c in categories if c not in valid]
+        if dropped:
+            print(f"  ⚠ ignoring unknown Adzuna categories: {dropped}")
+        categories = kept
+
+    # Build the query specs: one per target category, plus one part-time query.
+    specs: list[dict] = [{"label": c, "category": c} for c in categories]
+    if INCLUDE_PART_TIME:
+        specs.append({"label": "part-time", "part_time": True})
+    # No usable specs (all categories invalid + part-time off) → a single plain
+    # local query so we still return jobs.
+    if not specs:
+        specs = [{"label": "all"}]
+
+    # Run each spec; keep results grouped so we can interleave for a mix.
+    per_cat: list[list[dict]] = []
+    for spec in specs:
+        res = _query(where, exclude, category=spec.get("category"),
+                     part_time=spec.get("part_time", False), label=spec["label"])
+        per_cat.append(res)
+        print(f"    · {spec['label']}: {len(res)} result(s)")
+
+    # Round-robin interleave across categories (so one big category doesn't
+    # crowd the rest), dedup by apply URL.
+    ordered: list[dict] = []
+    seen_urls: set[str] = set()
+    for i in range(max((len(c) for c in per_cat), default=0)):
+        for cat_results in per_cat:
+            if i < len(cat_results):
+                j = cat_results[i]
+                u = (j.get("redirect_url") or "").strip()
+                if u and u not in seen_urls:
+                    seen_urls.add(u)
+                    ordered.append(j)
+
+    rows: list[dict] = []
+    seen_emp: set[str] = set()
+    dead = 0
+    for j in ordered:
+        row = _job_to_row(j, newsletter)
+        if not row:
+            continue
+        # One posting per employer for variety in the section.
+        emp = row["employer"].lower()
+        if emp in seen_emp:
+            continue
         # Only pass through live apply links — drop ads Adzuna no longer serves.
-        if not _url_is_live(url):
+        if not _url_is_live(row["job_listings_url"]):
             dead += 1
             continue
-
-        salary = _salary_str(j)
-        parts = [f"JOB POSTING: {title}"]
-        if company:
-            parts.append(f"Employer: {company}")
-        if loc:
-            parts.append(f"Location: {loc}")
-        if salary:
-            parts.append(f"Salary: {salary}")
-        if desc:
-            parts.append(f"Details: {desc}")
-        snippet = ". ".join(parts)
-
-        rows.append({
-            "employer":         company or title,
-            "scraped_snippet":  snippet[:2000],
-            "job_listings_url": url,
-            "image_url":        "",
-            "city":             (loc.split(",")[0].strip().lower()
-                                 if loc else (newsletter.get("display_area", "") or "").lower()),
-            "is_resource_hint": False,
-        })
+        seen_emp.add(emp)
+        rows.append(row)
         if len(rows) >= limit:
             break
 
-    print(f"  → Adzuna: {len(rows)} live posting(s) near {where}"
+    print(f"  → Adzuna: {len(rows)} live posting(s) near {where} across "
+          f"{len(specs)} targeted quer(y/ies)"
           + (f" ({dead} dead link(s) skipped)" if dead else ""))
     return rows
