@@ -2135,27 +2135,9 @@ def save_free_events_to_notion(result: dict, newsletter_name: str) -> None:
         "Manually Edited": {"checkbox": False},
     }
 
-    # Archive any prior 'approved' Free Events row for this newsletter BEFORE
-    # creating the new one. save_* always create_page()s a fresh approved row,
-    # so without this a same-day re-run leaves TWO approved rows sharing the
-    # same Date Generated date — the assembler's "latest approved" lookup can
-    # tie and return the stale one, rebuilding the Free Events GIF from the old
-    # images. Flipping prior rows to 'approved - old' keeps a single live row
-    # (they're still honored for repeat-exclusion via get_used_free_event_urls).
-    try:
-        prior = query_database(NOTION_FREE_EVENTS_DB_ID, filters={
-            "property": "Newsletter", "select": {"equals": newsletter_name}})
-        archived = 0
-        for pg in prior or []:
-            st = (pg["properties"].get("Status", {}).get("select") or {}).get("name", "")
-            if st == "approved":
-                update_page(pg["id"], {"Status": {"select": {"name": "approved - old"}}})
-                archived += 1
-        if archived:
-            print(f"  Archived {archived} prior approved Free Events row(s) → 'approved - old'")
-    except Exception as e:
-        print(f"  ⚠ could not archive prior Free Events rows: {e}")
-
+    # (Prior 'approved' rows for this newsletter are already flipped to
+    # 'approved - old' near the top of this function, before the new row is
+    # created — so exactly one live 'approved' row remains.)
     create_page(NOTION_FREE_EVENTS_DB_ID, properties)
     print(f"  ✓ Saved Free Events to Notion ({len(events)} events)")
 

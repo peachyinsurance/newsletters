@@ -987,6 +987,12 @@ def get_latest_free_events(newsletter_name: str) -> str | None:
         })
     except Exception:
         return None
+    # Filter by Newsletter in Python — NOT just on the query. query_database
+    # falls back to an UNFILTERED fetch when Notion 400s the filtered query
+    # ("retrying unfiltered"), which would otherwise leak other newsletters'
+    # rows here and let a different (e.g. Lewisville) approved row win the sort.
+    pages = [p for p in pages if
+             (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
     # Only show current 'approved' rows (not 'approved - old' which are exclusion-only)
     pages = [p for p in pages if
              (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
@@ -1089,6 +1095,10 @@ def get_latest_free_event_images(newsletter_name: str) -> list[str]:
         })
     except Exception:
         return []
+    # Filter by Newsletter in Python too — query_database may return UNFILTERED
+    # rows when Notion 400s the filtered query (see get_latest_free_events).
+    pages = [p for p in pages if
+             (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
     pages = [p for p in pages if
              (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
     if not pages:
