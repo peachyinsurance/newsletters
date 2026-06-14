@@ -58,6 +58,7 @@ ANCHORS = [(nl["name"], nl["lat"], nl["lng"]) for nl in NEWSLETTERS
 
 _ZIP_RE = re.compile(r"\b(\d{5})(?:-\d{4})?\b")
 _NOMINATIM = "https://nominatim.openstreetmap.org/search"
+_CENSUS = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
 _GEO_HEADERS = {"User-Agent": "east-cobb-connect-newsletter-geotagger/1.0 "
                               "(contact: peachyinsurance)"}
 _GEO_CACHE: dict[str, tuple] = {}   # per-run cache: address → (lat, lng) | None
@@ -96,6 +97,34 @@ def _zip_centroid(address: str):
     return (lat, lng) if _valid(lat, lng) else None
 
 
+def _geocode_census(address: str):
+    """Exact house-number (lat, lng) via the US Census geocoder.
+
+    Census INTERPOLATES the street-number position along the road segment,
+    so '3535 Old 41 Hwy NW' resolves to the actual house location — not the
+    street centroid that Nominatim's free-text search snaps to (which can be
+    several miles off on a long road, flipping a borderline event in/out of a
+    newsletter's radius). US-only, no API key, no per-second rate limit.
+    None on miss/error so callers fall back to Nominatim → ZIP centroid."""
+    try:
+        r = requests.get(_CENSUS,
+                         params={"address": address,
+                                 "benchmark": "Public_AR_Current",
+                                 "format": "json"},
+                         headers=_GEO_HEADERS, timeout=15)
+        if r.status_code == 200:
+            matches = ((r.json() or {}).get("result", {})
+                       or {}).get("addressMatches") or []
+            if matches:
+                c = matches[0].get("coordinates") or {}
+                lat, lng = float(c.get("y")), float(c.get("x"))
+                if _valid(lat, lng):
+                    return (lat, lng)
+    except Exception as e:
+        print(f"    ⚠ census geocode error for {address[:50]!r}: {e}")
+    return None
+
+
 def _geocode_full(address: str):
     """Precise (lat, lng) for a full street address via Nominatim. Rate-limited
     to 1 req/sec per the OSM usage policy. None on miss/error."""
@@ -117,8 +146,10 @@ def _geocode_full(address: str):
 
 
 def event_coords(address: str, cached: tuple | None):
-    """Best (lat, lng) for an event: cached row coords → full-address geocode
-    → ZIP centroid. Returns (coords, newly_geocoded_bool)."""
+    """Best (lat, lng) for an event: cached row coords → exact house-number
+    (Census) → full-address geocode (Nominatim) → ZIP centroid. Census runs
+    first so a borderline event is measured from its EXACT address, not the
+    street centroid Nominatim returns. Returns (coords, newly_geocoded_bool)."""
     if cached:
         return cached, False
     if not address:
@@ -126,7 +157,7 @@ def event_coords(address: str, cached: tuple | None):
     key = address.strip().lower()
     if key in _GEO_CACHE:
         return _GEO_CACHE[key], False
-    coords = _geocode_full(address) or _zip_centroid(address)
+    coords = _geocode_census(address) or _geocode_full(address) or _zip_centroid(address)
     _GEO_CACHE[key] = coords
     return coords, bool(coords)
 
