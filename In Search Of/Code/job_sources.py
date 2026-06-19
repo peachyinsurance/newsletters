@@ -21,9 +21,10 @@ JOB_SOURCES = {
     "East_Cobb_Connect": [
         {
             "employer": "Avenue East Cobb",
-            # The Avenue is a shopping center; "join our team" page on
-            # Squarespace. Some tenants list separately.
-            "url": "https://avenueeastcobb.com/join-our-team",  # TODO verify
+            # The Avenue is a shopping center; its jobs page aggregates tenant
+            # openings (verified 2026-06: /jobs/ returns the live listing page;
+            # the old /join-our-team 404'd).
+            "url": "https://avenueeastcobb.com/jobs/",
             "city": "marietta",
         },
         {
@@ -35,7 +36,9 @@ JOB_SOURCES = {
         },
         {
             "employer": "Cobb County School District",
-            "url": "https://www.cobbk12.org/employment",
+            # /employment 404'd; the live page is /employment-opportunities
+            # (verified 2026-06).
+            "url": "https://www.cobbk12.org/employment-opportunities",
             "city": "marietta",
         },
         {
