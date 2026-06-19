@@ -1394,10 +1394,12 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     # Best-effort: any failure leaves that story text-only.
     if lowdown_stories:
         try:
-            import sys as _sys, os as _os
-            _sys.path.append(_os.path.join(_os.path.dirname(__file__), '..', '..',
-                                           'Free Events', 'Code'))
-            from Free_Events import fetch_event_image as _fetch_img  # noqa: E402
+            # Use the lightweight shared scraper, NOT Free_Events (which
+            # requires CLAUDE_API_KEY/BRAVE_NEWS_API_KEY at import — keys the
+            # Beehiiv send doesn't have — so importing it here silently
+            # disabled lowdown images). event_image_scraper has no API-key
+            # requirements. Same fix as the Notion assembler.
+            from event_image_scraper import fetch_event_image as _fetch_img  # noqa: E402
         except Exception as e:
             print(f"  ⚠ [lowdown] image scraper unavailable ({e})")
             _fetch_img = None
