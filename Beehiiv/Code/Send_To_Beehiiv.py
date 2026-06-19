@@ -278,6 +278,8 @@ PRUNEABLE_SLOTS = [
     ("business_brief_name",        "business_brief_name"),
     ("business_brief_name",        "business_brief_blurb"),
     ("business_brief_name",        "business_brief_url"),
+    ("business_brief_name",        "business_brief_meta"),
+    ("business_brief_name",        "business_brief_location"),
     # Insurance Tip — if no tip picked, drop the whole card.
     ("insurance_tip_title",        "insurance_tip_title"),
     ("insurance_tip_title",        "insurance_tip_blurb"),
@@ -1472,7 +1474,8 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         # already in the blurb so an author/Claude link isn't double-rendered.
         template_prints_url = ("{business_brief_url}" in template_html
                                or "{business_brief_link}" in template_html
-                               or "{business_brief_domain}" in template_html)
+                               or "{business_brief_domain}" in template_html
+                               or "{business_brief_meta}" in template_html)
         bb_blurb = business.get("blurb", "")
         if bb_url and bb_url not in bb_blurb and not template_prints_url:
             bb_blurb = bb_blurb.rstrip() + f"\n\n**Website:** [{display_domain(bb_url)}]({bb_url})"
@@ -1489,6 +1492,27 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["business_brief_url"]     = display_domain(bb_url) if bb_url else ""
         repl["business_brief_link"]    = bb_url  # full URL for href-wired slots
         repl["business_brief_domain"]  = display_domain(bb_url) if bb_url else ""
+        # ONE compact metadata block. Each separate {tag} sits in its own
+        # paragraph, so price/hours/city/website end up spaced apart (and empty
+        # ones leave blank lines). Combine whatever's present into a single
+        # token with <br> line breaks → one tight block right after the blurb.
+        # Put {business_brief_meta} in the template instead of the separate
+        # price/hours/city tokens.
+        bb_domain = display_domain(bb_url) if bb_url else ""
+        _meta = []
+        if (business.get("price_level") or "").strip():
+            _meta.append(f"<strong>Price</strong>: {business['price_level'].strip()}")
+        if (business.get("hours") or "").strip():
+            _meta.append(f"<strong>Hours</strong>: {business['hours'].strip()}")
+        if (business.get("city") or "").strip():
+            _meta.append(business["city"].strip())
+        if bb_url and bb_domain:
+            _meta.append(f'<a href="{bb_url}" target="_blank" '
+                         f'rel="noopener noreferrer">{bb_domain}</a>')
+        repl["business_brief_meta"]     = "<br>".join(_meta)
+        # Address as a small caption under the photo (the {business_brief_location}
+        # token you added). The address is no longer part of the metadata block.
+        repl["business_brief_location"] = business.get("address", "")
         # Google Places photo (when populated on the Notion row). Uploaded
         # to Beehiiv up front so the long Places media URL doesn't ever
         # need to re-resolve at email-render time, then swapped into the
