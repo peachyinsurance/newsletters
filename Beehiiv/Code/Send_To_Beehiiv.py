@@ -1765,13 +1765,13 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         if not slot_events:
             continue
         # Remember the date for this day so the section header can show e.g.
-        # "Friday, May 22". Any event in this day-bucket has the same date.
+        # "Friday, May 22 2026". Any event in this day-bucket has the same date.
         if day not in weekend_dates_seen:
             iso = slot_events[0].get("date") or ""
             if iso:
                 try:
                     dt = datetime.fromisoformat(iso)
-                    weekend_dates_seen[day] = f"{dt.strftime('%B')} {dt.day}"
+                    weekend_dates_seen[day] = f"{dt.strftime('%B')} {dt.day} {dt.year}"
                 except Exception:
                     pass
         # Per-event images: the Weekend Planner pipeline now keeps up to 3
