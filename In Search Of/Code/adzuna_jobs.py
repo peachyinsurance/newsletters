@@ -13,6 +13,7 @@ working off the curated employer spotlights alone.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 from html import unescape
@@ -220,7 +221,12 @@ def _query(where: str, exclude: str, *, category: str | None = None,
         if r.status_code != 200:
             print(f"    ⚠ Adzuna HTTP {r.status_code} ({label}): {r.text[:120]}")
             return []
-        return (r.json() or {}).get("results", []) or []
+        # Decode the body as UTF-8 explicitly. Adzuna serves JSON without a
+        # charset in Content-Type, so requests can fall back to Latin-1 and
+        # mangle accented names ("OK Café" → "OK CafÃ©"). Parsing the raw bytes
+        # as UTF-8 keeps them intact.
+        data = json.loads(r.content.decode("utf-8", errors="replace"))
+        return (data or {}).get("results", []) or []
     except Exception as e:
         print(f"    ⚠ Adzuna request failed ({label}): {e}")
         return []
