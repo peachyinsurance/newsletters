@@ -1504,8 +1504,8 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             _meta.append(f"<strong>Price</strong>: {business['price_level'].strip()}")
         if (business.get("hours") or "").strip():
             _meta.append(f"<strong>Hours</strong>: {business['hours'].strip()}")
-        if (business.get("city") or "").strip():
-            _meta.append(business["city"].strip())
+        # City is intentionally omitted — it's already in the address caption
+        # ({business_brief_location}), so repeating it here would be redundant.
         if bb_url and bb_domain:
             _meta.append(f'<a href="{bb_url}" target="_blank" '
                          f'rel="noopener noreferrer">{bb_domain}</a>')
