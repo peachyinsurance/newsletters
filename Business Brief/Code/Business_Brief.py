@@ -132,6 +132,38 @@ def load_skill_prompt() -> str:
     raise FileNotFoundError(f"Business Brief skill not found at {SKILL_PROMPT_PATH}")
 
 
+_DAY_ABBR = {"Monday": "Mon", "Tuesday": "Tue", "Wednesday": "Wed",
+             "Thursday": "Thu", "Friday": "Fri", "Saturday": "Sat",
+             "Sunday": "Sun"}
+
+
+def _condense_hours(opening: dict | None) -> str:
+    """Compact opening hours from Google's regularOpeningHours.
+    'Monday: 9:00 AM – 5:00 PM' lines → 'Mon–Fri 9:00 AM – 5:00 PM, Sat 10:00
+    AM – 2:00 PM' by grouping consecutive days that share the same hours.
+    Returns '' when Google has no hours (common for by-appointment trades)."""
+    descs = (opening or {}).get("weekdayDescriptions") or []
+    parsed = []
+    for d in descs:
+        day, sep, hrs = d.partition(":")
+        if not sep:
+            continue
+        parsed.append((_DAY_ABBR.get(day.strip(), day.strip()[:3]), hrs.strip()))
+    if not parsed:
+        return ""
+    groups: list[list] = []
+    for abbr, hrs in parsed:
+        if groups and groups[-1][1] == hrs:
+            groups[-1][0].append(abbr)
+        else:
+            groups.append([[abbr], hrs])
+    parts = []
+    for days, hrs in groups:
+        label = days[0] if len(days) == 1 else f"{days[0]}–{days[-1]}"
+        parts.append(f"{label} {hrs}")
+    return ", ".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # 3. GOOGLE PLACES CANDIDATE FETCH
 # ---------------------------------------------------------------------------
@@ -256,6 +288,7 @@ def fetch_businesses_from_places(newsletter: dict, excluded_urls: set) -> list[d
             # extras Claude doesn't see but we keep for downstream use:
             "_place_id":         place.get("id", ""),
             "_address":          address,
+            "_hours":            _condense_hours(place.get("regularOpeningHours")),
             "_rating":           rating,
             "_review_count":     reviews,
             "_primary_type":     primary,
@@ -497,6 +530,9 @@ if __name__ == "__main__":
                 continue
             r["source_url"] = source.get("url", "")
             r["source"]     = source.get("source", "") or domain_of(source.get("url", ""))
+            # Real opening hours come from Google (merged here, not from Claude,
+            # which can't know them). Empty when Google lists none.
+            r["hours"]      = source.get("_hours", "")
             r.pop("candidate_index", None)
             validated.append(r)
 
