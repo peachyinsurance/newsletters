@@ -1079,27 +1079,36 @@ def expand_lowdown_slots(html: str, stories: list[dict]) -> str:
 
 
 def _in_search_of_to_card(row: dict, slot_key: str) -> dict[str, str]:
-    """Map one In Search Of listing to the title/message/link placeholders.
-    Title is the employer; message is the blurb (markdown→HTML so bold/links
-    render) plus the city when present; link is the apply/careers URL. Bonus
-    'resource' rows get a 'Visit …' framing, regular rows 'Browse openings'.
+    """Render one In Search Of listing in the weekend-events style: the
+    employer name is bolded on its own line, then the blurb / 📍city / apply
+    link follow underneath on separate lines. Everything is packed into the
+    message slot (the title slot is left empty) so the whole card renders as
+    one stacked block — bold title up top, details beneath.
 
-    `{slot}_url_short` is the clean display domain of the apply URL (www.
-    stripped) — mirrors the business-brief pattern so the template can show a
-    tidy link label (`{in_search_of_url_short}`) while the anchor href points
-    at the full apply URL (`{in_search_of_link}`)."""
+    `{slot}_link` is still the full apply/careers URL (for any standalone
+    button the template wires it to) and `{slot}_url_short` the clean display
+    domain, mirroring the business-brief pattern."""
     employer = (row.get("employer") or "").strip()
     blurb    = (row.get("description") or "").strip()
     city     = (row.get("city") or "").strip()
     url      = (row.get("job_listings_url") or "").strip()
-    msg = blurb
+    domain   = display_domain(url) if url else ""
+
+    lines = [f"<strong>{employer}</strong>"] if employer else []
+    if blurb:
+        lines.append(md_inline_to_html(blurb))
     if city:
-        msg = (msg + f"\n\n📍 {city}").strip()
+        lines.append(f"📍 {city}")
+    if url and domain:
+        lines.append(
+            f'Apply: <a href="{url}" target="_blank" rel="noopener noreferrer">'
+            f'<strong>{domain}</strong></a>')
+
     return {
-        f"{slot_key}_title":     employer,
-        f"{slot_key}_message":   md_to_html(msg),
+        f"{slot_key}_title":     "",
+        f"{slot_key}_message":   "<br>".join(lines),
         f"{slot_key}_link":      url,
-        f"{slot_key}_url_short": display_domain(url) if url else "",
+        f"{slot_key}_url_short": domain,
     }
 
 
