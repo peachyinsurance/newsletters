@@ -906,8 +906,6 @@ def _lowdown_image_mutator(clone_soup, story: dict) -> None:
     own story. Removes a stray placeholder when the story has no image."""
     img_url = (story.get("image_url") or "").strip()
     alt = (story.get("heading") or "news photo")[:120]
-    style = ("max-width:100%;height:auto;display:block;"
-             "margin:0 auto 12px;border-radius:6px;")
     existing = clone_soup.find("img")
     if not img_url:
         if existing is not None:
@@ -918,16 +916,21 @@ def _lowdown_image_mutator(clone_soup, story: dict) -> None:
     anchor = next((el for el in clone_soup.find_all(True)
                    if el.name in _BLOCK and (el.get_text() or "").strip()), None)
     if existing is not None:
+        # Swap the story photo into YOUR placeholder and PRESERVE the size you
+        # set in the Beehiiv UI (don't overwrite width/style) — only move it
+        # inside the text block so it doesn't float to the top.
         existing["src"] = img_url
         existing["alt"] = alt
-        existing["style"] = style
-        # Move it inside the text block so it can't float to the top.
         if anchor is not None and existing.parent is not anchor:
             existing.extract()
             anchor.insert(0, existing)
         return
+    # No placeholder in the template — insert one, capped (like Weekend
+    # Planner) so it isn't full-bleed.
     new_img = clone_soup.new_tag("img", src=img_url, alt=alt)
-    new_img["style"] = style
+    new_img["width"] = str(WP_IMAGE_MAX_WIDTH_PX)
+    new_img["style"] = (f"display:block;width:100%;max-width:{WP_IMAGE_MAX_WIDTH_PX}px;"
+                        "height:auto;margin:0 auto 12px;border-radius:6px;")
     if anchor is not None:
         anchor.insert(0, new_img)
     else:
