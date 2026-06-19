@@ -566,14 +566,16 @@ def add_pet_shelter_spacer(html: str) -> str:
     if block is None:
         print("    · pet — shelter block not found, no spacer added")
         return html
-    # Add padding-top to the shelter block's OWN element rather than inserting
-    # an empty <p>&nbsp;</p> spacer — Beehiiv collapses whitespace-only
-    # paragraphs (so the spacer disappeared and no gap showed), but it keeps
-    # inline padding on a real content element. Padding (not margin) is the
-    # email-safe choice.
+    # Insert two real <br> elements at the very top of the shelter block for
+    # the gap. Beehiiv collapsed an empty <p>&nbsp;</p> AND stripped inline
+    # padding here, but it keeps DOM-inserted <br> nodes (the same mechanism
+    # that makes the per-card images survive). Keep a padding-top too for
+    # clients that honor it.
+    block.insert(0, soup.new_tag("br"))
+    block.insert(0, soup.new_tag("br"))
     style = (block.get("style") or "").strip().rstrip(";")
-    block["style"] = f"{style};padding-top:18px" if style else "padding-top:18px"
-    print("    ✓ pet — added space above shelter info")
+    block["style"] = f"{style};padding-top:6px" if style else "padding-top:6px"
+    print("    ✓ pet — added space above shelter info (br)")
     return str(soup)
 
 
