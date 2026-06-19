@@ -257,27 +257,89 @@ def _job_posting_from_html(html: str) -> dict:
 
 
 def _fetch(url: str) -> tuple[str, str]:
-    """GET `url` following redirects. Returns (final_url, html) — html is ''
-    on non-200 or error so callers can still use the resolved final_url."""
+    """Fetch a URL with a real-browser TLS fingerprint (curl_cffi), following
+    redirects. Returns (final_url, html); html is '' on a non-2xx so callers
+    can still use the resolved final_url.
+
+    Why curl_cffi: Adzuna bot-walls / rate-limits plain `requests` from
+    datacenter IPs (GitHub Actions). In CI the drill-down was silently
+    returning nothing for most rows, so stale postings were never aged out and
+    apply links stayed on adzuna.com. Impersonating Chrome's TLS/HTTP2
+    fingerprint gets through (same approach scrape_jobs.py already uses). We
+    retry 429/5xx with backoff and fall back to `requests` if curl_cffi is
+    missing."""
     try:
-        r = requests.get(url, timeout=20, headers={"User-Agent": _BROWSER_UA},
-                         allow_redirects=True)
-        return (r.url or ""), (r.text if (r.status_code == 200 and r.text) else "")
-    except Exception as e:
-        print(f"      ⚠ fetch failed for {url[:60]}: {e}")
-        return "", ""
+        from curl_cffi import requests as _cffi
+        getter = lambda u: _cffi.get(u, impersonate="chrome120", timeout=25,
+                                     allow_redirects=True)
+    except ImportError:
+        getter = lambda u: requests.get(u, timeout=25,
+                                        headers={"User-Agent": _BROWSER_UA},
+                                        allow_redirects=True)
+    for attempt in range(3):
+        try:
+            r = getter(url)
+            final = str(getattr(r, "url", "") or url)
+            if 200 <= r.status_code < 300 and r.text:
+                return final, r.text
+            if r.status_code in (429, 500, 502, 503, 504) and attempt < 2:
+                time.sleep(2 * (attempt + 1))
+                continue
+            return final, ""
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+                continue
+            print(f"      ⚠ fetch failed for {url[:60]}: {e}")
+    return "", ""
+
+
+def _is_adzuna_host(url: str) -> bool:
+    return "adzuna." in (urlparse(url).netloc or "").lower()
+
+
+def _meta_redirect(html: str) -> str:
+    """Extract the destination of a client-side redirect (meta refresh or
+    JS location change) from a page. Adzuna's /land/ad page doesn't HTTP-302
+    to the employer — it bounces via <meta http-equiv=refresh> /
+    location.replace() to an aggregator (e.g. de.jobsyn.org) that then
+    redirects to the real site. Returns '' if none found."""
+    if not html:
+        return ""
+    for pat in (
+        r'http-equiv=["\']refresh["\'][^>]*url=([^"\'>\s]+)',
+        r'location\.(?:replace|assign)\(["\']([^"\']+)["\']',
+        r'window\.location(?:\.href)?\s*=\s*["\']([^"\']+)["\']',
+    ):
+        m = re.search(pat, html, re.IGNORECASE)
+        if m:
+            return m.group(1).replace("&amp;", "&")
+    return ""
+
+
+def _resolve_apply_url(land: str) -> tuple[str, str]:
+    """Follow an Adzuna /land/ad link to the real employer page. The land page
+    client-side-redirects to an aggregator which HTTP-redirects to the employer
+    site, so we read the meta/JS destination and follow THAT. Returns
+    (final_url, final_html)."""
+    url, html = _fetch(land)
+    dest = _meta_redirect(html)
+    if dest:
+        url2, html2 = _fetch(dest)
+        if url2:
+            return url2, html2
+    return url, html
 
 
 def _resolve_adzuna(url: str) -> dict:
     """Resolve an Adzuna proxy URL to the real posting.
 
-    For a details page we parse its JobPosting JSON-LD (description/employer)
-    and find the 'Apply' button's `/land/ad/<id>?aztt=…` redirect; for a
-    land/ad URL we already have that redirect. Either way we FOLLOW the
-    redirect to the employer's actual site (e.g. emory.jobs) and use that as
-    `apply_url` — so the reader sees the real domain, not adzuna.com. From the
-    landed employer page we also read the truer `date_posted` (for the age
-    scrub) and backfill description/employer when missing.
+    For a details page we parse its JobPosting JSON-LD (description/employer/
+    datePosted) and find the 'Apply' button's `/land/ad/<id>` redirect; for a
+    land/ad URL we already have that redirect. We then follow the apply chain
+    (land → aggregator → employer site, e.g. emory.jobs) so the reader sees the
+    real domain, not adzuna.com. `date_posted` (for the age scrub) comes from
+    the details page's JSON-LD, refined by the employer page when available.
     Returns {} on total failure (caller keeps existing values)."""
     out: dict = {}
     land: str | None = None
@@ -295,10 +357,10 @@ def _resolve_adzuna(url: str) -> dict:
         land = url
 
     if land:
-        final_url, final_html = _fetch(land)
+        final_url, final_html = _resolve_apply_url(land)
         # Only treat it as the apply link if it actually left adzuna's domain;
         # otherwise keep the land link rather than show a dead/loop URL.
-        if final_url and "adzuna." not in (urlparse(final_url).netloc or "").lower():
+        if final_url and not _is_adzuna_host(final_url):
             out["apply_url"] = final_url
         elif "apply_url" not in out:
             out["apply_url"] = land
@@ -329,6 +391,7 @@ def enrich_adzuna_rows(pool: list[dict]) -> None:
         if not _ADZUNA_ANY_RE.search(url):
             kept.append(row)
             continue
+        time.sleep(1.0)   # be polite — back-to-back drills trip Adzuna's rate limit
         data = _resolve_adzuna(url)
 
         # Age scrub: drop postings older than the hard cap.
