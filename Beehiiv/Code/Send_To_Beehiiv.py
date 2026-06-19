@@ -1631,7 +1631,13 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     if pet and pet.get("blurb"):
         repl["furry_friends_name"]   = pet.get("name", "")
         repl["PET_NAME"]             = pet.get("name", "")
-        repl["PET_BLURB"]            = pet.get("blurb", "")
+        # Render the blurb as REAL <p> blocks (same as business_brief_blurb) so
+        # the gap before {pet_meta_data} comes from natural paragraph spacing —
+        # plain string substitution doesn't create that structure, which is why
+        # earlier spacing attempts produced no gap. repl[] is the fallback used
+        # when DOM expansion can't find the token's wrapping <p>.
+        paragraph_prose["PET_BLURB"] = pet.get("blurb", "")
+        repl["PET_BLURB"]            = md_to_html(pet.get("blurb", ""))
         repl["PET_SHELTER_NAME"]     = pet.get("shelter", "")
         repl["PET_SHELTER_ADDRESS"]  = pet.get("shelter_address", "")
         repl["PET_SHELTER_PHONE"]    = pet.get("shelter_phone", "")
