@@ -896,28 +896,45 @@ def _lowdown_story_to_card(story: dict, slot_key: str) -> dict[str, str]:
 
 def _lowdown_image_mutator(clone_soup, story: dict) -> None:
     """Per-card hook: point the cloned Local Lowdown card's image at this
-    story's scraped photo. If the template card already has an <img>
-    placeholder (like the Meme Corner card), swap its src. Otherwise insert
-    a responsive <img> at the top of the card so images still render even
-    when the Beehiiv lowdown card has no image placeholder yet."""
+    story's scraped photo, anchored INSIDE the card's first text block.
+
+    Same fix as Weekend Planner: a bare <img> (or one sitting outside the
+    card's <table><tr><td>) drifts to the top of the section — or the whole
+    newsletter — in some email clients ('images at the beginning'). Anchoring
+    the photo as the first child of the headline's block keeps it glued to its
+    own story. Removes a stray placeholder when the story has no image."""
     img_url = (story.get("image_url") or "").strip()
-    if not img_url:
-        return
     alt = (story.get("heading") or "news photo")[:120]
-    img = clone_soup.find("img")
-    if img is not None:
-        img["src"] = img_url
-        img["alt"] = alt
+    style = ("max-width:100%;height:auto;display:block;"
+             "margin:0 auto 12px;border-radius:6px;")
+    existing = clone_soup.find("img")
+    if not img_url:
+        if existing is not None:
+            existing.decompose()
         return
-    # No placeholder in the template card — insert one above the headline.
+    # First text-bearing block element in the card — the photo's anchor.
+    _BLOCK = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "div", "td", "li"}
+    anchor = next((el for el in clone_soup.find_all(True)
+                   if el.name in _BLOCK and (el.get_text() or "").strip()), None)
+    if existing is not None:
+        existing["src"] = img_url
+        existing["alt"] = alt
+        existing["style"] = style
+        # Move it inside the text block so it can't float to the top.
+        if anchor is not None and existing.parent is not anchor:
+            existing.extract()
+            anchor.insert(0, existing)
+        return
     new_img = clone_soup.new_tag("img", src=img_url, alt=alt)
-    new_img["style"] = ("max-width:100%;height:auto;display:block;"
-                        "margin:0 auto 12px;border-radius:6px;")
-    first = clone_soup.find(True)
-    if first is not None:
-        first.insert_before(new_img)
+    new_img["style"] = style
+    if anchor is not None:
+        anchor.insert(0, new_img)
     else:
-        clone_soup.append(new_img)
+        first = clone_soup.find(True)
+        if first is not None:
+            first.insert_before(new_img)
+        else:
+            clone_soup.append(new_img)
 
 
 def _meme_to_card(meme: dict, slot_key: str) -> dict[str, str]:
