@@ -1019,8 +1019,11 @@ if __name__ == "__main__":
         # source URL. Used by the assemble script to render a small
         # thumbnail next to each event in the Notion landing page.
         try:
-            sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'Free Events', 'Code'))
-            from Free_Events import fetch_event_image  # noqa: E402
+            # Use the enhanced shared scraper (og:image / JSON-LD / detail-page
+            # CTA + URL unwrapping) instead of the older Free_Events one, so
+            # more events — incl. the image-less Friday slots — get a photo.
+            # It's also keyless/lightweight (no anthropic import).
+            from event_image_scraper import fetch_event_image  # noqa: E402
             seen_imgs: set[str] = set()
             print(f"\n  Fetching event images...")
             for ev in all_events:
