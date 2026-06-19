@@ -43,6 +43,7 @@ on:
 
 permissions:
   contents: write   # assembler re-hosts the sponsor logo to gh-pages
+  actions:  write   # dispatch deploy_review_app at the end
 
 jobs:
   assemble:
@@ -78,3 +79,22 @@ jobs:
           WEEKEND_DAY:              ${{ github.event.inputs.weekend_day || 'all' }}
           APPEND:                   ${{ github.event.inputs.append || 'false' }}
         run: python NewsletterCreation/Code/assemble_newsletter_page.py
+
+      # Always refresh the review app after assembling. Every standalone
+      # ("ad-hoc") section generate triggers its own assemble (→ this deploy);
+      # a chained run triggers assemble only at the tail (section=all), so the
+      # review app deploys exactly once — on the last step of the sequence.
+      # deploy_review_app uses cancel-in-progress concurrency, so any
+      # overlapping deploys (e.g. an approve flow that also dispatches it)
+      # collapse to a single run instead of racing on gh-pages.
+      - name: Deploy review app
+        if: ${{ always() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/deploy_review_app.yml/dispatches \
+            -d '{"ref":"main"}'
+          echo "✓ Review app deploy triggered (post-assemble)"

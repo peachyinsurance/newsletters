@@ -8,6 +8,14 @@ on:
       - 'review-app/**'
   workflow_dispatch:
 
+# Collapse overlapping deploys into one — every assemble (and several approve
+# flows) dispatch this, so rapid back-to-back triggers would otherwise race on
+# the gh-pages push. cancel-in-progress keeps only the latest, which reflects
+# the freshest Notion data anyway.
+concurrency:
+  group: deploy-review-app
+  cancel-in-progress: true
+
 permissions:
   contents: write
   actions: write
