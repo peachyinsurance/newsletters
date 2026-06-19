@@ -331,108 +331,107 @@ def _resolve_apply_url(land: str) -> tuple[str, str]:
     return url, html
 
 
-def _resolve_adzuna(url: str) -> dict:
-    """Resolve an Adzuna proxy URL to the real posting.
-
-    For a details page we parse its JobPosting JSON-LD (description/employer/
-    datePosted) and find the 'Apply' button's `/land/ad/<id>` redirect; for a
-    land/ad URL we already have that redirect. We then follow the apply chain
-    (land → aggregator → employer site, e.g. emory.jobs) so the reader sees the
-    real domain, not adzuna.com. `date_posted` (for the age scrub) comes from
-    the details page's JSON-LD, refined by the employer page when available.
-    Returns {} on total failure (caller keeps existing values)."""
+def _fetch_details(url: str) -> dict:
+    """ONE fetch of the Adzuna details page → {date_posted, description,
+    employer, land}. Kept to a single request so the age gate for every row
+    fits under Adzuna's per-IP rate limit (it blocks the CI IP after ~9
+    requests; the old all-in-one drill burned 3 requests/row and only ~3 rows
+    got checked before the block). The expensive apply-URL resolution (2 more
+    requests: land → aggregator → employer) is done separately, afterwards,
+    for surviving rows only. `land` is the /land/ad apply-redirect URL."""
     out: dict = {}
-    land: str | None = None
-
     if _ADZUNA_DETAILS_RE.search(url):
         _, html = _fetch(url)
         if html:
-            out.update(_job_posting_from_html(html))
+            out.update(_job_posting_from_html(html))   # date_posted, description, employer
             m = re.search(
                 r'href=["\'](https://www\.adzuna\.com/land/ad/[^"\']+)["\']',
                 html, re.IGNORECASE)
             if m:
-                land = m.group(1).replace("&amp;", "&")
+                out["land"] = m.group(1).replace("&amp;", "&")
     elif _ADZUNA_LAND_RE.search(url):
-        land = url
-
-    if land:
-        final_url, final_html = _resolve_apply_url(land)
-        # Only treat it as the apply link if it actually left adzuna's domain;
-        # otherwise keep the land link rather than show a dead/loop URL.
-        if final_url and not _is_adzuna_host(final_url):
-            out["apply_url"] = final_url
-        elif "apply_url" not in out:
-            out["apply_url"] = land
-        if final_html:
-            emp = _job_posting_from_html(final_html)
-            # The employer page's datePosted is the truest age signal.
-            if emp.get("date_posted"):
-                out["date_posted"] = emp["date_posted"]
-            if emp.get("description"):
-                out.setdefault("description", emp["description"])
-            if emp.get("employer"):
-                out.setdefault("employer", emp["employer"])
+        out["land"] = url
     return out
 
 
 def enrich_adzuna_rows(pool: list[dict]) -> None:
-    """For pool rows whose Job Listings URL is an Adzuna proxy (details page or
-    land/ad redirect), drill in for: the REAL employer apply URL (so the card
-    doesn't read 'Apply: adzuna.com'), the job description + employer (fills a
-    blank snippet so the blurb isn't empty), and the posting's real datePosted.
-    Postings older than MAX_LISTING_AGE_DAYS are dropped (marked rejected in
-    Notion and removed from the pool). Mutates `pool` in place."""
-    today = datetime.date.today()
-    kept: list[dict] = []
-    dropped_old = 0
-    for row in pool:
-        url = row.get("job_listings_url", "")
-        if not _ADZUNA_ANY_RE.search(url):
-            kept.append(row)
-            continue
-        time.sleep(1.0)   # be polite — back-to-back drills trip Adzuna's rate limit
-        data = _resolve_adzuna(url)
+    """Two-phase enrichment of Adzuna-proxy rows. Mutates `pool` in place.
 
-        # Age scrub: drop postings older than the hard cap.
-        posted = _parse_iso_date(data.get("date_posted", "")) if data else None
+    Phase 1 — AGE GATE (1 fetch/row, run first). Pull the posting's real
+    datePosted from the details page and drop anything older than
+    MAX_LISTING_AGE_DAYS (marked rejected in Notion + removed from the pool).
+    Doing the cheap age check for ALL rows before any expensive work keeps it
+    under Adzuna's per-IP request cap, so stale postings are reliably caught
+    even when later requests get throttled.
+
+    Phase 2 — APPLY URL + snippet/employer backfill (2 fetches/row), only for
+    rows that survived the age gate. Resolves the real employer URL (land →
+    aggregator → employer site) so the card doesn't read 'Apply: adzuna.com'.
+    If this gets rate-limited it only degrades the display domain — it can't
+    resurrect a stale posting, which is the important guarantee."""
+    today = datetime.date.today()
+    adzuna_rows = [r for r in pool
+                   if _ADZUNA_ANY_RE.search(r.get("job_listings_url", ""))]
+
+    # ── Phase 1: age gate ────────────────────────────────────────────────
+    dropped_ids: set = set()
+    dropped_old = 0
+    for row in adzuna_rows:
+        time.sleep(1.0)   # be polite — back-to-back fetches trip Adzuna's rate limit
+        details = _fetch_details(row.get("job_listings_url", ""))
+        row["_drill"] = details   # stash for phase 2
+        posted = _parse_iso_date(details.get("date_posted", ""))
         if posted is not None and (today - posted).days > MAX_LISTING_AGE_DAYS:
             age = (today - posted).days
             print(f"    ✗ stale ({age}d old > {MAX_LISTING_AGE_DAYS}d): "
                   f"{row.get('employer', '?')[:40]} — marking rejected")
             dropped_old += 1
+            dropped_ids.add(row["notion_page_id"])
             try:
                 update_page(row["notion_page_id"], properties={
                     "Status": {"select": {"name": "rejected"}}})
             except Exception as e:
                 print(f"      (couldn't update Status to rejected: {e})")
+
+    # ── Phase 2: apply URL + snippet/employer (survivors only) ────────────
+    for row in adzuna_rows:
+        details = row.pop("_drill", {})
+        if row["notion_page_id"] in dropped_ids:
             continue
+        url = row.get("job_listings_url", "")
+        patch: dict = {}
+        land = details.get("land")
+        if land:
+            time.sleep(1.0)
+            final_url, final_html = _resolve_apply_url(land)
+            if final_url and not _is_adzuna_host(final_url) and final_url != url:
+                row["job_listings_url"] = final_url
+                patch["Job Listings URL"] = {"url": final_url}
+            # employer page can backfill a missing description/employer
+            if final_html:
+                emp = _job_posting_from_html(final_html)
+                details.setdefault("description", emp.get("description", ""))
+                details.setdefault("employer", emp.get("employer", ""))
+        # Fill the scraped snippet when blank so Claude has source text (the
+        # 'no description' fix — raw Adzuna rows arrive with no snippet).
+        if details.get("description") and not row.get("scraped_snippet"):
+            row["scraped_snippet"] = details["description"][:2000]
+            patch["Scraped Snippet"] = {
+                "rich_text": [{"text": {"content": details["description"][:2000]}}]}
+        if details.get("employer") and not row.get("employer"):
+            row["employer"] = details["employer"]
+            patch["Employer"] = {
+                "rich_text": [{"text": {"content": details["employer"][:200]}}]}
+        if patch:
+            try:
+                update_page(row["notion_page_id"], properties=patch)
+                print(f"    ↳ adzuna drill-down: {row.get('employer', '?')[:40]} "
+                      f"({', '.join(patch)})")
+            except Exception as e:
+                print(f"    ⚠ couldn't persist adzuna drill-down: {e}")
 
-        if data:
-            patch: dict = {}
-            if data.get("apply_url") and data["apply_url"] != url:
-                row["job_listings_url"] = data["apply_url"]
-                patch["Job Listings URL"] = {"url": data["apply_url"]}
-            # Fill the scraped snippet when blank so Claude has source text (this
-            # is the 'no description' fix — raw Adzuna rows arrive with no snippet).
-            if data.get("description") and not row.get("scraped_snippet"):
-                row["scraped_snippet"] = data["description"][:2000]
-                patch["Scraped Snippet"] = {
-                    "rich_text": [{"text": {"content": data["description"][:2000]}}]}
-            if data.get("employer") and not row.get("employer"):
-                row["employer"] = data["employer"]
-                patch["Employer"] = {
-                    "rich_text": [{"text": {"content": data["employer"][:200]}}]}
-            if patch:
-                try:
-                    update_page(row["notion_page_id"], properties=patch)
-                    print(f"    ↳ adzuna drill-down: {row.get('employer', '?')[:40]} "
-                          f"({', '.join(patch)})")
-                except Exception as e:
-                    print(f"    ⚠ couldn't persist adzuna drill-down: {e}")
-        kept.append(row)
-
-    pool[:] = kept
+    if dropped_ids:
+        pool[:] = [r for r in pool if r["notion_page_id"] not in dropped_ids]
     if dropped_old:
         print(f"    ↳ {dropped_old} stale posting(s) (>{MAX_LISTING_AGE_DAYS}d) dropped")
 
