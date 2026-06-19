@@ -579,25 +579,30 @@ def _weekend_event_to_card(ev: dict, slot_key: str) -> dict[str, str]:
     chains venue / address / time / price with bullets and appends the
     one-sentence description on its own line; link is the source URL.
 
-    The practical info — venue, address, time — is wrapped in <strong> so it
-    stands out in the Beehiiv render (the message placeholder renders HTML,
-    same as the Local Lowdown cards). Price is left plain."""
+    One inline line: emoji **Name** - Venue | Address | Time | Price | More:
+    domain, with only the event NAME bold and the details pipe-separated; the
+    one-sentence description goes on the next line. Everything is in the
+    message slot so it renders on a single line (the title slot is left empty)."""
     emoji = (ev.get("emoji") or "").strip()
     name  = (ev.get("event_name") or "").strip()
-    title = f"{emoji} {name}".strip() if emoji else name
+    title = f"{emoji} <strong>{name}</strong>".strip()
 
-    bold_parts = [f"<strong>{v}</strong>" for v in
-                  ((ev.get(k) or "").strip() for k in ("venue", "address", "time"))
-                  if v]
-    price = (ev.get("price") or "").strip()
-    metadata = " • ".join(bold_parts + ([price] if price else []))
+    parts = [(ev.get(k) or "").strip() for k in ("venue", "address", "time", "price")]
+    parts = [p for p in parts if p]
+    url = (ev.get("source_url") or "").strip()
+    domain = display_domain(url) if url else ""
+    if url and domain:
+        parts.append(
+            f'More: <a href="{url}" target="_blank" rel="noopener noreferrer">{domain}</a>')
+
+    line = title + (" - " + " | ".join(parts) if parts else "")
     desc = (ev.get("description") or "").strip()
-    message = metadata + (f"\n\n{desc}" if desc else "")
+    message = line + (f"<br>{desc}" if desc else "")
 
     return {
-        f"{slot_key}_title":   title,
+        f"{slot_key}_title":   "",
         f"{slot_key}_message": message,
-        f"{slot_key}_link":    ev.get("source_url") or "",
+        f"{slot_key}_link":    url,
     }
 
 
