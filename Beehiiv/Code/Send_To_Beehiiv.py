@@ -40,8 +40,6 @@ from assemble_newsletter_page import (
     get_latest_lowdown,
     get_approved_pet,
     get_latest_free_events,
-    get_latest_free_event_image,
-    get_latest_free_event_images,
     free_event_render_images,
     get_latest_poll,
     get_weekend_events,
