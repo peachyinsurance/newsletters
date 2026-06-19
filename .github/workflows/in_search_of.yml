@@ -28,7 +28,7 @@ on:
           - 'scrape'
           - 'write'
       chain:
-        description: 'End of chain: full newsletter rebuild + review-app deploy (Meme Corner stays standalone)'
+        description: 'Continue chain (final full rebuild + review-app deploy — In Search Of is the tail; Meme Corner stays standalone) after this finishes'
         required: false
         default: 'false'
         type: choice
