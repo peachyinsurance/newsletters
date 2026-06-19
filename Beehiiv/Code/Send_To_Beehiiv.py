@@ -593,7 +593,8 @@ def _weekend_event_to_card(ev: dict, slot_key: str) -> dict[str, str]:
     domain = display_domain(url) if url else ""
     if url and domain:
         parts.append(
-            f'More: <a href="{url}" target="_blank" rel="noopener noreferrer">{domain}</a>')
+            f'More: <a href="{url}" target="_blank" rel="noopener noreferrer">'
+            f'<strong>{domain}</strong></a>')
 
     line = title + (" - " + " | ".join(parts) if parts else "")
     desc = (ev.get("description") or "").strip()
