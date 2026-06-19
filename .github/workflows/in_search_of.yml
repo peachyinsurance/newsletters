@@ -30,7 +30,7 @@ on:
       chain:
         description: 'Continue chain (final full rebuild + review-app deploy — In Search Of is the tail; Meme Corner stays standalone) after this finishes'
         required: false
-        default: 'false'
+        default: 'true'
         type: choice
         options:
           - 'true'
@@ -104,7 +104,7 @@ jobs:
 
       # ── Trigger newsletter page rebuild (in_search_of section only) ───
       - name: Trigger newsletter page rebuild
-        if: ${{ (github.event.inputs.chain || 'false') == 'false' }}
+        if: ${{ (github.event.inputs.chain || 'true') == 'false' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -121,7 +121,7 @@ jobs:
       # deploy exactly once with every section fresh. (Meme Corner is NOT
       # triggered — it stays standalone until it's finalized.)
       - name: Trigger full newsletter page rebuild (end of chain)
-        if: ${{ (github.event.inputs.chain || 'false') == 'true' }}
+        if: ${{ always() && (github.event.inputs.chain || 'true') == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -133,7 +133,7 @@ jobs:
           echo "✓ Full newsletter rebuild triggered (end of chain)"
 
       - name: Trigger review app deploy (end of chain)
-        if: ${{ (github.event.inputs.chain || 'false') == 'true' }}
+        if: ${{ always() && (github.event.inputs.chain || 'true') == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
