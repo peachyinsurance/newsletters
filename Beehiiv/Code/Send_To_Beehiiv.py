@@ -538,15 +538,14 @@ def add_pet_shelter_spacer(html: str) -> str:
     if block is None:
         print("    · pet — shelter block not found, no spacer added")
         return html
-    spacer = BeautifulSoup(
-        '<p style="margin:0;line-height:18px;font-size:14px">&nbsp;</p>',
-        "html.parser",
-    )
-    if block.name == "td":
-        block.insert(0, spacer)        # gap at the top of the shelter cell
-    else:
-        block.insert_before(spacer)    # gap above the shelter block
-    print("    ✓ pet — inserted spacer before shelter info")
+    # Add padding-top to the shelter block's OWN element rather than inserting
+    # an empty <p>&nbsp;</p> spacer — Beehiiv collapses whitespace-only
+    # paragraphs (so the spacer disappeared and no gap showed), but it keeps
+    # inline padding on a real content element. Padding (not margin) is the
+    # email-safe choice.
+    style = (block.get("style") or "").strip().rstrip(";")
+    block["style"] = f"{style};padding-top:18px" if style else "padding-top:18px"
+    print("    ✓ pet — added space above shelter info")
     return str(soup)
 
 
