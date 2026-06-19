@@ -445,6 +445,36 @@ def md_to_html(text: str) -> str:
     return md_inline_to_html(text)
 
 
+def _paragraph_to_html(p: str, attrs_html: str = "") -> str:
+    """Render one blank-line-delimited block to HTML. A run of '•' bullets —
+    whether inline ('• a • b • c') or one-per-line — becomes a real
+    <ul><li> list (so the Sponsor Corner '• Home / • Auto / • Bundle' renders
+    as a proper bulleted list instead of one run-on paragraph). Non-bullet
+    text stays a <p>. No-op for blocks without a bullet, so other prose
+    fields are unaffected."""
+    if "•" not in p:
+        return f"<p{attrs_html}>{md_inline_to_html(p)}</p>"
+    # Normalize inline bullets to one-per-line, then walk lines.
+    norm = re.sub(r"\s*•\s*", "\n•", p).strip()
+    out: list[str] = []
+    bullets: list[str] = []
+
+    def _flush():
+        if bullets:
+            items = "".join(f"<li>{md_inline_to_html(b)}</li>" for b in bullets)
+            out.append(f'<ul style="margin:8px 0;padding-left:22px">{items}</ul>')
+            bullets.clear()
+
+    for ln in (l.strip() for l in norm.split("\n") if l.strip()):
+        if ln.startswith("•"):
+            bullets.append(ln[1:].strip())
+        else:
+            _flush()
+            out.append(f"<p{attrs_html}>{md_inline_to_html(ln)}</p>")
+    _flush()
+    return "".join(out)
+
+
 def expand_paragraph_field(html: str, placeholder_key: str, text: str) -> str:
     """Replace the placeholder's wrapping <p> with one real <p> block per
     blank-line-separated paragraph in `text`. Each paragraph gets inline
@@ -499,9 +529,7 @@ def expand_paragraph_field(html: str, placeholder_key: str, text: str) -> str:
         attrs_html = re.sub(r' class="[^"]*"', "", attrs_html)
         attrs_html += f' class="{cls}"'
 
-    new_html = "".join(
-        f"<p{attrs_html}>{md_inline_to_html(p)}</p>" for p in paragraphs
-    )
+    new_html = "".join(_paragraph_to_html(p, attrs_html) for p in paragraphs)
     new_fragment = BeautifulSoup(new_html, "html.parser")
     for child in list(new_fragment.children):
         block.insert_before(child)
