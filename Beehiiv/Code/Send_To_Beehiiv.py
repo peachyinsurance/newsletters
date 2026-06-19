@@ -274,6 +274,7 @@ PRUNEABLE_SLOTS = [
     ("event_of_the_week_headline", "event_of_the_week_headline"),
     # Pet
     ("PET_NAME",                   "PET_NAME"),
+    ("PET_NAME",                   "pet_meta_data"),
     # Business Brief — if no business approved, drop the whole card.
     ("business_brief_name",        "business_brief_name"),
     ("business_brief_name",        "business_brief_blurb"),
@@ -534,48 +535,6 @@ def expand_paragraph_field(html: str, placeholder_key: str, text: str) -> str:
     for child in list(new_fragment.children):
         block.insert_before(child)
     block.decompose()
-    return str(soup)
-
-
-def add_pet_shelter_spacer(html: str) -> str:
-    """Insert a real spacer <p> before the pet shelter-info block so it isn't
-    flush against the adoption blurb.
-
-    The Beehiiv template stacks {PET_BLURB} and the {PET_SHELTER_NAME} block
-    with no gap, so the email reads '…set up a visit.\\nMostly Mutts Animal
-    Rescue\\n…' with the shelter details butted right up against the blurb. A
-    sibling <p> inserted via the DOM tree survives Beehiiv's sanitizer (unlike
-    a <br><br> injected into a token's text, which Beehiiv strips — see
-    expand_paragraph_field). No-op when the shelter token or its block can't
-    be located, so a template without it is unaffected."""
-    token = "{PET_SHELTER_NAME}"
-    if token not in html:
-        return html
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        return html
-    soup = BeautifulSoup(html, "html.parser")
-    node = soup.find(string=lambda t: t and token in str(t))
-    if not node:
-        return html
-    block_tags = ("p", "div", "li", "td", "h1", "h2", "h3", "h4", "h5", "h6")
-    block = node.parent
-    while block is not None and getattr(block, "name", None) not in block_tags:
-        block = block.parent
-    if block is None:
-        print("    · pet — shelter block not found, no spacer added")
-        return html
-    # Insert two real <br> elements at the very top of the shelter block for
-    # the gap. Beehiiv collapsed an empty <p>&nbsp;</p> AND stripped inline
-    # padding here, but it keeps DOM-inserted <br> nodes (the same mechanism
-    # that makes the per-card images survive). Keep a padding-top too for
-    # clients that honor it.
-    block.insert(0, soup.new_tag("br"))
-    block.insert(0, soup.new_tag("br"))
-    style = (block.get("style") or "").strip().rstrip(";")
-    block["style"] = f"{style};padding-top:6px" if style else "padding-top:6px"
-    print("    ✓ pet — added space above shelter info (br)")
     return str(soup)
 
 
@@ -1671,6 +1630,19 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["PET_SHELTER_PHONE"]    = pet.get("shelter_phone", "")
         repl["PET_SHELTER_EMAIL"]    = pet.get("shelter_email", "")
         repl["PET_SHELTER_HOURS"]    = pet.get("shelter_hours", "")
+        # ONE combined shelter-info block (like {business_brief_meta}): shelter
+        # name (bold) + address / phone / email / hours, <br>-joined, empties
+        # skipped. Put {pet_meta_data} in its own block after {PET_BLURB} — the
+        # gap between the blurb and this block then comes from normal paragraph
+        # spacing (the same way the business brief gets its space), so we don't
+        # need a fragile injected spacer.
+        _pet_meta = []
+        if pet.get("shelter"):         _pet_meta.append(f"<strong>{pet['shelter']}</strong>")
+        if pet.get("shelter_address"): _pet_meta.append(pet["shelter_address"])
+        if pet.get("shelter_phone"):   _pet_meta.append(pet["shelter_phone"])
+        if pet.get("shelter_email"):   _pet_meta.append(pet["shelter_email"])
+        if pet.get("shelter_hours"):   _pet_meta.append(pet["shelter_hours"])
+        repl["pet_meta_data"]        = "<br>".join(_pet_meta)
         repl["PET_SOURCE_URL"]       = pet.get("url", "")
         # Prefer the animated gh-pages GIF, but a pet's GIF URL is written to
         # Notion at generation time and may be SENT a cycle later. If the
@@ -2128,8 +2100,6 @@ def main():
     body_html = expand_meme_slots(body_html, memes)
     print("\n  Expanding Free Event images…")
     body_html = expand_free_event_images(body_html, free_event_images)
-    print("\n  Spacing pet shelter info…")
-    body_html = add_pet_shelter_spacer(body_html)
 
     # Long-form prose fields: split each into real sibling <p> blocks via
     # DOM ops so Beehiiv renders paragraph spacing. Done here (vs. inside
