@@ -191,6 +191,19 @@ def _absolutize(url: str, base_url: str) -> str:
     return url
 
 
+def _looks_like_image_bytes(chunk: bytes) -> bool:
+    """True if `chunk` begins with a known image magic number (JPEG/PNG/GIF/
+    WebP). Eventbrite's cdn.evbuc.com serves real images as
+    `binary/octet-stream`, so a Content-Type check alone wrongly rejects them —
+    sniffing the bytes recovers those (and any other mislabeled CDN image)."""
+    if not chunk:
+        return False
+    return (chunk[:3] == b"\xff\xd8\xff"                       # JPEG
+            or chunk[:8] == b"\x89PNG\r\n\x1a\n"               # PNG
+            or chunk[:6] in (b"GIF87a", b"GIF89a")             # GIF
+            or (chunk[:4] == b"RIFF" and chunk[8:12] == b"WEBP"))  # WebP
+
+
 def _image_looks_real(url: str) -> bool:
     """HEAD/GET-validate that a URL actually returns an image. Slow."""
     if not url:
@@ -203,12 +216,12 @@ def _image_looks_real(url: str) -> bool:
         if r.status_code != 200:
             return False
         ct = (r.headers.get("Content-Type") or "").lower()
-        if not ct.startswith("image/"):
+        chunk = next(r.iter_content(8192), b"")
+        # Accept a genuine image even when the CDN mislabels its Content-Type
+        # (e.g. cdn.evbuc.com → binary/octet-stream).
+        if not (ct.startswith("image/") or _looks_like_image_bytes(chunk)):
             return False
-        size = int(r.headers.get("Content-Length") or 0)
-        if size == 0:
-            chunk = next(r.iter_content(8192), b"")
-            size = len(chunk)
+        size = int(r.headers.get("Content-Length") or 0) or len(chunk)
         return size >= 5_000
     except Exception:
         return False
@@ -341,7 +354,13 @@ def fetch_event_image(source_url: str,
         seen.add(url)
         if url.startswith("data:"):
             continue
-        url = _absolutize(url, source_url)
+        # Unwrap Next.js image proxies (/_next/image?url=…) and Eventbrite's
+        # signed img.evbuc.com proxy to the stable underlying CDN URL. Cobb
+        # County (every Family event source) serves its event flyer through a
+        # Next.js proxy wrapping an Eventbrite image; the proxy is UA-flaky, the
+        # underlying cdn.evbuc.com URL is stable + re-hostable (validates via
+        # the octet-stream byte-sniff in _image_looks_real).
+        url = _unwrap_evbuc(_unwrap_next_image(_absolutize(url, source_url)))
         ul = url.lower()
         if any(skip in ul for skip in SKIP_TOKENS):
             continue
