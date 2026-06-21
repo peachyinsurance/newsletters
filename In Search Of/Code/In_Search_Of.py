@@ -289,27 +289,29 @@ def _fetch(url: str) -> tuple[str, str]:
     (cookies), retry with backoff, and LOG the HTTP status on final failure so
     blocks are visible in the workflow log instead of silent."""
     sess = _session()
-    for attempt in range(4):
+    for attempt in range(3):
         try:
             if sess:
-                r = sess.get(url, timeout=25, allow_redirects=True)
+                r = sess.get(url, timeout=20, allow_redirects=True)
             else:
-                r = requests.get(url, timeout=25, headers={"User-Agent": _BROWSER_UA},
+                r = requests.get(url, timeout=20, headers={"User-Agent": _BROWSER_UA},
                                  allow_redirects=True)
             final = str(getattr(r, "url", "") or url)
             if 200 <= r.status_code < 300 and r.text:
                 return final, r.text
-            if attempt < 3:
-                # 429 = rate limit (recoverable). Honor Retry-After if present,
-                # else back off generously — Adzuna's window is longer than a
-                # few seconds, so the old 2/4/6s backoff never cleared it.
-                wait = 2 * (attempt + 1)
+            if attempt < 2:
+                # FAIL FAST. Adzuna rate-limits (429) the CI IP hard; long
+                # backoffs made the scrape crawl for many minutes. A short,
+                # bounded retry is enough to ride out a transient block — if the
+                # IP is genuinely throttled the row is simply dropped (better a
+                # fast scrape with a few Adzuna jobs than a 10-minute one).
+                wait = 2 * (attempt + 1)   # 2s, 4s
                 if r.status_code == 429:
                     ra = (getattr(r, "headers", {}) or {}).get("Retry-After")
                     try:
-                        wait = max(wait, min(int(ra), 90))
+                        wait = min(int(ra), 6)
                     except (TypeError, ValueError):
-                        wait = max(wait, 15 * (attempt + 1))   # 15s, 30s, 45s
+                        wait = 4
                 time.sleep(wait)
                 continue
             print(f"      ⚠ {url[:55]} → HTTP {r.status_code}")
@@ -438,28 +440,13 @@ def enrich_adzuna_rows(pool: list[dict]) -> None:
     # ── Phase 1: age gate ────────────────────────────────────────────────
     dropped_ids: set = set()
 
-    # 1a. Fetch each row's details page once, stashing the result. A row that
-    #     comes back with no datePosted but is still a details URL was almost
-    #     certainly rate-limited (HTTP 429) — and 429 RESETS after a cooldown,
-    #     so we retry just those rows in cooldown sweeps. This is what makes the
-    #     age gate reliable despite Adzuna throttling the CI IP.
-    def _retryable(row):
-        d = row.get("_drill") or {}
-        return (not d.get("date_posted")
-                and bool(_ADZUNA_ANY_RE.search(row.get("job_listings_url", ""))))
-
-    todo = adzuna_rows
-    for sweep in range(3):   # initial pass + up to 2 cooldown retries
-        if sweep > 0:
-            todo = [r for r in adzuna_rows if _retryable(r)]
-            if not todo:
-                break
-            print(f"    ⏳ age-gate: {len(todo)} row(s) rate-limited — cooling "
-                  f"down 60s, then retry sweep {sweep}")
-            time.sleep(60)
-        for row in todo:
-            time.sleep(2.0)   # space requests to stay under the rate limit
-            row["_drill"] = _fetch_details(row.get("job_listings_url", ""))
+    # 1a. Fetch each row's details page once (the _fetch fast-fail retry rides
+    #     out transient 429s). Rate-limited rows come back undated and are kept
+    #     by the age gate but dropped later by the apply-link safety net, so we
+    #     don't pay long cooldown sweeps just to age them.
+    for row in adzuna_rows:
+        time.sleep(1.0)   # light spacing
+        row["_drill"] = _fetch_details(row.get("job_listings_url", ""))
 
     # 1b. Decide on each row from its final (possibly retried) fetch result.
     dropped_old = no_date = 0
