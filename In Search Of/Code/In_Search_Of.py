@@ -256,41 +256,56 @@ def _job_posting_from_html(html: str) -> dict:
     return out
 
 
-def _fetch(url: str) -> tuple[str, str]:
-    """Fetch a URL with a real-browser TLS fingerprint (curl_cffi), following
-    redirects. Returns (final_url, html); html is '' on a non-2xx so callers
-    can still use the resolved final_url.
+_CFFI_SESSION = None   # persistent curl_cffi Session (lazily created)
 
-    Why curl_cffi: Adzuna bot-walls / rate-limits plain `requests` from
-    datacenter IPs (GitHub Actions). In CI the drill-down was silently
-    returning nothing for most rows, so stale postings were never aged out and
-    apply links stayed on adzuna.com. Impersonating Chrome's TLS/HTTP2
-    fingerprint gets through (same approach scrape_jobs.py already uses). We
-    retry 429/5xx with backoff and fall back to `requests` if curl_cffi is
-    missing."""
-    try:
-        from curl_cffi import requests as _cffi
-        getter = lambda u: _cffi.get(u, impersonate="chrome120", timeout=25,
-                                     allow_redirects=True)
-    except ImportError:
-        getter = lambda u: requests.get(u, timeout=25,
-                                        headers={"User-Agent": _BROWSER_UA},
-                                        allow_redirects=True)
-    for attempt in range(3):
+
+def _session():
+    """One reused curl_cffi Session so cookies persist across requests. Adzuna
+    often sets a bot-clearance cookie on the first hit that later requests need;
+    fresh per-request clients never carry it, which is why ~half the CI fetches
+    were getting blocked. Returns False if curl_cffi isn't installed (caller
+    falls back to plain requests)."""
+    global _CFFI_SESSION
+    if _CFFI_SESSION is None:
         try:
-            r = getter(url)
+            from curl_cffi import requests as _cffi
+            _CFFI_SESSION = _cffi.Session(impersonate="chrome120")
+        except ImportError:
+            _CFFI_SESSION = False
+    return _CFFI_SESSION
+
+
+def _fetch(url: str) -> tuple[str, str]:
+    """Fetch a URL with a real-browser TLS fingerprint + persistent cookies
+    (curl_cffi Session), following redirects. Returns (final_url, html); html
+    is '' on a non-2xx so callers can still use the resolved final_url.
+
+    Adzuna bot-walls / rate-limits plain `requests` from datacenter IPs (GitHub
+    Actions), so the drill-down was silently returning nothing for ~half the
+    rows and stale postings survived. We impersonate Chrome, reuse one Session
+    (cookies), retry with backoff, and LOG the HTTP status on final failure so
+    blocks are visible in the workflow log instead of silent."""
+    sess = _session()
+    for attempt in range(4):
+        try:
+            if sess:
+                r = sess.get(url, timeout=25, allow_redirects=True)
+            else:
+                r = requests.get(url, timeout=25, headers={"User-Agent": _BROWSER_UA},
+                                 allow_redirects=True)
             final = str(getattr(r, "url", "") or url)
             if 200 <= r.status_code < 300 and r.text:
                 return final, r.text
-            if r.status_code in (429, 500, 502, 503, 504) and attempt < 2:
-                time.sleep(2 * (attempt + 1))
+            if attempt < 3:
+                time.sleep(2 * (attempt + 1))   # 2s, 4s, 6s
                 continue
+            print(f"      ⚠ {url[:55]} → HTTP {r.status_code}")
             return final, ""
         except Exception as e:
-            if attempt < 2:
+            if attempt < 3:
                 time.sleep(2 * (attempt + 1))
                 continue
-            print(f"      ⚠ fetch failed for {url[:60]}: {e}")
+            print(f"      ⚠ fetch failed for {url[:55]}: {e}")
     return "", ""
 
 
@@ -376,15 +391,23 @@ def enrich_adzuna_rows(pool: list[dict]) -> None:
     # ── Phase 1: age gate ────────────────────────────────────────────────
     dropped_ids: set = set()
     dropped_old = 0
+    no_date = 0
     for row in adzuna_rows:
-        time.sleep(1.0)   # be polite — back-to-back fetches trip Adzuna's rate limit
+        time.sleep(2.0)   # be polite — back-to-back fetches trip Adzuna's rate limit
         details = _fetch_details(row.get("job_listings_url", ""))
         row["_drill"] = details   # stash for phase 2
         posted = _parse_iso_date(details.get("date_posted", ""))
-        if posted is not None and (today - posted).days > MAX_LISTING_AGE_DAYS:
-            age = (today - posted).days
+        emp = row.get("employer", "?")[:40]
+        if posted is None:
+            # Fetch blocked or no datePosted — log it so blocks are visible
+            # (we keep the row rather than risk dropping a fresh posting).
+            no_date += 1
+            print(f"    · age-gate: {emp} — no datePosted (fetch blocked?)")
+            continue
+        age = (today - posted).days
+        if age > MAX_LISTING_AGE_DAYS:
             print(f"    ✗ stale ({age}d old > {MAX_LISTING_AGE_DAYS}d): "
-                  f"{row.get('employer', '?')[:40]} — marking rejected")
+                  f"{emp} — marking rejected")
             dropped_old += 1
             dropped_ids.add(row["notion_page_id"])
             try:
@@ -392,6 +415,11 @@ def enrich_adzuna_rows(pool: list[dict]) -> None:
                     "Status": {"select": {"name": "rejected"}}})
             except Exception as e:
                 print(f"      (couldn't update Status to rejected: {e})")
+        else:
+            print(f"    · age-gate: {emp} — {age}d old, keep")
+    if no_date:
+        print(f"    ⚠ age-gate: {no_date}/{len(adzuna_rows)} row(s) had no datePosted "
+              f"(blocked fetch) — these can't be aged out")
 
     # ── Phase 2: apply URL + snippet/employer (survivors only) ────────────
     for row in adzuna_rows:

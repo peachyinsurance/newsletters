@@ -13,6 +13,7 @@ working off the curated employer spotlights alone.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import re
@@ -158,6 +159,18 @@ def _is_truck_driving(title: str) -> bool:
     return bool(_TRUCK_RE.search(title or ""))
 
 
+def _created_age_days(j: dict):
+    """Age in days of an Adzuna result by its `created` field (the date Adzuna
+    added the advert). None if absent/unparseable."""
+    s = (j.get("created") or "").strip()
+    if not s:
+        return None
+    try:
+        return (datetime.date.today() - datetime.date.fromisoformat(s[:10])).days
+    except Exception:
+        return None
+
+
 def _job_to_row(j: dict, newsletter: dict) -> dict | None:
     """Turn one Adzuna result into a save_job-ready row (or None if unusable)."""
     url     = (j.get("redirect_url") or "").strip()
@@ -289,7 +302,7 @@ def fetch_adzuna_jobs(newsletter: dict, limit: int = 8) -> list[dict]:
 
     rows: list[dict] = []
     seen_emp: set[str] = set()
-    dead = trucks = 0
+    dead = trucks = old = 0
     for j in ordered:
         # Hard-drop truck-driving postings (belt-and-suspenders to what_exclude).
         if _is_truck_driving(unescape(j.get("title") or "")):
@@ -297,6 +310,18 @@ def fetch_adzuna_jobs(newsletter: dict, limit: int = 8) -> list[dict]:
             continue
         row = _job_to_row(j, newsletter)
         if not row:
+            continue
+        # Age filter on the API's own `created` date — belt-and-suspenders to
+        # max_days_old (which has let through re-indexed-but-old ads). Free, no
+        # extra request. We LOG the created date for every posting so it's
+        # visible whether Adzuna reports the true post date here or a recent
+        # re-index date (which determines if scrape-time filtering can catch
+        # stale postings or whether the In_Search_Of drill-down must).
+        age = _created_age_days(j)
+        print(f"    · {row['employer'][:34]:34} created={(j.get('created') or '?')[:10]} "
+              f"({age if age is not None else '?'}d)")
+        if age is not None and age > MAX_DAYS_OLD:
+            old += 1
             continue
         # One posting per employer for variety in the section.
         emp = row["employer"].lower()
@@ -311,6 +336,8 @@ def fetch_adzuna_jobs(newsletter: dict, limit: int = 8) -> list[dict]:
         if len(rows) >= limit:
             break
 
+    if old:
+        print(f"  → Adzuna: dropped {old} posting(s) older than {MAX_DAYS_OLD}d (by API created date)")
     print(f"  → Adzuna: {len(rows)} live posting(s) near {where} across "
           f"{len(specs)} targeted quer(y/ies)"
           + (f" ({trucks} truck-driving skipped)" if trucks else "")
