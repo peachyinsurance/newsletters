@@ -297,7 +297,17 @@ def _fetch(url: str) -> tuple[str, str]:
             if 200 <= r.status_code < 300 and r.text:
                 return final, r.text
             if attempt < 3:
-                time.sleep(2 * (attempt + 1))   # 2s, 4s, 6s
+                # 429 = rate limit (recoverable). Honor Retry-After if present,
+                # else back off generously — Adzuna's window is longer than a
+                # few seconds, so the old 2/4/6s backoff never cleared it.
+                wait = 2 * (attempt + 1)
+                if r.status_code == 429:
+                    ra = (getattr(r, "headers", {}) or {}).get("Retry-After")
+                    try:
+                        wait = max(wait, min(int(ra), 90))
+                    except (TypeError, ValueError):
+                        wait = max(wait, 15 * (attempt + 1))   # 15s, 30s, 45s
+                time.sleep(wait)
                 continue
             print(f"      ⚠ {url[:55]} → HTTP {r.status_code}")
             return final, ""
@@ -390,19 +400,41 @@ def enrich_adzuna_rows(pool: list[dict]) -> None:
 
     # ── Phase 1: age gate ────────────────────────────────────────────────
     dropped_ids: set = set()
-    dropped_old = 0
-    no_date = 0
+
+    # 1a. Fetch each row's details page once, stashing the result. A row that
+    #     comes back with no datePosted but is still a details URL was almost
+    #     certainly rate-limited (HTTP 429) — and 429 RESETS after a cooldown,
+    #     so we retry just those rows in cooldown sweeps. This is what makes the
+    #     age gate reliable despite Adzuna throttling the CI IP.
+    def _retryable(row):
+        d = row.get("_drill") or {}
+        return (not d.get("date_posted")
+                and bool(_ADZUNA_DETAILS_RE.search(row.get("job_listings_url", ""))))
+
+    todo = adzuna_rows
+    for sweep in range(3):   # initial pass + up to 2 cooldown retries
+        if sweep > 0:
+            todo = [r for r in adzuna_rows if _retryable(r)]
+            if not todo:
+                break
+            print(f"    ⏳ age-gate: {len(todo)} row(s) rate-limited — cooling "
+                  f"down 60s, then retry sweep {sweep}")
+            time.sleep(60)
+        for row in todo:
+            time.sleep(2.0)   # space requests to stay under the rate limit
+            row["_drill"] = _fetch_details(row.get("job_listings_url", ""))
+
+    # 1b. Decide on each row from its final (possibly retried) fetch result.
+    dropped_old = no_date = 0
     for row in adzuna_rows:
-        time.sleep(2.0)   # be polite — back-to-back fetches trip Adzuna's rate limit
-        details = _fetch_details(row.get("job_listings_url", ""))
-        row["_drill"] = details   # stash for phase 2
-        posted = _parse_iso_date(details.get("date_posted", ""))
+        details = row.get("_drill") or {}
         emp = row.get("employer", "?")[:40]
+        posted = _parse_iso_date(details.get("date_posted", ""))
         if posted is None:
-            # Fetch blocked or no datePosted — log it so blocks are visible
-            # (we keep the row rather than risk dropping a fresh posting).
+            # Still no date after retries — keep (don't risk dropping a fresh
+            # posting we simply couldn't verify), but make it visible.
             no_date += 1
-            print(f"    · age-gate: {emp} — no datePosted (fetch blocked?)")
+            print(f"    · age-gate: {emp} — no datePosted (still blocked)")
             continue
         age = (today - posted).days
         if age > MAX_LISTING_AGE_DAYS:
@@ -419,7 +451,7 @@ def enrich_adzuna_rows(pool: list[dict]) -> None:
             print(f"    · age-gate: {emp} — {age}d old, keep")
     if no_date:
         print(f"    ⚠ age-gate: {no_date}/{len(adzuna_rows)} row(s) had no datePosted "
-              f"(blocked fetch) — these can't be aged out")
+              f"after retries — can't be aged out")
 
     # ── Phase 2: apply URL + snippet/employer (survivors only) ────────────
     for row in adzuna_rows:
