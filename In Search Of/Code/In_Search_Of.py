@@ -197,13 +197,14 @@ def apply_results(pool: list[dict], results: list[dict]) -> tuple[int, int]:
     return updated, dropped
 
 
-# A row's Job Listings URL is an Adzuna proxy when it's either the generic
-# details page (raw API postings) OR the tokenized land/ad apply redirect (what
-# an earlier drill-down may have already persisted). Both are wrong to show the
-# reader ("Apply: adzuna.com") and both can be resolved to the real employer URL.
-_ADZUNA_DETAILS_RE = re.compile(r"adzuna\.com/details/\d+", re.IGNORECASE)
-_ADZUNA_LAND_RE    = re.compile(r"adzuna\.com/land/ad/", re.IGNORECASE)
-_ADZUNA_ANY_RE     = re.compile(r"adzuna\.com/(?:details/\d+|land/ad/)", re.IGNORECASE)
+# A row's Job Listings URL is an Adzuna proxy when it's a details page
+# (adzuna.com/details/<id>) OR a land/ad redirect (adzuna.com/land/ad/<id>?...).
+# The API returns the land/ad form as `redirect_url`, and that link is dead-on-
+# click AND carries no date. Both forms embed the numeric job id, which is all
+# we need: from the id we fetch the canonical details page (real datePosted +
+# the working apply link), so we normalize via the id rather than the URL shape.
+_ADZUNA_ANY_RE = re.compile(r"adzuna\.com/(?:details|land/ad)/\d+", re.IGNORECASE)
+_ADZUNA_ID_RE  = re.compile(r"adzuna\.com/(?:details|land/ad)/(\d+)", re.IGNORECASE)
 _BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                "(KHTML, like Gecko) Chrome/124 Safari/537.36")
 
@@ -358,24 +359,29 @@ def _resolve_apply_url(land: str) -> tuple[str, str]:
 
 def _fetch_details(url: str) -> dict:
     """ONE fetch of the Adzuna details page → {date_posted, description,
-    employer, land}. Kept to a single request so the age gate for every row
-    fits under Adzuna's per-IP rate limit (it blocks the CI IP after ~9
-    requests; the old all-in-one drill burned 3 requests/row and only ~3 rows
-    got checked before the block). The expensive apply-URL resolution (2 more
-    requests: land → aggregator → employer) is done separately, afterwards,
-    for surviving rows only. `land` is the /land/ad apply-redirect URL."""
+    employer, land}. Works for EITHER URL shape (details/<id> or land/ad/<id>):
+    we pull the numeric job id and fetch the canonical
+    https://www.adzuna.com/details/<id> page. That matters because the API hands
+    us the land/ad form as `redirect_url` — a link that's dead-on-click and
+    carries no date — so fetching it directly (the old behavior) gave the age
+    gate nothing to check and left a dead apply link. The details page has the
+    real datePosted AND the working tokenized apply link (`land`), which the
+    separate apply-URL pass then follows to the employer site.
+
+    One request so the per-row age gate stays under Adzuna's rate limit."""
     out: dict = {}
-    if _ADZUNA_DETAILS_RE.search(url):
-        _, html = _fetch(url)
-        if html:
-            out.update(_job_posting_from_html(html))   # date_posted, description, employer
-            m = re.search(
-                r'href=["\'](https://www\.adzuna\.com/land/ad/[^"\']+)["\']',
-                html, re.IGNORECASE)
-            if m:
-                out["land"] = m.group(1).replace("&amp;", "&")
-    elif _ADZUNA_LAND_RE.search(url):
-        out["land"] = url
+    m = _ADZUNA_ID_RE.search(url)
+    if not m:
+        return out
+    details_url = f"https://www.adzuna.com/details/{m.group(1)}"
+    _, html = _fetch(details_url)
+    if html:
+        out.update(_job_posting_from_html(html))   # date_posted, description, employer
+        lm = re.search(
+            r'href=["\'](https://www\.adzuna\.com/land/ad/[^"\']+)["\']',
+            html, re.IGNORECASE)
+        if lm:
+            out["land"] = lm.group(1).replace("&amp;", "&")
     return out
 
 
@@ -409,7 +415,7 @@ def enrich_adzuna_rows(pool: list[dict]) -> None:
     def _retryable(row):
         d = row.get("_drill") or {}
         return (not d.get("date_posted")
-                and bool(_ADZUNA_DETAILS_RE.search(row.get("job_listings_url", ""))))
+                and bool(_ADZUNA_ANY_RE.search(row.get("job_listings_url", ""))))
 
     todo = adzuna_rows
     for sweep in range(3):   # initial pass + up to 2 cooldown retries
