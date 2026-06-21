@@ -343,17 +343,46 @@ def _meta_redirect(html: str) -> str:
     return ""
 
 
+# Domains that are redirectors/aggregators, not the employer — keep following
+# the chain while the current URL is still on one of these.
+_AGGREGATOR_HINTS = ("adzuna.", "appcast", "jobsyn")
+
+
 def _resolve_apply_url(land: str) -> tuple[str, str]:
-    """Follow an Adzuna /land/ad link to the real employer page. The land page
-    client-side-redirects to an aggregator which HTTP-redirects to the employer
-    site, so we read the meta/JS destination and follow THAT. Returns
-    (final_url, final_html)."""
+    """Follow an Adzuna /land/ad link through its redirect chain to the REAL
+    employer page, then return (final_url, final_html).
+
+    The chain mixes mechanisms and can be several hops:
+      - the land page meta-refreshes to an aggregator;
+      - de.jobsyn.org HTTP-redirects straight to the employer;
+      - appcast.io does a MULTI-HOP JS redirect — each page sets
+        `var url = "<next>"` and navigateTo()s to it, bouncing through a couple
+        of click.appcast.io hops before landing on the employer.
+    We follow up to a few hops until we leave the known aggregator domains.
+    Saving the final employer URL also means the reader never touches the
+    appcast click-tracker (whose single-use token can expire / fail to load)."""
     url, html = _fetch(land)
-    dest = _meta_redirect(html)
-    if dest:
-        url2, html2 = _fetch(dest)
-        if url2:
-            return url2, html2
+    for _ in range(6):
+        host = (urlparse(url).netloc or "").lower()
+        if not any(h in host for h in _AGGREGATOR_HINTS):
+            break   # reached the employer's own site
+        dest = _meta_redirect(html)
+        if dest and not dest.startswith(("http://", "https://")):
+            dest = ""   # ignore about:blank / relative defaults on interstitials
+        if not dest and ("appcast" in host or "navigateTo(" in html):
+            # appcast interstitial: the real target is either a JS
+            # `var url = "https://<next>"` or the 3rd arg of a navigateTo(...)
+            # call. Take the first https one (about:blank / beacons aren't it).
+            for p in (r'navigateTo\([^,]+,[^,]+,\s*["\'](https?://[^"\']+)["\']',
+                      r'\burl\s*=\s*["\'](https?://[^"\']+)["\']'):
+                m = re.search(p, html)
+                if m:
+                    dest = m.group(1).replace("&amp;", "&")
+                    break
+        if not dest:
+            break
+        nxt_url, nxt_html = _fetch(dest)
+        url, html = (nxt_url or dest), nxt_html
     return url, html
 
 
@@ -478,6 +507,21 @@ def enrich_adzuna_rows(pool: list[dict]) -> None:
                 emp = _job_posting_from_html(final_html)
                 details.setdefault("description", emp.get("description", ""))
                 details.setdefault("employer", emp.get("employer", ""))
+        # Safety net: if the apply link is STILL on an aggregator/adzuna domain,
+        # we never reached the employer's real posting (dead/consumed appcast
+        # click token, unresolved redirect, …). Drop it rather than ship a link
+        # that may not load — better to omit the job than send a dead apply URL.
+        final_host = (urlparse(row.get("job_listings_url", "")).netloc or "").lower()
+        if any(h in final_host for h in _AGGREGATOR_HINTS):
+            print(f"    ✗ unresolved apply link ({final_host or 'none'}): "
+                  f"{row.get('employer', '?')[:40]} — marking rejected")
+            dropped_ids.add(row["notion_page_id"])
+            try:
+                update_page(row["notion_page_id"], properties={
+                    "Status": {"select": {"name": "rejected"}}})
+            except Exception as e:
+                print(f"      (couldn't update Status to rejected: {e})")
+            continue
         # Fill the scraped snippet when blank so Claude has source text (the
         # 'no description' fix — raw Adzuna rows arrive with no snippet).
         if details.get("description") and not row.get("scraped_snippet"):
