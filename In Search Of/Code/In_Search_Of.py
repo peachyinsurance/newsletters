@@ -44,7 +44,9 @@ from newsletters_config import filter_by_env  # noqa: E402
 from claude_json import call_with_json_output  # noqa: E402
 
 
-CLAUDE_API_KEY = os.environ["CLAUDE_API_KEY"]
+# Lazy: the blurb pass needs this, but scrape_jobs.py imports this module only
+# for screen_adzuna_rows (no Claude calls), so don't hard-require it at import.
+CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY", "")
 from voice_helper import with_voice  # noqa: E402
 SKILL_PROMPT_PATH = (Path(__file__).parent.parent.parent
                      / "Skills" / "newsletter-in-search-of-skill_auto.md")
@@ -544,6 +546,60 @@ def enrich_adzuna_rows(pool: list[dict]) -> None:
         pool[:] = [r for r in pool if r["notion_page_id"] not in dropped_ids]
     if dropped_old:
         print(f"    ↳ {dropped_old} stale posting(s) (>{MAX_LISTING_AGE_DAYS}d) dropped")
+
+
+def screen_adzuna_rows(rows: list[dict]) -> list[dict]:
+    """In-memory resolve + age-gate for freshly-scraped Adzuna rows, run BEFORE
+    they are saved to Notion — so a raw adzuna.com link (which bot-walls,
+    expires, or is single-use) never lands in the DB in the first place.
+
+    For each row: read the true datePosted from the canonical details page and
+    drop it if older than MAX_LISTING_AGE_DAYS; resolve the apply link to the
+    real employer URL; and drop the row entirely if that link can't be moved
+    off the aggregator domains (adzuna/appcast/jobsyn). Returns the kept rows,
+    mutated in place with the resolved URL (and a backfilled snippet when the
+    employer page provides one). Non-Adzuna rows pass through untouched.
+
+    This is the same resolve-or-drop policy as enrich_adzuna_rows, but operating
+    on plain scrape dicts (no Notion writes) so the screening happens at intake.
+    A single fetch per row (the _fetch retry/backoff handles transient 429s);
+    we don't run the long cooldown sweeps here to keep the scrape responsive."""
+    today = datetime.date.today()
+    kept: list[dict] = []
+    stale = unresolved = 0
+    for row in rows:
+        url = row.get("job_listings_url", "")
+        if not _ADZUNA_ANY_RE.search(url):
+            kept.append(row)
+            continue
+        time.sleep(1.0)
+        details = _fetch_details(url)
+        posted = _parse_iso_date(details.get("date_posted", ""))
+        if posted is not None and (today - posted).days > MAX_LISTING_AGE_DAYS:
+            stale += 1
+            print(f"    ✗ stale ({(today - posted).days}d > {MAX_LISTING_AGE_DAYS}d): "
+                  f"{row.get('employer', '?')[:40]} — not saved")
+            continue
+        land = details.get("land")
+        if land:
+            final_url, final_html = _resolve_apply_url(land)
+            if final_url and not _is_adzuna_host(final_url):
+                row["job_listings_url"] = final_url
+            if final_html and not row.get("scraped_snippet"):
+                emp = _job_posting_from_html(final_html)
+                if emp.get("description"):
+                    row["scraped_snippet"] = emp["description"][:2000]
+        host = (urlparse(row.get("job_listings_url", "")).netloc or "").lower()
+        if any(h in host for h in _AGGREGATOR_HINTS):
+            unresolved += 1
+            print(f"    ✗ unresolved apply link ({host or 'none'}): "
+                  f"{row.get('employer', '?')[:40]} — not saved")
+            continue
+        kept.append(row)
+    if stale or unresolved:
+        print(f"  → screened Adzuna: dropped {stale} stale + {unresolved} "
+              f"unresolvable; kept {len(kept)}")
+    return kept
 
 
 def main() -> int:

@@ -33,6 +33,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..",
 from notion_save import existing_source_urls, save_job  # noqa: E402
 from job_sources import sources_for  # noqa: E402
 from adzuna_jobs import fetch_adzuna_jobs  # noqa: E402
+from In_Search_Of import screen_adzuna_rows  # noqa: E402
 from newsletters_config import get_newsletter  # noqa: E402
 
 ADZUNA_LIMIT = 8   # max individual postings to pull per newsletter per run
@@ -201,7 +202,11 @@ def main() -> int:
     print("\n── Adzuna local job postings ──")
     nl_cfg = get_newsletter(NEWSLETTER)
     if nl_cfg:
-        s, u, d = _save_rows(fetch_adzuna_jobs(nl_cfg, limit=ADZUNA_LIMIT), existing)
+        # Resolve each Adzuna posting to its real employer apply URL and drop
+        # stale / unresolvable ones BEFORE saving, so a raw adzuna.com link
+        # (bot-walled / single-use / expiring) never enters Notion.
+        adzuna_rows = screen_adzuna_rows(fetch_adzuna_jobs(nl_cfg, limit=ADZUNA_LIMIT))
+        s, u, d = _save_rows(adzuna_rows, existing)
         saved += s; updated += u; dropped += d
     else:
         print(f"  ⚠ no newsletter config for {NEWSLETTER}")
