@@ -14,7 +14,7 @@
     "timeliness_score": "6",
     "scoring_notes": "MoneyGeek is not on the preferred source list, but the underlying fact (30-day newborn coverage window) is well-established and consistent with NAIC consumer guidance. No preferred-source candidate covers this topic. Both East Cobb audiences have meaningful family populations — established families may have adult kids starting families of their own, and this tip is directly actionable with a concrete deadline mechanic. New topic, no dedup concern. Timeliness is evergreen but scores a 6 because summer is a common wedding and baby season, making it contextually reasonable.",
     "date_generated": "2026-06-26",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
   },
@@ -33,7 +33,7 @@
     "timeliness_score": "8",
     "scoring_notes": "No umbrella tip has appeared in the last 6 months across either newsletter — clean category. East Cobb at $118k median HHI and 78% homeownership is a textbook umbrella audience: meaningful assets, homeowners, likely multiple cars including teen drivers. Summer seasonality is real — pools, guests, increased teen driving miles all elevate liability exposure. Source link points to iii.org which is on the trusted list. Strong cross-audience fit. NOTE: The candidate list did not include an umbrella tip directly, so this was constructed from the iii.org trusted domain and the umbrella category gap. Per hard minimum rules, this is written as the strongest available non-candidate tip rather than returning fewer than 1 result.",
     "date_generated": "2026-06-26",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": "yes"
   },
@@ -52,7 +52,7 @@
     "timeliness_score": "9",
     "scoring_notes": "June in Georgia means heavy rain, flash flooding, and stressed sewer infrastructure — sewer backup is directly timely. 78% homeownership rate for East Cobb makes this highly relevant. Prior water damage tip (April) focused on the rain vs. flood distinction and flood insurance; this is a genuinely different angle: sewer/drain backup as a specific endorsement gap within a standard policy, not flood insurance at all. Actionable: readers can call their agent today to check. Source (U.S. News) is widely trusted for insurance content.",
     "date_generated": "2026-06-18",
-    "status": "rejected",
+    "status": "approved",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": "yes"
   },
