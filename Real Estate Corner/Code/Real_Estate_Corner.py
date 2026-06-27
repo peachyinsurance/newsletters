@@ -1,8 +1,20 @@
 #!/usr/bin/env python3
 """
 Newsletter Automation - Real Estate Corner
-Pulls one listing per price tier (Starter, Sweet Spot, Showcase) from Realtor.com
-via RapidAPI, generates blurbs via Claude, and saves to Notion.
+Features a single Showcase home from Realtor.com via RapidAPI. Listings are
+sorted by price (highest first), then up to 3 qualifying candidates are gathered
+via a distance-escalation ladder (see collect_showcase_candidates):
+  Phase 1 — within RE_RADIUS_MILES (5), top 15 homes by price.
+  Phase 2 — if none, re-evaluate those top 15 within RE_FALLBACK_RADIUS_MILES (10).
+  Phase 3 — if still none, resample the next 10 homes at the fallback radius,
+            repeating down the price-sorted list.
+Each candidate must also not have been previously featured. Claude then picks
+the most compelling one (it never sees or generates the listing URL — that's
+preserved from source). A blurb is generated and the pick is saved to Notion.
+
+Previously-featured homes are excluded FOREVER (by listing URL and address):
+cleanup_real_estate.py flips 'approved' → 'approved - old' but never archives
+those rows, so the exclusion history is permanent.
 """
 import os
 import sys
@@ -10,6 +22,7 @@ import json
 import time
 import re
 import re as _re   # alias used in the Showcase blurb price-stripper
+import math
 import random
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +46,54 @@ from voice_helper import with_voice  # noqa: E402
 SKILL_PROMPT_PATH = Path(__file__).parent.parent.parent / "Skills" / "newsletter-real-estate-skill_auto.md"
 
 REALTOR_HOST = "realtor-search.p.rapidapi.com"
+
+# Showcase home distance ladder (miles from the newsletter's central zip, whose
+# lat/lng live in newsletters_config). Per-newsletter overrides: "re_radius_miles"
+# and "re_fallback_radius_miles".
+#   Phase 1: PRIMARY radius, top (PHASE1_BATCH × PHASE1_BATCHES) homes by price.
+#   Phase 2: if NOTHING within PRIMARY, re-evaluate those same top homes at FALLBACK.
+#   Phase 3: if still nothing, resample the next PHASE3_BATCH homes at FALLBACK,
+#            repeating down the price-sorted list until candidates are found.
+RE_RADIUS_MILES = 5.0           # primary
+RE_FALLBACK_RADIUS_MILES = 10.0  # widened fallback
+CANDIDATES_WANTED = 3            # how many qualified homes to hand Claude
+PHASE1_BATCH = 5                 # "samplings" of 5…
+PHASE1_BATCHES = 3               # …×3 = top 15 homes scanned at the primary radius
+PHASE3_BATCH = 10               # resample window once we've widened to fallback
+
+
+def _haversine_miles(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle distance between two lat/lng points, in miles."""
+    R = 3958.7613  # Earth radius in miles
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlmb = math.radians(lng2 - lng1)
+    a = (math.sin(dphi / 2) ** 2
+         + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2)
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+def listing_distance_miles(raw: dict, center_lat: float, center_lng: float) -> float | None:
+    """Distance in miles from (center_lat, center_lng) to a raw API listing's
+    coordinate (location.address.coordinate.{lat,lon}). Returns None if the
+    listing has no usable coordinate so callers can decide how to treat it."""
+    if center_lat is None or center_lng is None:
+        return None
+    coord = (((raw.get("location") or {}).get("address") or {}).get("coordinate")) or {}
+    lat = coord.get("lat")
+    lng = coord.get("lon", coord.get("lng"))
+    if lat is None or lng is None:
+        return None
+    try:
+        return _haversine_miles(center_lat, center_lng, float(lat), float(lng))
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_address(addr: str) -> str:
+    """Lowercase, collapse whitespace — a stable key for de-duping listings by
+    street address when the listing URL differs run-to-run."""
+    return re.sub(r"\s+", " ", (addr or "").strip().lower())
 
 # ---------------------------------------------------------------------------
 # 2. LOAD SKILL PROMPT
@@ -77,6 +138,9 @@ def fetch_listings(location: str, limit: int = 100) -> list[dict]:
             "location": location,
             "limit":    str(REQUESTED_LIMIT),
             "page":     str(page),
+            # Most-expensive first so the highest-priced in-range home surfaces
+            # on the early pages (we only feature one Showcase home now).
+            "sortBy":   "highest_price",
         }
         try:
             res = requests.get(
@@ -262,43 +326,118 @@ def parse_listing(raw: dict) -> dict:
     }
 
 
-def pick_best_listing(listings: list[dict], target_price: int = 0,
-                      min_beds: int = 0, min_baths: int = 0) -> dict | None:
-    """Pick the listing closest to the target price (midpoint of range).
-    Prefers listings with photos and complete data as tiebreakers."""
-    if not listings:
-        return None
-    parsed = [parse_listing(r) for r in listings]
-    # Filter by bed/bath minimums
-    if min_beds or min_baths:
-        parsed = [p for p in parsed if (p["beds"] or 0) >= min_beds and (p["baths"] or 0) >= min_baths]
-    if not parsed:
-        return None
-    # Score: closeness to target price + data completeness
-    scored = []
-    for p in parsed:
-        score = 0
-        if p["photo_url"]:
-            score += 3
-        if p["sqft"]:
-            score += 2
-        if p["beds"] and p["baths"]:
-            score += 2
-        if p["year_built"]:
-            score += 1
-        # Distance from target price (lower = better), normalized to 0-5 range
-        if target_price and p["price"]:
-            distance = abs(p["price"] - target_price) / max(target_price, 1)
-            price_score = max(0, 5 - (distance * 10))  # 0 distance = 5 points, 50% off = 0
-            score += price_score
-        scored.append((score, p))
-    scored.sort(key=lambda x: -x[0])
-    return scored[0][1]
+def collect_showcase_candidates(pool: list[dict], center_lat, center_lng,
+                                excluded_addrs: set,
+                                primary: float = RE_RADIUS_MILES,
+                                fallback: float = RE_FALLBACK_RADIUS_MILES,
+                                want: int = CANDIDATES_WANTED) -> tuple[list[dict], float]:
+    """Walk a price-sorted pool of raw listings and gather up to `want` qualified
+    Showcase candidates, escalating distance as needed. Returns
+    (list[parsed_dict], radius_used_miles).
+
+    Ladder:
+      Phase 1 — within `primary` miles, top (PHASE1_BATCH × PHASE1_BATCHES) homes
+                by price ("3 samplings of 5"). If any qualify, use them.
+      Phase 2 — if NOTHING within `primary`, re-evaluate those same top homes at
+                the wider `fallback` radius.
+      Phase 3 — if still nothing, resample the next PHASE3_BATCH homes at
+                `fallback`, repeating down the list, accumulating up to `want`.
+
+    "Qualified" = within the active radius AND not previously featured (address
+    de-dupe; URL de-dupe happened upstream)."""
+
+    def scan(rows: list[dict], radius: float, acc: list[dict]) -> None:
+        for raw in rows:
+            if len(acc) >= want:
+                return
+            d = listing_distance_miles(raw, center_lat, center_lng)
+            if d is None or d > radius:
+                continue
+            parsed = parse_listing(raw)
+            if normalize_address(parsed.get("address", "")) in excluded_addrs:
+                print(f"    ↷ skip (already featured): ${parsed['price']:,} | {parsed['address']}")
+                continue
+            parsed["distance_mi"] = round(d, 2)
+            acc.append(parsed)
+            print(f"    + candidate {len(acc)} @ ≤{radius:g}mi: ${parsed['price']:,} | "
+                  f"{parsed['distance_mi']} mi | {parsed['address']}")
+
+    top_n = PHASE1_BATCH * PHASE1_BATCHES  # e.g. 15
+
+    # Phase 1 — primary radius, top homes.
+    print(f"  Phase 1: top {top_n} by price within {primary:g} mi")
+    acc: list[dict] = []
+    scan(pool[:top_n], primary, acc)
+    if acc:
+        return acc, primary
+
+    # Phase 2 — widen the SAME top homes to the fallback radius.
+    print(f"  Phase 2: nothing within {primary:g} mi — re-evaluating top {top_n} within {fallback:g} mi")
+    acc = []
+    scan(pool[:top_n], fallback, acc)
+    if acc:
+        return acc, fallback
+
+    # Phase 3 — resample the next PHASE3_BATCH homes at the fallback radius,
+    # walking down the price-sorted list until we have `want` or run out.
+    acc = []
+    start = top_n
+    while start < len(pool) and len(acc) < want:
+        end = start + PHASE3_BATCH
+        print(f"  Phase 3: resampling rows {start + 1}-{end} within {fallback:g} mi")
+        scan(pool[start:end], fallback, acc)
+        start = end
+    return acc, fallback
 
 
 # ---------------------------------------------------------------------------
 # 4. GENERATE BLURBS VIA CLAUDE
 # ---------------------------------------------------------------------------
+def select_best_showcase(candidates: list[dict], newsletter_display: str) -> int:
+    """Ask Claude to choose the single most compelling Showcase home from the
+    qualified candidates. Returns the 0-based index into `candidates`.
+
+    Claude is given ONLY descriptive facts (price, size, beds/baths, lot, year,
+    address) — NOT the listing URL, which is preserved from our source data and
+    must never be model-generated. With 0/1 candidate there's nothing to choose,
+    and any API/parse failure falls back to index 0 (the highest-priced home)."""
+    if len(candidates) <= 1:
+        return 0
+    client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+    lines = []
+    for i, c in enumerate(candidates, 1):
+        lines.append(
+            f"{i}. ${c.get('price', 0):,} | {c.get('beds', 0)}bd/{c.get('baths', 0)}ba | "
+            f"{c.get('sqft', 0):,} sqft | {c.get('type', '')} | built {c.get('year_built') or '?'} | "
+            f"lot {c.get('lot_sqft', 0):,} sqft | {c.get('address', '')}"
+        )
+    prompt = (
+        f"You are choosing the single most compelling Showcase home for the "
+        f"{newsletter_display} area newsletter — the one readers will most want "
+        f"to gawk at. Weigh size, beds/baths, lot, year built, and address "
+        f"appeal (price matters less; they're all top-of-market).\n\n"
+        f"Candidates:\n" + "\n".join(lines) +
+        f"\n\nReply with ONLY the number (1-{len(candidates)}) of the best home. "
+        f"No other text."
+    )
+    try:
+        resp = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=10,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        txt = "".join(b.text for b in (resp.content or []) if getattr(b, "type", "") == "text")
+        m = re.search(r"\d+", txt)
+        if m:
+            idx = int(m.group(0)) - 1
+            if 0 <= idx < len(candidates):
+                return idx
+        print(f"    ⚠ Claude selection unparseable ('{txt.strip()}'); using highest-priced")
+    except Exception as e:
+        print(f"    ⚠ Claude selection failed ({e}); using highest-priced")
+    return 0
+
+
 def generate_blurbs(listings: list[dict], skill_prompt: str, newsletter_display: str) -> list[dict]:
     """Generate blurbs for the three tier listings."""
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
@@ -425,28 +564,49 @@ Listings:
 NOTION_RE_DB_ID = os.environ.get("NOTION_RE_DB_ID", "")
 
 
-def get_used_listing_urls(newsletter_name: str) -> set:
-    """Get listing URLs already used for this newsletter (to prevent repeats)."""
+def get_used_listing_keys(newsletter_name: str) -> dict:
+    """Get the listing URLs AND normalized addresses already used for this
+    newsletter, so a previously-featured high-value home doesn't repeat.
+
+    Matching on both keys is belt-and-suspenders: Realtor listing URLs usually
+    carry the property id, but re-listings (new MLS number, same house) reuse
+    the address — so the address key catches repeats the URL key would miss.
+
+    The rolling exclusion window is enforced upstream by cleanup_real_estate.py,
+    which archives rows out of the DB after 8 weeks; whatever is still queryable
+    here is therefore the live exclusion set.
+
+    Returns {"urls": set[str], "addresses": set[str]}."""
+    keys = {"urls": set(), "addresses": set()}
     if not NOTION_RE_DB_ID:
-        return set()
+        return keys
     try:
         pages = query_database(NOTION_RE_DB_ID)
-        urls = set()
         for page in pages:
-            nl = (page["properties"].get("Newsletter", {}).get("select") or {}).get("name", "")
+            props = page["properties"]
+            nl = (props.get("Newsletter", {}).get("select") or {}).get("name", "")
             if nl != newsletter_name:
                 continue
-            url = page["properties"].get("Listing URL", {}).get("url", "")
+            url = props.get("Listing URL", {}).get("url", "")
             if url:
-                urls.add(url)
-        print(f"  Loaded {len(urls)} previously used listing URLs to exclude")
-        return urls
+                keys["urls"].add(url)
+            addr_rt = props.get("Address", {}).get("rich_text", [])
+            addr = addr_rt[0].get("text", {}).get("content", "") if addr_rt else ""
+            norm = normalize_address(addr)
+            if norm:
+                keys["addresses"].add(norm)
+        print(f"  Loaded {len(keys['urls'])} used URL(s) + "
+              f"{len(keys['addresses'])} used address(es) to exclude")
+        return keys
     except Exception:
-        return set()
+        return keys
 
 
 def cleanup_old_re_listings() -> None:
-    """Delete real estate entries older than 8 weeks."""
+    """Archive stale CANDIDATE rows (pending / rejected / blank) older than 8
+    weeks. Featured homes ('approved' and 'approved - old') are kept FOREVER so
+    a high-value home is never re-featured — they form the permanent exclusion
+    history read by get_used_listing_keys()."""
     if not NOTION_RE_DB_ID:
         return
     from notion_helper import archive_page
@@ -461,12 +621,18 @@ def cleanup_old_re_listings() -> None:
         pages = []
     count = 0
     for page in pages:
-        name = page["properties"].get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+        props = page["properties"]
+        status = (props.get("Status", {}).get("select") or {}).get("name", "")
+        # Permanent retention for anything ever featured.
+        if status in ("approved", "approved - old"):
+            continue
+        name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
         archive_page(page["id"])
-        print(f"  Archived: {name}")
+        print(f"  Archived stale candidate: {name} (status: '{status}')")
         count += 1
     if count:
-        print(f"  Archived {count} real estate listings older than 8 weeks")
+        print(f"  Archived {count} stale candidate rows older than 8 weeks "
+              f"(featured homes kept forever)")
 
 
 def _round_to_listing_increment(price: int) -> int:
@@ -629,16 +795,19 @@ if __name__ == "__main__":
         print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
         print(f"{'='*60}")
 
-        # Load previously used listings to exclude
-        excluded_urls = get_used_listing_urls(newsletter["name"])
+        # Load previously featured homes to exclude (URLs + addresses).
+        excluded = get_used_listing_keys(newsletter["name"])
+        excluded_urls = excluded["urls"]
+        excluded_addrs = excluded["addresses"]
 
-        # Fetch all listings once, then filter per tier
-        all_listings = fetch_listings(location=newsletter["realtor_location"], limit=100)
+        # Fetch listings (highest-priced first via sortBy).
+        all_listings = fetch_listings(location=newsletter["realtor_location"], limit=160)
         if not all_listings:
             print(f"  No listings found for {newsletter['name']}. Skipping.")
             continue
 
-        # Remove previously featured listings
+        # Remove previously featured listings (URL match; address match happens
+        # at pick time once we've parsed the candidate).
         before_count = len(all_listings)
         all_listings = [r for r in all_listings if
                         r.get("href", "") not in excluded_urls and
@@ -670,170 +839,51 @@ if __name__ == "__main__":
             print(f"  No listings with valid URLs for {newsletter['name']}. Skipping.")
             continue
 
+        # Showcase config drives the property-type / bed / bath filters. We no
+        # longer run Starter / Sweet Spot tiers — the section features a single
+        # Showcase home: the highest-priced qualifying listing within range.
         tiers = newsletter["real_estate_tiers"]
+        showcase_cfg = next((t for t in tiers if t.get("name") == "Showcase"), tiers[-1])
         tier_listings = []
-        used_ids = set()
 
-        # Adaptive tier ranges
-        STEP = 100000
-        RANGE_WIDTH = 300000
+        center_lat = newsletter.get("lat")
+        center_lng = newsletter.get("lng")
+        primary  = float(newsletter.get("re_radius_miles", RE_RADIUS_MILES))
+        fallback = float(newsletter.get("re_fallback_radius_miles", RE_FALLBACK_RADIUS_MILES))
 
-        starter_cfg = tiers[0]
-        sweet_cfg   = tiers[1]
-        showcase_cfg = tiers[2]
-
-        starter_max = starter_cfg["max_price"]
-        sweet_min   = sweet_cfg["min_price"]
-        sweet_max   = sweet_cfg["max_price"]
-        showcase_min = showcase_cfg["min_price"]
-
-        # --- STARTER: expand upward until we find a hit ---
-        starter_result = None
-        for attempt in range(6):
-            cur_max = starter_max + (attempt * STEP)
-            tier_filtered = filter_by_tier(
-                all_listings, starter_cfg["min_price"], cur_max,
-                min_beds=starter_cfg["min_beds"], min_baths=starter_cfg["min_baths"],
-                type_filter=starter_cfg.get("type_filter"),
-            )
-            tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
-            target = cur_max // 2
-            starter_result = pick_best_listing(tier_filtered, target_price=target,
-                                              min_beds=starter_cfg["min_beds"], min_baths=starter_cfg["min_baths"])
-            if starter_result:
-                if attempt > 0:
-                    print(f"\n  🏠 Starter Home (expanded to <${cur_max//1000}k)")
-                else:
-                    print(f"\n  🏠 Starter Home (<${starter_max//1000}k)")
-                ptype = starter_cfg.get('type_filter') or 'all types'
-                print(f"    Filter: {ptype} | {starter_cfg['min_beds']}+bd/{starter_cfg['min_baths']}+ba")
-                print(f"    ✓ ${starter_result['price']:,} | {starter_result['address']} | {starter_result['beds']}bd/{starter_result['baths']}ba")
-                starter_result["tier"] = "Starter"
-                starter_result["tier_label"] = "🏠 Starter Home"
-                tier_listings.append(starter_result)
-                used_ids.add(starter_result["property_id"])
-                delta = attempt * STEP
-                sweet_min = sweet_min + delta
-                sweet_max = sweet_min + RANGE_WIDTH
-                break
-        if not starter_result:
-            print(f"\n  🏠 Starter Home — no listings found")
-
-        # --- SWEET SPOT ---
-        sweet_target = (sweet_min + sweet_max) // 2
-        ptype = sweet_cfg.get('type_filter') or 'all types'
-        print(f"\n  🏡 Sweet Spot (${sweet_min//1000}k-${sweet_max//1000}k, target ~${sweet_target//1000}k)")
-        print(f"    Filter: {ptype}")
-        tier_filtered = filter_by_tier(
-            all_listings, sweet_min, sweet_max,
-            min_beds=sweet_cfg["min_beds"], min_baths=sweet_cfg["min_baths"],
-            type_filter=sweet_cfg.get("type_filter"),
+        # Price-sorted pool of qualifying single-family homes, highest first.
+        ptype = showcase_cfg.get("type_filter") or "all types"
+        pool = filter_by_tier(
+            all_listings, 0, None,
+            min_beds=showcase_cfg.get("min_beds", 0),
+            min_baths=showcase_cfg.get("min_baths", 0),
+            type_filter=showcase_cfg.get("type_filter"),
         )
-        tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
-        print(f"    {len(tier_filtered)} listings in range")
-        sweet_result = pick_best_listing(tier_filtered, target_price=sweet_target)
-        if sweet_result:
-            sweet_result["tier"] = "Sweet Spot"
-            sweet_result["tier_label"] = "🏡 Sweet Spot"
-            tier_listings.append(sweet_result)
-            used_ids.add(sweet_result["property_id"])
-            print(f"    ✓ ${sweet_result['price']:,} | {sweet_result['address']} | {sweet_result['beds']}bd/{sweet_result['baths']}ba")
-        else:
-            print(f"    ✗ No listings in Sweet Spot range")
+        pool.sort(key=lambda r: (r.get("list_price") or 0), reverse=True)
+        print(f"\n  🏰 Showcase — {primary:g} mi → {fallback:g} mi ladder around {newsletter.get('zip', '?')}")
+        print(f"    Filter: {ptype} | {showcase_cfg.get('min_beds', 0)}+bd/"
+              f"{showcase_cfg.get('min_baths', 0)}+ba | {len(pool)} qualifying listing(s)")
 
-        # --- SHOWCASE ---
-        # If Sweet Spot found a listing:
-        #   1) Try ≥ 1.5× the Sweet Spot price (matching beds/baths/type filter).
-        #   2) If none, take the most expensive remaining listing priced above
-        #      the Sweet Spot. (NO shrink-down to a fixed floor — straight to
-        #      highest-available, since the goal is "show a higher-tier home"
-        #      not "show a $1M home".)
-        # If Sweet Spot is empty:
-        #   Use the configured floor with shrink-down (legacy behavior),
-        #   then last-resort to highest-priced.
+        qualified, radius_used = collect_showcase_candidates(
+            pool, center_lat, center_lng, excluded_addrs,
+            primary=primary, fallback=fallback,
+        )
+
         showcase_result = None
-        ptype = showcase_cfg.get('type_filter') or 'all types'
-
-        if sweet_result and sweet_result.get("price"):
-            sweet_price = sweet_result["price"]
-            showcase_target = int(sweet_price * 1.5)
-            print(f"\n  🏰 Showcase (target ≥ ${showcase_target:,} = 1.5× Sweet Spot)")
-            print(f"    Filter: {ptype}")
-
-            # Step 1: try ≥ 1.5× target
-            tier_filtered = filter_by_tier(
-                all_listings, showcase_target, None,
-                min_beds=showcase_cfg["min_beds"], min_baths=showcase_cfg["min_baths"],
-                type_filter=showcase_cfg.get("type_filter"),
-            )
-            tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
-            showcase_result = pick_best_listing(tier_filtered, target_price=showcase_target)
-
-            # Step 2: highest-priced remaining above Sweet Spot (no fixed floor)
-            if not showcase_result:
-                tier_filtered = filter_by_tier(
-                    all_listings, sweet_price + 1, None,
-                    min_beds=showcase_cfg["min_beds"], min_baths=showcase_cfg["min_baths"],
-                    type_filter=showcase_cfg.get("type_filter"),
-                )
-                tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
-                if tier_filtered:
-                    # tier_filtered is RAW API rows (use list_price). Sort
-                    # highest-first then run through parse_listing so the
-                    # returned dict has the expected `price` / `address` keys.
-                    tier_filtered_sorted = sorted(
-                        tier_filtered,
-                        key=lambda r: (r.get("list_price") or 0),
-                        reverse=True,
-                    )
-                    showcase_result = parse_listing(tier_filtered_sorted[0])
-                    print(f"    (none at 1.5× — using highest-priced above Sweet Spot: ${showcase_result['price']:,})")
-        else:
-            # No Sweet Spot anchor → original shrink-down from configured floor
-            print(f"\n  🏰 Showcase (Sweet Spot empty — using configured floor)")
-            print(f"    Filter: {ptype}")
-            for attempt in range(4):
-                cur_min = showcase_min - (attempt * STEP)
-                if cur_min < sweet_max:
-                    break
-                tier_filtered = filter_by_tier(
-                    all_listings, cur_min, None,
-                    min_beds=showcase_cfg["min_beds"], min_baths=showcase_cfg["min_baths"],
-                    type_filter=showcase_cfg.get("type_filter"),
-                )
-                tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
-                showcase_result = pick_best_listing(tier_filtered, target_price=cur_min)
-                if showcase_result:
-                    print(f"    (fallback floor ${cur_min//1000}k+)")
-                    break
-            # And finally last-resort to highest-priced of any remaining
-            if not showcase_result:
-                tier_filtered = filter_by_tier(
-                    all_listings, 0, None,
-                    min_beds=showcase_cfg["min_beds"], min_baths=showcase_cfg["min_baths"],
-                    type_filter=showcase_cfg.get("type_filter"),
-                )
-                tier_filtered = [r for r in tier_filtered if r.get("property_id") not in used_ids]
-                if tier_filtered:
-                    # tier_filtered is RAW API rows (use list_price). Sort
-                    # highest-first then run through parse_listing so the
-                    # returned dict has the expected `price` / `address` keys.
-                    tier_filtered_sorted = sorted(
-                        tier_filtered,
-                        key=lambda r: (r.get("list_price") or 0),
-                        reverse=True,
-                    )
-                    showcase_result = parse_listing(tier_filtered_sorted[0])
-                    print(f"    (last-resort highest-priced: ${showcase_result['price']:,})")
-
-        if showcase_result:
-            print(f"    ✓ ${showcase_result['price']:,} | {showcase_result['address']} | {showcase_result['beds']}bd/{showcase_result['baths']}ba")
+        if qualified:
+            # Claude picks the most compelling of the qualified candidates. It
+            # never sees or generates the listing URL — that's preserved from
+            # our source data through the merge step below.
+            chosen = select_best_showcase(qualified, newsletter["display_area"])
+            showcase_result = qualified[chosen]
+            print(f"    ★ Claude selected #{chosen + 1} of {len(qualified)} "
+                  f"(within {radius_used:g} mi): ${showcase_result['price']:,} | "
+                  f"{showcase_result['address']}")
             showcase_result["tier"] = "Showcase"
             showcase_result["tier_label"] = "🏰 Showcase"
             tier_listings.append(showcase_result)
-            used_ids.add(showcase_result["property_id"])
         else:
-            print(f"\n  🏰 Showcase — no listings found")
+            print(f"    ✗ Showcase — no qualifying homes within {fallback:g} mi")
 
         if not tier_listings:
             print(f"  No listings found for {newsletter['name']}. Skipping.")

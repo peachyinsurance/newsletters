@@ -273,6 +273,14 @@ def _session():
         try:
             from curl_cffi import requests as _cffi
             _CFFI_SESSION = _cffi.Session(impersonate="chrome120")
+            # Warm the session: hit Adzuna's homepage once so it sets its
+            # bot-clearance cookie before we request /details pages. Without a
+            # prior cookie, datacenter IPs (CI) often get a hard 403 on the very
+            # first details fetch. Best-effort — ignore any failure.
+            try:
+                _CFFI_SESSION.get("https://www.adzuna.com/", timeout=15)
+            except Exception:
+                pass
         except ImportError:
             _CFFI_SESSION = False
     return _CFFI_SESSION
@@ -496,21 +504,35 @@ def enrich_adzuna_rows(pool: list[dict]) -> None:
                 emp = _job_posting_from_html(final_html)
                 details.setdefault("description", emp.get("description", ""))
                 details.setdefault("employer", emp.get("employer", ""))
-        # Safety net: if the apply link is STILL on an aggregator/adzuna domain,
-        # we never reached the employer's real posting (dead/consumed appcast
-        # click token, unresolved redirect, …). Drop it rather than ship a link
-        # that may not load — better to omit the job than send a dead apply URL.
+        # If the apply link is STILL on an aggregator/adzuna domain, we never
+        # reached the employer's own posting — either Adzuna blocked our server
+        # (403/429) so we couldn't drill, or the land/appcast token was dead.
+        # Rather than drop the row (which empties the whole section when Adzuna
+        # blocks CI), fall back to the CANONICAL Adzuna details page: a normal
+        # job listing that loads fine for readers (they're not on our blocked
+        # IP) and carries its own Apply button. Only reject if we can't even
+        # extract an id to build that URL — then there's no salvageable link.
         final_host = (urlparse(row.get("job_listings_url", "")).netloc or "").lower()
         if any(h in final_host for h in _AGGREGATOR_HINTS):
-            print(f"    ✗ unresolved apply link ({final_host or 'none'}): "
-                  f"{row.get('employer', '?')[:40]} — marking rejected")
-            dropped_ids.add(row["notion_page_id"])
-            try:
-                update_page(row["notion_page_id"], properties={
-                    "Status": {"select": {"name": "rejected"}}})
-            except Exception as e:
-                print(f"      (couldn't update Status to rejected: {e})")
-            continue
+            idm = _ADZUNA_ID_RE.search(url)
+            if idm:
+                canonical = f"https://www.adzuna.com/details/{idm.group(1)}"
+                if row.get("job_listings_url") != canonical:
+                    row["job_listings_url"] = canonical
+                    patch["Job Listings URL"] = {"url": canonical}
+                print(f"    ↪ couldn't reach employer site for "
+                      f"{row.get('employer', '?')[:40]} — keeping Adzuna details page")
+                # fall through: persist the canonical URL + any backfill below
+            else:
+                print(f"    ✗ unresolved apply link (no id): "
+                      f"{row.get('employer', '?')[:40]} — marking rejected")
+                dropped_ids.add(row["notion_page_id"])
+                try:
+                    update_page(row["notion_page_id"], properties={
+                        "Status": {"select": {"name": "rejected"}}})
+                except Exception as e:
+                    print(f"      (couldn't update Status to rejected: {e})")
+                continue
         # Fill the scraped snippet when blank so Claude has source text (the
         # 'no description' fix — raw Adzuna rows arrive with no snippet).
         if details.get("description") and not row.get("scraped_snippet"):
@@ -578,8 +600,18 @@ def screen_adzuna_rows(rows: list[dict]) -> list[dict]:
                     row["scraped_snippet"] = emp["description"][:2000]
         host = (urlparse(row.get("job_listings_url", "")).netloc or "").lower()
         if any(h in host for h in _AGGREGATOR_HINTS):
+            # Couldn't reach the employer site (Adzuna block or dead token).
+            # Keep the row with the canonical Adzuna details page (works for
+            # readers) instead of dropping it; only skip if there's no id.
+            idm = _ADZUNA_ID_RE.search(url)
+            if idm:
+                row["job_listings_url"] = f"https://www.adzuna.com/details/{idm.group(1)}"
+                print(f"    ↪ couldn't reach employer site "
+                      f"({row.get('employer', '?')[:40]}) — keeping Adzuna details page")
+                kept.append(row)
+                continue
             unresolved += 1
-            print(f"    ✗ unresolved apply link ({host or 'none'}): "
+            print(f"    ✗ unresolved apply link (no id): "
                   f"{row.get('employer', '?')[:40]} — not saved")
             continue
         kept.append(row)

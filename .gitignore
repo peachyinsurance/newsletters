@@ -1,0 +1,16 @@
+# GitHub Actions self-hosted runner install — contains credentials, do NOT commit
+actions-runner/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Secrets / local env
+.env
+*.env
+
+# macOS
+.DS_Store

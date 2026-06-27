@@ -768,7 +768,16 @@ def _rewrite_weekend_link_text(clone_soup, ev: dict) -> None:
         txt = (a.get_text() or "").strip().lower()
         if href == url or url in href or txt in ("more info", "more"):
             a.clear()
-            a.append(label)
+            # Bold via inline style on the anchor itself. Beehiiv forces a
+            # font-weight on link text, which overrides a nested <strong>'s
+            # default boldness — an inline style with !important wins.
+            existing_style = (a.get("style") or "").rstrip("; ")
+            a["style"] = (existing_style + "; " if existing_style else "") + \
+                "font-weight:700 !important;"
+            strong = clone_soup.new_tag("strong")
+            strong["style"] = "font-weight:700 !important;"
+            strong.string = label
+            a.append(strong)
 
 
 def _weekend_image_mutator(clone_soup, ev: dict) -> None:

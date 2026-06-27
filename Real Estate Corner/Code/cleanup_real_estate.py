@@ -3,23 +3,21 @@
 Cleanup real estate weekly:
   - Flip 'approved' rows → 'approved - old' so the slot is freed for the next week
     while the row stays in the exclusion list (anti-repeat history).
-  - Keep 'approved - old' rows newer than 8 weeks (still useful for exclusion).
-  - Archive 'approved - old' rows older than 8 weeks.
+  - Keep 'approved - old' rows FOREVER — a featured high-value home is never
+    re-featured, so its row must persist as permanent exclusion history.
   - Archive 'pending' / 'rejected' / blank-status rows (stale candidates).
 
-This mirrors cleanup_pets_notion() so the rolling exclusion behaves consistently
-across sections.
+Anti-repeat is permanent for Real Estate (unlike pets), because the high-end
+inventory in a 5-mile radius is small and repeats are very noticeable.
 """
 import os
 import sys
-from datetime import datetime, timedelta
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import query_database, archive_page, update_page
 
 NOTION_RE_DB_ID = os.environ.get("NOTION_RE_DB_ID", "")
 NEWSLETTER_SCOPE = (os.environ.get("NEWSLETTER") or "all").strip()
-APPROVED_OLD_WEEKS = 8
 
 
 def cleanup_real_estate_notion() -> None:
@@ -27,8 +25,7 @@ def cleanup_real_estate_notion() -> None:
         print("  NOTION_RE_DB_ID not set — skipping cleanup")
         return
 
-    cutoff = (datetime.today() - timedelta(weeks=APPROVED_OLD_WEEKS)).strftime("%Y-%m-%d")
-    print(f"  Cutoff for 'approved - old' archival: {cutoff} ({APPROVED_OLD_WEEKS} weeks ago)")
+    print("  Featured homes ('approved' / 'approved - old') are kept FOREVER (permanent anti-repeat)")
     if NEWSLETTER_SCOPE.lower() != "all":
         print(f"  Scope: {NEWSLETTER_SCOPE} (rows for other newsletters are skipped)")
 
@@ -65,19 +62,19 @@ def cleanup_real_estate_notion() -> None:
             continue
 
         if status_name == "approved - old":
-            if not date_str or date_str >= cutoff:
-                kept_old += 1
-                print(f"  🔒 Keeping 'approved - old': {title} (date: {date_str})")
-                continue  # within window — keep for exclusion
+            # Permanent retention — never archived, regardless of age.
+            kept_old += 1
+            print(f"  🔒 Keeping 'approved - old' forever: {title} (date: {date_str})")
+            continue
 
-        # Anything else (pending/rejected/blank/expired approved-old) → archive
+        # Stale CANDIDATE rows (pending / rejected / blank) → archive.
         archive_page(page_id)
-        print(f"  Archived: {title} (status: '{status_name}', date: {date_str})")
+        print(f"  Archived stale candidate: {title} (status: '{status_name}', date: {date_str})")
         archived += 1
 
     print(f"\nFlipped  {flipped} 'approved' → 'approved - old'")
-    print(f"Kept     {kept_old} 'approved - old' rows within {APPROVED_OLD_WEEKS}-week window")
-    print(f"Archived {archived} stale RE entries (pending / rejected / >{APPROVED_OLD_WEEKS}w old)")
+    print(f"Kept     {kept_old} 'approved - old' rows (permanent exclusion)")
+    print(f"Archived {archived} stale candidate rows (pending / rejected / blank)")
     if NEWSLETTER_SCOPE.lower() != "all":
         print(f"Skipped  {skipped_scope} rows belonging to other newsletters (scope: {NEWSLETTER_SCOPE})")
 
