@@ -17,12 +17,14 @@ the quirk in the wrapper.
 """
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
 import sys
 import time
 from datetime import date, datetime, timedelta
+from urllib.parse import urlparse
 
 import requests
 
@@ -217,6 +219,154 @@ def normalize_event(ev: dict) -> dict:
     }
 
 
+def _rest_events_endpoint(source_url: str) -> str:
+    """Derive the Events Calendar REST endpoint for a site from any of its page
+    URLs → https://host/wp-json/tribe/events/v1/events. '' if unparseable."""
+    p = urlparse(source_url)
+    if not p.scheme or not p.netloc:
+        return ""
+    return f"{p.scheme}://{p.netloc}/wp-json/tribe/events/v1/events"
+
+
+def normalize_rest_event(ev: dict) -> dict:
+    """Map one Events Calendar REST API event object into our Notion row dict
+    (same shape as normalize_event, which maps JSON-LD)."""
+    sdd = ev.get("start_date_details") or {}
+    edd = ev.get("end_date_details") or {}
+
+    def _date_from(details: dict, fallback: str):
+        try:
+            return date(int(details["year"]), int(details["month"]), int(details["day"]))
+        except Exception:
+            return _parse_iso_date(fallback)
+
+    start = _date_from(sdd, ev.get("start_date", ""))
+    end   = _date_from(edd, ev.get("end_date", ""))
+
+    # Time string (skip all-day / midnight). End time dropped when it's the
+    # 23:59 all-day sentinel.
+    time_str = ""
+    try:
+        if not ev.get("all_day"):
+            sh, sm = int(sdd.get("hour", 0)), int(sdd.get("minutes", 0))
+            if sh or sm:
+                time_str = datetime(2000, 1, 1, sh, sm).strftime("%-I:%M %p")
+                eh, em = int(edd.get("hour", 0)), int(edd.get("minutes", 0))
+                if (eh or em) and not (eh == 23 and em == 59):
+                    time_str += " – " + datetime(2000, 1, 1, eh, em).strftime("%-I:%M %p")
+    except Exception:
+        pass
+
+    img = ev.get("image")
+    image_url = (img.get("url", "") if isinstance(img, dict)
+                 else (img if isinstance(img, str) else "")) or ""
+
+    ven = ev.get("venue") if isinstance(ev.get("venue"), dict) else {}
+    loc_name = _clean_html(html.unescape(ven.get("venue", "") or ""))
+    city = (ven.get("city", "") or "").strip().lower()
+    addr_parts = [ven.get("address", ""), ven.get("city", ""), ven.get("stateprovince", "")]
+    address = _clean_html(", ".join(p for p in addr_parts if p))
+    geo_lat = geo_lng = None
+    try:
+        geo_lat = float(ven.get("geo_lat"))
+        geo_lng = float(ven.get("geo_lng"))
+        if not (-90 <= geo_lat <= 90 and -180 <= geo_lng <= 180):
+            geo_lat = geo_lng = None
+    except (TypeError, ValueError):
+        geo_lat = geo_lng = None
+
+    name = _clean_html(html.unescape(ev.get("title", "") or ""))
+    description = _trim_series_description(
+        _clean_html(html.unescape(ev.get("description", "") or "")), start)
+
+    return {
+        "event_name":  name,
+        "description": description[:2000],
+        "source_url":  ev.get("url", "") or "",
+        "image_url":   image_url,
+        "start_date":  start,
+        "end_date":    end,
+        "time":        time_str,
+        "location":    loc_name,
+        "address":     address,
+        "city":        city,
+        "geo_lat":     geo_lat,
+        "geo_lng":     geo_lng,
+        # REST exposes the published price as a plain string ('Free', '$25', …).
+        "price":       (ev.get("cost") or "").strip(),
+    }
+
+
+def fetch_events_rest(source_url: str, start_d, end_d, max_pages: int = 20):
+    """Fetch every event in [start_d, end_d] from the site's Events Calendar
+    REST API, normalized to our row dicts. Paginates 50/page until done.
+
+    Returns None when the endpoint isn't usable (missing plugin route, non-JSON,
+    transport error) so the caller falls back to the HTML walker. Returns [] when
+    the API works but the window holds no events."""
+    endpoint = _rest_events_endpoint(source_url)
+    if not endpoint:
+        return None
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    raw: list[dict] = []
+    saw_valid = False
+    page = 1
+    while page <= max_pages:
+        params = {
+            "start_date": start_d.isoformat(),
+            "end_date":   end_d.isoformat(),
+            "per_page":   50,
+            "page":       page,
+        }
+        # Retry transient Cloudflare soft-challenges (202/429/503) that front
+        # some of these sites — same codes the HTML fetcher rides out — before
+        # giving up and falling back.
+        r = None
+        for attempt in range(3):
+            try:
+                r = requests.get(endpoint, params=params, headers=headers, timeout=15)
+            except Exception as e:
+                print(f"    [REST] request error (attempt {attempt + 1}/3): {e}")
+                time.sleep(2 * (attempt + 1))
+                r = None
+                continue
+            if r.status_code in (202, 429, 503) and attempt < 2:
+                wait = 3 * (attempt + 1)
+                print(f"    [REST page {page}] HTTP {r.status_code} — retry {attempt + 1}/3 in {wait}s")
+                time.sleep(wait)
+                continue
+            break
+        if r is None:
+            return [normalize_rest_event(x) for x in raw] if saw_valid else None
+        # TEC returns 404 with code 'event-archive-page-not-found' when the
+        # window has no (more) events — a valid empty result, not a missing
+        # endpoint ('rest_no_route'). Distinguish via the body's code.
+        if r.status_code == 404:
+            try:
+                code = (r.json() or {}).get("code", "")
+            except Exception:
+                code = ""
+            if "page-not-found" in code:
+                break  # no more events in window — done
+            return None  # rest_no_route / not a TEC REST site → fall back
+        if r.status_code != 200:
+            print(f"    [REST] HTTP {r.status_code}")
+            return [normalize_rest_event(x) for x in raw] if saw_valid else None
+        try:
+            data = r.json()
+        except Exception:
+            return None
+        if not isinstance(data, dict) or "events" not in data:
+            return None
+        saw_valid = True
+        raw.extend(data.get("events") or [])
+        total_pages = data.get("total_pages") or 1
+        if page >= total_pages or not data.get("next_rest_url"):
+            break
+        page += 1
+    return [normalize_rest_event(x) for x in raw]
+
+
 def run_tribe_source(source_url: str, newsletter: str,
                      db_id: str | None = None,
                      end_window_days: int = END_WINDOW_DAYS,
@@ -251,55 +401,74 @@ def run_tribe_source(source_url: str, newsletter: str,
     skipped_past   = 0
     skipped_future = 0
 
-    print(f"━━ {source_url} ━━")
-    page = 1
-    while True:
-        events = fetch_page_events(source_url, page)
-        if not events:
-            print(f"  [page {page}] no events — stopping")
-            break
-        new_occurrences = 0
-        all_past_end    = True
-        for raw in events:
-            ev = normalize_event(raw)
-            url = ev.get("source_url", "")
-            sd  = ev.get("start_date")
-            name = ev.get("event_name", "")
-            if not url or not sd or not name:
-                continue
-            if is_cancelled_event(name, ev.get("description", "")):
-                continue
-            if is_inappropriate_event(name, ev.get("description", ""),
-                                      ev.get("location", "")):
-                continue
-            key = (url, sd.isoformat())
-            if key in seen_occurrences:
-                continue
-            seen_occurrences.add(key)
-            new_occurrences += 1
-            if sd > window_end:
-                skipped_future += 1
-                continue
-            all_past_end = False
-            if sd < today:
-                skipped_past += 1
-                continue
-            if not _normalize_title(name):
-                continue
-            # Per-occurrence model: each occurrence already carries its own
-            # URL + date (the (url, date) de-dupe above guarantees uniqueness).
-            # Emit one row per occurrence — no title collapse.
-            ev["all_dates"] = {sd}
-            candidates.append(ev)
-        print(f"  [page {page}] {len(events)} listings  "
-              f"({new_occurrences} new occurrences)")
-        if new_occurrences == 0:
-            print(f"  [page {page}] calendar wrapped — stopping")
-            break
-        if all_past_end:
-            print(f"  [page {page}] every event past {window_end} — stopping")
-            break
-        page += 1
+    def _consider(ev: dict) -> str:
+        """Filter one normalized event into `candidates`. Returns a status:
+        'add' | 'past' | 'future' | 'notitle' | 'dup' | 'skip'. Mutates
+        candidates / seen_occurrences / skip counters (nonlocal)."""
+        nonlocal skipped_past, skipped_future
+        url = ev.get("source_url", "")
+        sd  = ev.get("start_date")
+        name = ev.get("event_name", "")
+        if not url or not sd or not name:
+            return "skip"
+        if is_cancelled_event(name, ev.get("description", "")):
+            return "skip"
+        if is_inappropriate_event(name, ev.get("description", ""), ev.get("location", "")):
+            return "skip"
+        key = (url, sd.isoformat())
+        if key in seen_occurrences:
+            return "dup"
+        seen_occurrences.add(key)
+        if sd > window_end:
+            skipped_future += 1
+            return "future"
+        if sd < today:
+            skipped_past += 1
+            return "past"
+        if not _normalize_title(name):
+            return "notitle"
+        # Per-occurrence model: each occurrence carries its own URL + date
+        # (the (url, date) de-dupe above guarantees uniqueness). One row per
+        # occurrence — no title collapse.
+        ev["all_dates"] = {sd}
+        candidates.append(ev)
+        return "add"
+
+    # Prefer the Events Calendar REST API: it honors the date window and
+    # paginates reliably. Some sites' HTML listings ignore ?tribe_paged (every
+    # "page" returns the same first ~20 events — travelcobb does this), so the
+    # JSON-LD walker silently stops short and misses later-window events (e.g.
+    # July 4). Fall back to the HTML JSON-LD walker only if REST is unavailable.
+    rest_events = fetch_events_rest(source_url, today, window_end)
+    if rest_events is not None:
+        print(f"━━ {source_url} (REST API) ━━")
+        kept = sum(1 for ev in rest_events if _consider(ev) == "add")
+        print(f"  REST: {len(rest_events)} event(s) in window → {kept} kept")
+    else:
+        print(f"━━ {source_url} (HTML listing — REST unavailable) ━━")
+        page = 1
+        while True:
+            events = fetch_page_events(source_url, page)
+            if not events:
+                print(f"  [page {page}] no events — stopping")
+                break
+            new_occurrences = 0
+            all_past_end    = True
+            for raw in events:
+                status = _consider(normalize_event(raw))
+                if status in ("add", "past", "future", "notitle"):
+                    new_occurrences += 1
+                if status in ("add", "past", "notitle"):
+                    all_past_end = False
+            print(f"  [page {page}] {len(events)} listings  "
+                  f"({new_occurrences} new occurrences)")
+            if new_occurrences == 0:
+                print(f"  [page {page}] calendar wrapped — stopping")
+                break
+            if all_past_end:
+                print(f"  [page {page}] every event past {window_end} — stopping")
+                break
+            page += 1
     print()
 
     candidates.sort(key=lambda e: e["start_date"] or date.max)
