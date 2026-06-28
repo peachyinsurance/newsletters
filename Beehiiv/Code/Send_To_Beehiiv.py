@@ -1102,9 +1102,19 @@ def _in_search_of_to_card(row: dict, slot_key: str) -> dict[str, str]:
     url      = (row.get("job_listings_url") or "").strip()
     domain   = display_domain(url) if url else ""
 
-    lines = [f"<strong>{employer}</strong>"] if employer else []
-    if blurb:
-        lines.append(md_inline_to_html(blurb))
+    # Avoid showing the employer name twice. The Claude blurb usually opens with
+    # the employer ("PruittHealth is hiring…"), so prepending a separate bold
+    # heading duplicates it. If the blurb already leads with the employer, just
+    # bold that leading mention; otherwise prepend the employer as a heading.
+    lines = []
+    if blurb and employer and blurb[:len(employer)].lower() == employer.lower():
+        bolded = "**" + blurb[:len(employer)] + "**" + blurb[len(employer):]
+        lines.append(md_inline_to_html(bolded))
+    else:
+        if employer:
+            lines.append(f"<strong>{employer}</strong>")
+        if blurb:
+            lines.append(md_inline_to_html(blurb))
     if city:
         lines.append(f"📍 {city}")
     if url and domain:

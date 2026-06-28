@@ -2536,9 +2536,11 @@ def get_in_search_of(newsletter_name: str) -> list[dict]:
     pool = approved or [p for p in pages
                         if (p["properties"].get("Status", {}).get("select") or {}).get("name") == "pending"]
     out: list[dict] = []
+    seen_employers: set[str] = set()
+    seen_urls: set[str] = set()
     for p in pool:
         props = p["properties"]
-        out.append({
+        row = {
             "employer":         "".join(c.get("text", {}).get("content", "")
                                        for c in (props.get("Employer", {}).get("rich_text") or [])),
             "description":      "".join(c.get("text", {}).get("content", "")
@@ -2546,7 +2548,19 @@ def get_in_search_of(newsletter_name: str) -> list[dict]:
             "job_listings_url": props.get("Job Listings URL", {}).get("url", "") or "",
             "image_url":        props.get("Image URL", {}).get("url", "") or "",
             "bonus":             bool((props.get("Bonus", {}) or {}).get("checkbox")),
-        })
+        }
+        # Dedup: one posting per employer (In Search Of policy), and never the
+        # same apply URL twice. Same-job rows scraped/saved more than once (e.g.
+        # two "PruittHealth Weekend Housekeeper" rows) collapse to the first.
+        emp_key = row["employer"].strip().lower()
+        url_key = row["job_listings_url"].strip().rstrip("/").lower()
+        if (emp_key and emp_key in seen_employers) or (url_key and url_key in seen_urls):
+            continue
+        if emp_key:
+            seen_employers.add(emp_key)
+        if url_key:
+            seen_urls.add(url_key)
+        out.append(row)
     # Regular rows first, bonus rows last (preserving relative order
     # within each group).
     out.sort(key=lambda r: (1 if r["bonus"] else 0))
