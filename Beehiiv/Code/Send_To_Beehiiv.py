@@ -1756,14 +1756,15 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             # link as e.g. "For more click {free_event_url_placeholder}".
             _fe_domain = display_domain(link) if link else ""
             repl["free_event_url_placeholder"] = _fe_domain
-            # Fully-EMBEDDED clickable link as a single plain-text token: drop
-            # {free_event_link_embedded} into the template (NOT inside a Beehiiv
-            # link field, which would mangle the token) and it renders as
-            # "click here <domain>" pointing at the event. This is the reliable
-            # pattern (same as Restaurant/Weekend) — a raw {free_event_link}
-            # only prints the URL text, not an actual hyperlink.
+            # EMBEDDED clickable domain as a single plain-text token: the value
+            # is the full <a> anchor (bold domain), so dropping
+            # {free_event_link_embedded} into the template — as plain text, NOT
+            # inside a Beehiiv link field (which would mangle it) — renders a real
+            # hyperlink. Same reliable pattern as Restaurant/Weekend; a raw
+            # {free_event_link} only prints the URL text. Keep your own "click
+            # here " label before it → "click here <domain>".
             repl["free_event_link_embedded"] = (
-                f'click here <a href="{link}" target="_blank" '
+                f'<a href="{link}" target="_blank" '
                 f'rel="noopener noreferrer"><strong>{_fe_domain}</strong></a>'
             ) if link and _fe_domain else ""
 
