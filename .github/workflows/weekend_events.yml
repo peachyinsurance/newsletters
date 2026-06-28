@@ -59,14 +59,73 @@ on:
         required: false
         default: ''
         type: string
+      runner:
+        description: 'Where to run. auto = the machine of whoever clicked Run if online (runner labeled user-<github-login>) — uses their residential IP so Cloudflare-walled sites (visit marietta, kennesaw, …) work. self-hosted / ubuntu-latest force that choice.'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - 'auto'
+          - 'self-hosted'
+          - 'ubuntu-latest'
 
 permissions:
   contents: write
   actions: write
 
 jobs:
-  weekend_events:
+  # Pick the runner at runtime so a job never hangs waiting on an offline
+  # machine. Preference order for 'auto' (and for chained/scheduled runs):
+  #   1. the triggerer's own runner  (label user-<github-login>)  if ONLINE
+  #   2. any ONLINE self-hosted runner (e.g. the always-on Mac Mini)
+  #   3. ubuntu-latest (GitHub cloud)
+  # Several scrape sources (Tribe/Cloudflare) bot-wall datacenter IPs with HTTP
+  # 202; a residential self-hosted runner clears them. A manual 'self-hosted' /
+  # 'ubuntu-latest' choice forces that and skips detection. Online detection
+  # reads the runners API, which GITHUB_TOKEN cannot — set a fine-grained PAT
+  # (repo Administration: read) as secret RUNNER_PAT. Without it, 'auto' safely
+  # degrades to ubuntu-latest (never hangs).
+  pick-runner:
     runs-on: ubuntu-latest
+    outputs:
+      label: ${{ steps.pick.outputs.label }}
+    steps:
+      - id: pick
+        env:
+          RUNNER_PAT:   ${{ secrets.RUNNER_PAT }}
+          RUNNER_INPUT: ${{ github.event.inputs.runner }}
+          ACTOR:        ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          OVERRIDE="${RUNNER_INPUT:-}"
+          if [ "$OVERRIDE" = "self-hosted" ] || [ "$OVERRIDE" = "ubuntu-latest" ]; then
+            echo "Forced runner: $OVERRIDE"
+            echo "label=$OVERRIDE" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -z "${RUNNER_PAT:-}" ]; then
+            echo "No RUNNER_PAT secret — can't check which runners are online; using ubuntu-latest."
+            echo "label=ubuntu-latest" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          runners=$(curl -s -H "Authorization: Bearer $RUNNER_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runners?per_page=100" || echo '{}')
+          want="user-$ACTOR"
+          if echo "$runners" | jq -e --arg w "$want" \
+              '.runners[]? | select(.status=="online") | .labels[]?.name | ascii_downcase | select(. == ($w|ascii_downcase))' >/dev/null 2>&1; then
+            echo "Triggerer's runner is online: $want"
+            echo "label=$want" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if echo "$runners" | jq -e \
+              '.runners[]? | select(.status=="online") | .labels[]?.name | select(. == "self-hosted")' >/dev/null 2>&1; then
+            echo "Triggerer's machine offline — using a shared self-hosted runner."
+            echo "label=self-hosted" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "No self-hosted runner online — falling back to ubuntu-latest."
+          echo "label=ubuntu-latest" >> "$GITHUB_OUTPUT"
+
+  weekend_events:
+    needs: pick-runner
+    runs-on: ${{ needs.pick-runner.outputs.label }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -43,6 +43,30 @@ from event_image_scraper import (is_cancelled_event,           # noqa: E402
 USER_AGENT      = "Mozilla/5.0 (newsletter-automation)"
 END_WINDOW_DAYS = 14
 
+# Many of these sites sit behind Cloudflare, which bot-walls plain `requests`
+# (HTTP 202 "managed challenge") — especially from datacenter IPs. curl_cffi
+# impersonates a real Chrome TLS/HTTP2 fingerprint, which clears Cloudflare's
+# passive checks. One reused Session so any clearance cookie persists. Falls
+# back to plain requests when curl_cffi isn't installed.
+_CFFI_SESSION = None
+
+
+def _http_get(url: str, *, params=None, headers=None, timeout=15):
+    """GET with a real-browser TLS fingerprint (curl_cffi) when available, else
+    plain requests. Returns a response object exposing .status_code/.text/.json/.url."""
+    global _CFFI_SESSION
+    if _CFFI_SESSION is None:
+        try:
+            from curl_cffi import requests as _cffi
+            _CFFI_SESSION = _cffi.Session(impersonate="chrome120")
+        except ImportError:
+            _CFFI_SESSION = False
+    if _CFFI_SESSION:
+        return _CFFI_SESSION.get(url, params=params, headers=headers,
+                                 timeout=timeout, allow_redirects=True)
+    return requests.get(url, params=params, headers=headers,
+                        timeout=timeout, allow_redirects=True)
+
 # Matches a per-day segment header like "Friday, June 19th" inside a
 # multi-day series blurb.
 _DAY_SEGMENT_RE = re.compile(
@@ -105,7 +129,7 @@ def fetch_page_events(source_url: str, page: int = 1) -> list[dict]:
     r = None
     for attempt in range(3):
         try:
-            r = requests.get(url, timeout=15, headers=headers, allow_redirects=True)
+            r = _http_get(url, headers=headers, timeout=15)
         except Exception as e:
             print(f"    [page {page}] fetch error (attempt {attempt + 1}/3): {e}")
             time.sleep(2 * (attempt + 1))
@@ -324,7 +348,7 @@ def fetch_events_rest(source_url: str, start_d, end_d, max_pages: int = 20):
         r = None
         for attempt in range(3):
             try:
-                r = requests.get(endpoint, params=params, headers=headers, timeout=15)
+                r = _http_get(endpoint, params=params, headers=headers, timeout=15)
             except Exception as e:
                 print(f"    [REST] request error (attempt {attempt + 1}/3): {e}")
                 time.sleep(2 * (attempt + 1))
