@@ -1302,6 +1302,13 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         rest_url = featured.get("website") or featured.get("maps_url") or ""
         repl["restaurant_radar_url"]            = rest_url
         repl["restaurant_radar_url_placeholder"] = display_domain(rest_url) if rest_url else ""
+        # Discrete detail fields the template can place on their own lines. These
+        # were never wired up — only name/blurb/url/image were — so {…_hours}
+        # etc. came through blank. The data is on the Notion row already.
+        repl["restaurant_radar_hours"]   = featured.get("hours", "")
+        repl["restaurant_radar_address"] = featured.get("address", "")
+        repl["restaurant_radar_phone"]   = featured.get("phone", "")
+        repl["restaurant_radar_cuisine"] = featured.get("cuisine", "")
         img_url = featured.get("gif") or featured.get("photo")
         if img_url:
             hosted = upload_remote_image(client, publication_id, img_url)
