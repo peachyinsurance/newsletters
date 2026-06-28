@@ -562,15 +562,16 @@ WEEKEND_SLOT_KEYS: list[tuple[str, str, str]] = [
 
 
 def _weekend_event_to_card(ev: dict, slot_key: str) -> dict[str, str]:
-    """Render one event into the local-lowdown-style title/message/link
-    triple. Title bolds the event name (with leading emoji); message
-    chains venue / address / time / price with bullets and appends the
-    one-sentence description on its own line; link is the source URL.
+    """Render one event into the template's title / message / link / url-placeholder
+    fields. The event name is bolded with the leading emoji; the message chains
+    venue / address / time / price (pipe-separated) plus the one-sentence
+    description on the next line.
 
-    One inline line: emoji **Name** - Venue | Address | Time | Price | More:
-    domain, with only the event NAME bold and the details pipe-separated; the
-    one-sentence description goes on the next line. Everything is in the
-    message slot so it renders on a single line (the title slot is left empty)."""
+    The source link is NOT inlined in the message anymore — it's wired through
+    the Beehiiv template's own hyperlink, whose href is `{slot}_link` (the full
+    URL) and whose visible (bold) text is `{slot}_url_placeholder` (the display
+    domain, e.g. `cityofmarietta.com`). That lets the template control the link
+    styling/bolding instead of injecting an inline anchor Beehiiv re-styles."""
     emoji = (ev.get("emoji") or "").strip()
     name  = (ev.get("event_name") or "").strip()
     title = f"{emoji} <strong>{name}</strong>".strip()
@@ -579,19 +580,16 @@ def _weekend_event_to_card(ev: dict, slot_key: str) -> dict[str, str]:
     parts = [p for p in parts if p]
     url = (ev.get("source_url") or "").strip()
     domain = display_domain(url) if url else ""
-    if url and domain:
-        parts.append(
-            f'More: <a href="{url}" target="_blank" rel="noopener noreferrer">'
-            f'<strong>{domain}</strong></a>')
 
     line = title + (" - " + " | ".join(parts) if parts else "")
     desc = (ev.get("description") or "").strip()
     message = line + (f"<br>{desc}" if desc else "")
 
     return {
-        f"{slot_key}_title":   "",
-        f"{slot_key}_message": message,
-        f"{slot_key}_link":    url,
+        f"{slot_key}_title":           "",
+        f"{slot_key}_message":         message,
+        f"{slot_key}_link":            url,      # href for the template hyperlink
+        f"{slot_key}_url_placeholder": domain,   # visible (bold) link text
     }
 
 
@@ -747,39 +745,6 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
 WP_IMAGE_MAX_WIDTH_PX = 300
 
 
-def _rewrite_weekend_link_text(clone_soup, ev: dict) -> None:
-    """Swap the card's source-link visible text from the Beehiiv template's
-    hardcoded 'More Info' to the bare root URL (e.g. `www.example.com`), so
-    the Beehiiv render matches the Notion page's `display_domain` link text.
-    The href is left untouched — only the anchor's text changes.
-
-    Matches the source anchor by href (already substituted to the real URL by
-    `_expand_one_slot`) or, as a fallback, by the literal 'More Info'/'More'
-    label. Weekend event messages aren't markdown-converted, so the source
-    link is the only <a> in the card — no risk of clobbering inline links."""
-    url = (ev.get("source_url") or "").strip()
-    if not url:
-        return
-    label = display_domain(url)
-    if not label:
-        return
-    for a in clone_soup.find_all("a"):
-        href = (a.get("href") or "").strip()
-        txt = (a.get_text() or "").strip().lower()
-        if href == url or url in href or txt in ("more info", "more"):
-            a.clear()
-            # Bold via inline style on the anchor itself. Beehiiv forces a
-            # font-weight on link text, which overrides a nested <strong>'s
-            # default boldness — an inline style with !important wins.
-            existing_style = (a.get("style") or "").rstrip("; ")
-            a["style"] = (existing_style + "; " if existing_style else "") + \
-                "font-weight:700 !important;"
-            strong = clone_soup.new_tag("strong")
-            strong["style"] = "font-weight:700 !important;"
-            strong.string = label
-            a.append(strong)
-
-
 def _weekend_image_mutator(clone_soup, ev: dict) -> None:
     """Per-card hook for Weekend Planner: render THIS event's photo inside its
     own card so multiple photos mix in among the events (the pipeline now keeps
@@ -788,13 +753,12 @@ def _weekend_image_mutator(clone_soup, ev: dict) -> None:
     the card. Events with no image have any stray placeholder <img> removed so
     no broken template token URL shows.
 
-    Also rewrites the source link's visible text to the root URL (see
-    `_rewrite_weekend_link_text`).
+    The link text/styling is now driven by the template's `{slot}_url_placeholder`
+    token, so there's no inline anchor to rewrite here.
 
     The photo is sized responsively — width:100% capped at
     WP_IMAGE_MAX_WIDTH_PX — so it scales with the layout but never renders
     full-bleed."""
-    _rewrite_weekend_link_text(clone_soup, ev)
     img_url = (ev.get("image_url") or "").strip()
     existing = clone_soup.find("img")
     style = (f"display:block;width:100%;max-width:{WP_IMAGE_MAX_WIDTH_PX}px;"
