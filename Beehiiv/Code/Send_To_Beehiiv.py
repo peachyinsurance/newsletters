@@ -1102,19 +1102,17 @@ def _in_search_of_to_card(row: dict, slot_key: str) -> dict[str, str]:
     url      = (row.get("job_listings_url") or "").strip()
     domain   = display_domain(url) if url else ""
 
-    # Avoid showing the employer name twice. The Claude blurb usually opens with
-    # the employer ("PruittHealth is hiring…"), so prepending a separate bold
-    # heading duplicates it. If the blurb already leads with the employer, just
-    # bold that leading mention; otherwise prepend the employer as a heading.
+    # The Claude blurb already opens with the employer name (bolded via inline
+    # markdown — same text the Notion page renders), so DON'T prepend a separate
+    # <strong> heading or the name shows twice. Only fall back to a heading if
+    # the blurb somehow omits the employer entirely.
     lines = []
-    if blurb and employer and blurb[:len(employer)].lower() == employer.lower():
-        bolded = "**" + blurb[:len(employer)] + "**" + blurb[len(employer):]
-        lines.append(md_inline_to_html(bolded))
-    else:
-        if employer:
+    if blurb:
+        if employer and employer.lower() not in blurb.lower():
             lines.append(f"<strong>{employer}</strong>")
-        if blurb:
-            lines.append(md_inline_to_html(blurb))
+        lines.append(md_inline_to_html(blurb))
+    elif employer:
+        lines.append(f"<strong>{employer}</strong>")
     if city:
         lines.append(f"📍 {city}")
     if url and domain:
@@ -1923,7 +1921,9 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     # expand_in_search_of_slots (clones one template card per listing).
     in_search_of_rows = get_in_search_of(newsletter_name) or []
     if in_search_of_rows:
-        repl["in_search_of_1_title"] = in_search_of_rows[0].get("employer", "")
+        # The employer name lives inside each card's message (the blurb opens
+        # with it, bolded) — don't also set a separate title slot or it renders
+        # twice. _in_search_of_to_card intentionally returns an empty title.
         print(f"  In Search Of: {len(in_search_of_rows)} listing(s) for {newsletter_name}")
     else:
         print(f"  In Search Of: no approved/pending listings for {newsletter_name}")
