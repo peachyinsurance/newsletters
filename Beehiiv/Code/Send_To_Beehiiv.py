@@ -1754,7 +1754,18 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             repl["free_event_link"]          = link
             # Visible link text = root domain, for templates that phrase the
             # link as e.g. "For more click {free_event_url_placeholder}".
-            repl["free_event_url_placeholder"] = display_domain(link) if link else ""
+            _fe_domain = display_domain(link) if link else ""
+            repl["free_event_url_placeholder"] = _fe_domain
+            # Fully-EMBEDDED clickable link as a single plain-text token: drop
+            # {free_event_link_embedded} into the template (NOT inside a Beehiiv
+            # link field, which would mangle the token) and it renders as
+            # "click here <domain>" pointing at the event. This is the reliable
+            # pattern (same as Restaurant/Weekend) — a raw {free_event_link}
+            # only prints the URL text, not an actual hyperlink.
+            repl["free_event_link_embedded"] = (
+                f'click here <a href="{link}" target="_blank" '
+                f'rel="noopener noreferrer"><strong>{_fe_domain}</strong></a>'
+            ) if link and _fe_domain else ""
 
             # Event photo(s): 2+ pictures are combined into a single cycling
             # GIF (free_event_render_images → [gif_url]); 0-1 pass through as
