@@ -1536,7 +1536,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
                                or "{business_brief_meta}" in template_html)
         bb_blurb = business.get("blurb", "")
         if bb_url and bb_url not in bb_blurb and not template_prints_url:
-            bb_blurb = bb_blurb.rstrip() + f"\n\n**Website:** [{display_domain(bb_url)}]({bb_url})"
+            bb_blurb = bb_blurb.rstrip() + f"\n\n**Website:** **[{display_domain(bb_url)}]({bb_url})**"
         paragraph_prose["business_brief_blurb"] = bb_blurb
         repl["business_brief_blurb"]   = md_to_html(bb_blurb)
         repl["business_brief_city"]    = business.get("city", "")
@@ -1550,6 +1550,17 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["business_brief_url"]     = display_domain(bb_url) if bb_url else ""
         repl["business_brief_link"]    = bb_url  # full URL for href-wired slots
         repl["business_brief_domain"]  = display_domain(bb_url) if bb_url else ""
+        # Embedded bold clickable link (same pattern as the other sections —
+        # value is the full <a><strong>domain</strong></a>, dropped in as plain
+        # text). Use {business_brief_link_embedded} / {business_brief_embedded}
+        # in the template for a bold website link.
+        if bb_url:
+            _bb_embed = (f'<a href="{bb_url}" target="_blank" rel="noopener '
+                         f'noreferrer"><strong>{display_domain(bb_url)}</strong></a>')
+        else:
+            _bb_embed = ""
+        repl["business_brief_link_embedded"] = _bb_embed
+        repl["business_brief_embedded"]      = _bb_embed
         # ONE compact metadata block. Each separate {tag} sits in its own
         # paragraph, so price/hours/city/website end up spaced apart (and empty
         # ones leave blank lines). Combine whatever's present into a single
@@ -1566,7 +1577,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         # ({business_brief_location}), so repeating it here would be redundant.
         if bb_url and bb_domain:
             _meta.append(f'<a href="{bb_url}" target="_blank" '
-                         f'rel="noopener noreferrer">{bb_domain}</a>')
+                         f'rel="noopener noreferrer"><strong>{bb_domain}</strong></a>')
         repl["business_brief_meta"]     = "<br>".join(_meta)
         # Address as a small caption under the photo (the {business_brief_location}
         # token you added). The address is no longer part of the metadata block.
