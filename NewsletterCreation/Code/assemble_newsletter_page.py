@@ -2016,10 +2016,12 @@ def _build_lowdown(newsletter_name: str) -> list[dict]:
         if _fetch_img:
             for url in source_urls:
                 try:
-                    # Article hero only: validate it's a real image, never fall
-                    # back to the publisher homepage logo, and skip the raw <img>
-                    # scan (which grabs popups/ads). Correct photo or none.
-                    img = _fetch_img(url, validate=True,
+                    # Article hero only (og:image/JSON-LD): no homepage-logo
+                    # fallback, skip the popup/ad <img> scan. validate=False —
+                    # validating re-fetches the image, which publisher CDNs often
+                    # hotlink-block from our IP, wrongly rejecting good og:images
+                    # (that zeroed out lowdown images). Renders fine in the page.
+                    img = _fetch_img(url, validate=False,
                                      allow_root_fallback=False, meta_only=True)
                 except Exception:
                     img = ""

@@ -1476,9 +1476,13 @@ def build_replacements(client: BeehiivClient, publication_id: str,
                 if not src:
                     continue
                 try:
-                    # Article hero only — validate, no homepage-logo fallback,
-                    # skip the popup/ad <img> scan. Correct photo or none.
-                    img = _fetch_img(src, validate=True,
+                    # Article hero only (og:image/JSON-LD): no homepage-logo
+                    # fallback, skip the popup/ad <img> scan. validate=False —
+                    # validating re-fetches the image URL, which publisher CDNs
+                    # often hotlink-block from our IP, wrongly rejecting good
+                    # og:images (that's what was zeroing lowdown images). The
+                    # image still renders fine in the email.
+                    img = _fetch_img(src, validate=False,
                                      allow_root_fallback=False, meta_only=True)
                 except Exception:
                     img = ""
