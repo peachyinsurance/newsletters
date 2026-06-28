@@ -1935,9 +1935,14 @@ def _ensure_tips_schema():
 
 
 def get_existing_tip_urls(newsletter_name: str) -> set:
-    """Get source URLs of existing tips for this newsletter to avoid duplicates."""
+    """Source URLs used for this newsletter in the LAST 8 WEEKS — the dedup
+    exclusion set. URLs older than 8 weeks recycle (a good insurance article can
+    be re-featured after two months), so the pool can't starve into a 0-save run
+    (which was silently leaving the section stale). Rejected rows stay eligible
+    regardless of age."""
     if not NOTION_TIPS_DB_ID:
         return set()
+    cutoff = (datetime.today() - timedelta(weeks=8)).strftime("%Y-%m-%d")
     try:
         pages = query_database(NOTION_TIPS_DB_ID, filters={
             "property": "Newsletter",
@@ -1951,6 +1956,9 @@ def get_existing_tip_urls(newsletter_name: str) -> set:
             status = (props.get("Status", {}).get("select") or {}).get("name", "")
             if status == "rejected":
                 continue
+            date = (props.get("Date Generated", {}).get("date") or {}).get("start", "") or ""
+            if date and date < cutoff:
+                continue   # older than 8 weeks → recycle this URL
             url = props.get("Source URL", {}).get("url", "")
             if url:
                 urls.add(url)
@@ -2068,6 +2076,35 @@ def save_tips_to_notion(results: list, newsletter_name: str) -> None:
         print(f"  ✓ {data.get('tip_title')}")
         saved += 1
     print(f"  Saved {saved} new tips to Notion for {newsletter_name}")
+
+    # Age out PRIOR cycles: once this run saved fresh candidates, flip the
+    # newsletter's older pending/approved rows (from earlier dates) to
+    # 'approved - old'. Insurance tips had no cleanup, so every past run's rows
+    # — each with its own Default Winner — piled up; the review app (which shows
+    # all non-approved-old rows) ended up displaying multiple winners + a stack
+    # of stale choices. This keeps only the CURRENT cycle active. Guarded on
+    # `saved` and on Date < today so a 0-save (dedup) run or a same-day re-run
+    # never blanks the section or ages out this run's own rows.
+    if saved:
+        today_str = datetime.today().strftime("%Y-%m-%d")
+        try:
+            existing = query_database(NOTION_TIPS_DB_ID, filters={
+                "property": "Newsletter", "select": {"equals": newsletter_name}})
+        except Exception:
+            existing = []
+        aged = 0
+        for page in existing:
+            props = page["properties"]
+            status = (props.get("Status", {}).get("select") or {}).get("name", "")
+            if status not in ("pending", "approved"):
+                continue
+            date = (props.get("Date Generated", {}).get("date") or {}).get("start", "") or ""
+            if not date or date >= today_str:
+                continue   # keep today's fresh rows (incl. same-day re-runs)
+            update_page(page["id"], {"Status": {"select": {"name": "approved - old"}}})
+            aged += 1
+        if aged:
+            print(f"  Aged {aged} prior tip row(s) → 'approved - old' for {newsletter_name}")
 
 
 # ---------------------------------------------------------------------------
