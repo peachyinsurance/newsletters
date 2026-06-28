@@ -620,12 +620,18 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
     title_token = f"{{{slot_key}_title}}"
     msg_token   = f"{{{slot_key}_message}}"
     link_token  = f"{{{slot_key}_link}}"
+    # The visible (bold) link text token, when a template wires the link as its
+    # own hyperlink: href = {slot}_link, text = {slot}_url_placeholder. It's a
+    # real text node (unlike {slot}_link, which lives in an href attribute), so
+    # we use it to drag the hyperlink block into the cloned card.
+    ph_token    = f"{{{slot_key}_url_placeholder}}"
 
     title_text = soup.find(string=lambda t: t and title_token in str(t))
     if not title_text:
         return -1, 0
     msg_text  = soup.find(string=lambda t: t and msg_token  in str(t))
     link_text = soup.find(string=lambda t: t and link_token in str(t))
+    ph_text   = soup.find(string=lambda t: t and ph_token   in str(t))
 
     # Walk up to the nearest block-level container for the title.
     title_node = title_text.parent
@@ -645,12 +651,14 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
         return token in str(node) if node is not None else True
     need_msg  = msg_text  is not None
     need_link = link_text is not None
+    need_ph   = ph_text   is not None
     ancestor = title_node
     while ancestor is not None:
         s = str(ancestor)
         has_msg  = (not need_msg)  or (msg_token  in s)
         has_link = (not need_link) or (link_token in s)
-        if has_msg and has_link:
+        has_ph   = (not need_ph)   or (ph_token   in s)
+        if has_msg and has_link and has_ph:
             break
         ancestor = ancestor.parent
     if ancestor is None:
@@ -666,7 +674,8 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
     indices: list[int] = []
     for i, c in enumerate(element_children):
         cs = str(c)
-        if title_token in cs or msg_token in cs or link_token in cs:
+        if (title_token in cs or msg_token in cs or link_token in cs
+                or ph_token in cs):
             indices.append(i)
     if indices:
         start_idx = min(indices)
