@@ -1299,9 +1299,12 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         # root domain (joespizza.com), not 'google.com' from a Maps link; fall
         # back to Maps when there's no website. href + visible text point at the
         # same place for consistency.
-        rest_url = featured.get("website") or featured.get("maps_url") or ""
-        domain   = display_domain(rest_url) if rest_url else ""
-        repl["restaurant_radar_url"]             = rest_url
+        # Website ONLY — no Google Maps fallback. We want a real domain link
+        # (joespizza.com) or nothing; a Maps link reads 'google.com', which is
+        # filler the user doesn't want.
+        website = (featured.get("website") or "").strip()
+        domain  = display_domain(website) if website else ""
+        repl["restaurant_radar_url"]             = website
         repl["restaurant_radar_url_placeholder"] = domain
         # ONE consolidated details block — a single {restaurant_info} token so
         # the template doesn't stack a separate block per field (which added
@@ -1314,9 +1317,9 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         if hours:   info_lines.append(f"<strong>Hours:</strong> {hours}")
         if address: info_lines.append(f"<strong>Address:</strong> {address}")
         if phone:   info_lines.append(f"<strong>Phone:</strong> {phone}")
-        if rest_url and domain:
+        if website:
             info_lines.append(
-                f'<a href="{rest_url}" target="_blank" rel="noopener noreferrer">'
+                f'<a href="{website}" target="_blank" rel="noopener noreferrer">'
                 f'<strong>{domain}</strong></a>')
         repl["restaurant_info"] = "<br>".join(info_lines)
         img_url = featured.get("gif") or featured.get("photo")
