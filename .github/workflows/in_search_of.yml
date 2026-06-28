@@ -110,10 +110,11 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-python@v5
+        if: runner.environment == 'github-hosted'   # macOS self-hosted: use the Mac's own Python
         with:
           python-version: '3.11'
 
-      - run: pip install requests anthropic curl_cffi
+      - run: python3 -m pip install --quiet --upgrade requests anthropic curl_cffi
 
       # ── Scrape: walks job_sources.py and upserts pending rows ─────────
       - name: Scrape job sources (East Cobb Connect)

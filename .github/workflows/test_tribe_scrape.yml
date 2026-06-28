@@ -18,6 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
+        if: runner.environment == 'github-hosted'   # macOS self-hosted: use the Mac's own Python
         with:
           python-version: '3.11'
       - run: pip install requests curl_cffi pgeocode
@@ -30,6 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
+        if: runner.environment == 'github-hosted'   # macOS self-hosted: use the Mac's own Python
         with:
           python-version: '3.11'
       - run: pip install requests curl_cffi pgeocode

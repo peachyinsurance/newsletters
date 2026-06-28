@@ -129,12 +129,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
+        if: runner.environment == 'github-hosted'   # macOS self-hosted: use the Mac's own Python (setup-python's prebuilt mac Python hardcodes /Users/runner and stalls)
         with:
           python-version: '3.11'
       # curl_cffi: Chrome TLS impersonation for sites that fingerprint
       # plain Python requests (dunwoody_gov.py needs it; without it the
-      # Vision Internet CMS returns 403).
-      - run: pip install requests curl_cffi pgeocode
+      # Vision Internet CMS returns 403). python3 -m pip works whether Python
+      # came from setup-python (cloud) or the Mac's own install (self-hosted).
+      - run: python3 -m pip install --quiet --upgrade requests curl_cffi pgeocode
 
       # Each scraper step runs only when the dropdown is "all" or its
       # newsletter. ECC owns Sandy Springs (shared ECC_PP) so the
