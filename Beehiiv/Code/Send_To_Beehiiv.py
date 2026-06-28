@@ -1645,9 +1645,19 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["insurance_tip_blurb"]  = md_to_html(blurb)
         tip_url = tip.get("source_url", "") or ""
         repl["insurance_tip_url"]    = tip_url
-        repl["insurance_tip_link"]   = tip_url  # alias
+        repl["insurance_tip_link"]   = tip_url  # alias (raw URL)
         repl["insurance_tip_source"] = tip.get("source_name", "")
-        repl["insurance_tip_domain"] = display_domain(tip_url) if tip_url else ""
+        _tip_domain = display_domain(tip_url) if tip_url else ""
+        repl["insurance_tip_domain"] = _tip_domain
+        # EMBEDDED bold clickable link as a plain-text token. Put e.g.
+        # "for more {insurance_tip_link_embedded}" in the template as PLAIN text
+        # (don't bold it / don't use a Beehiiv link field). Bold is baked in.
+        _tip_embed = (
+            f'<a href="{tip_url}" target="_blank" '
+            f'rel="noopener noreferrer"><strong>{_tip_domain}</strong></a>'
+        ) if tip_url and _tip_domain else ""
+        repl["insurance_tip_link_embedded"] = _tip_embed
+        repl["insurance_tip_embedded"]      = _tip_embed  # alias (no `_link_`)
         # Static sponsor attribution — every tip row defaults to
         # "Peachy Insurance" / "https://peachyinsurance.com/" via
         # save_tips_to_notion. Surface as two placeholders so the
