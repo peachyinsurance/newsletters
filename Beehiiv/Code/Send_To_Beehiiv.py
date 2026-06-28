@@ -1246,6 +1246,10 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["event_of_the_week_link"]        = ev_link
         # Alias: template URL fields sometimes lose the `_link` suffix
         repl["event_of_the_week"]             = ev_link
+        # Visible link text = the bare root domain, for templates that phrase the
+        # link as "For more click {event_of_the_week_url_placeholder}" (href =
+        # {event_of_the_week_link}). Same pattern as the weekend-slot links.
+        repl["event_of_the_week_url_placeholder"] = display_domain(ev_link) if ev_link else ""
         # Prefer the body composite GIF (built by build_event_body_gif —
         # has the ticket / date / address / venue text overlaid on rotating
         # candidate photos) over the raw event photo. Mirrors what the
