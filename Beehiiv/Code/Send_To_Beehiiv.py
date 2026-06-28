@@ -629,9 +629,14 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
     title_text = soup.find(string=lambda t: t and title_token in str(t))
     if not title_text:
         return -1, 0
-    msg_text  = soup.find(string=lambda t: t and msg_token  in str(t))
-    link_text = soup.find(string=lambda t: t and link_token in str(t))
-    ph_text   = soup.find(string=lambda t: t and ph_token   in str(t))
+
+    # Whether each token exists ANYWHERE in the template — tested against the
+    # SERIALIZED html, not soup.find(string=...). That matters because
+    # {slot}_link lives in an href ATTRIBUTE (not a text node) and Beehiiv often
+    # splits/wraps the visible {slot}_url_placeholder text across <span>/<strong>
+    # nodes (bolding) — both of which a text-node search misses, leaving the
+    # hyperlink block outside the cloned card so its tokens never substitute.
+    full_html = str(soup)
 
     # Walk up to the nearest block-level container for the title.
     title_node = title_text.parent
@@ -640,18 +645,14 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
     if title_node is None:
         return -1, 0
 
-    # Find the smallest ancestor of the title that ALSO contains the
-    # message (if it exists) and the link (if it exists). Beehiiv often
-    # wraps each placeholder paragraph in its own <table><tr><td>
-    # structure for email-safe rendering, so the title and message
-    # aren't direct siblings — they're cousins under a common column
-    # ancestor. Walking up until all three placeholders are in the
-    # subtree finds that ancestor.
-    def _subtree_has(node, token):
-        return token in str(node) if node is not None else True
-    need_msg  = msg_text  is not None
-    need_link = link_text is not None
-    need_ph   = ph_text   is not None
+    # Find the smallest ancestor of the title that ALSO contains the message,
+    # the link href, and the url-placeholder text (whichever exist). Beehiiv
+    # wraps each placeholder in its own <table><tr><td> for email-safe
+    # rendering, so they're cousins under a common column ancestor; walking up
+    # until all present tokens are in the subtree finds that ancestor.
+    need_msg  = msg_token  in full_html
+    need_link = link_token in full_html
+    need_ph   = ph_token   in full_html
     ancestor = title_node
     while ancestor is not None:
         s = str(ancestor)
