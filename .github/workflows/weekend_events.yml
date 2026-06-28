@@ -16,11 +16,11 @@ name: Scrape Weekend Events
 # its own workflow file so the cost is visible from the workflow name.
 
 on:
-  # schedule:  # ── PAUSED for the week. Uncomment to resume auto-runs. ──
-  #   # Mondays at 7am ET (11am UTC) — well ahead of Friday's newsletter
-  #   - cron: '0 11 * * 1'
-  #   # Fridays at 1pm UTC (~9am ET) — archive past events before send
-  #   - cron: '0 13 * * 5'
+  schedule:
+    # Mondays at 7am ET (11am UTC) — well ahead of Friday's newsletter
+    - cron: '0 11 * * 1'
+    # Fridays at 1pm UTC (~9am ET) — archive past events before send
+    - cron: '0 13 * * 5'
   workflow_dispatch:
     inputs:
       newsletter:
