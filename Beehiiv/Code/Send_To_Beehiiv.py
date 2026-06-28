@@ -1252,10 +1252,18 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["event_of_the_week_link"]        = ev_link
         # Alias: template URL fields sometimes lose the `_link` suffix
         repl["event_of_the_week"]             = ev_link
-        # Visible link text = the bare root domain, for templates that phrase the
-        # link as "For more click {event_of_the_week_url_placeholder}" (href =
-        # {event_of_the_week_link}). Same pattern as the weekend-slot links.
-        repl["event_of_the_week_url_placeholder"] = display_domain(ev_link) if ev_link else ""
+        # Bare root domain (plain text) — kept for reference/back-compat.
+        _ev_domain = display_domain(ev_link) if ev_link else ""
+        repl["event_of_the_week_url_placeholder"] = _ev_domain
+        # EMBEDDED bold clickable link as a single plain-text token. Put
+        # "For more click {event_of_the_week_link_embedded}" in the template as
+        # PLAIN text — do NOT bold the token or drop it in a Beehiiv link field
+        # (either mangles it). The bold (<strong>) is baked into the value and
+        # survives, exactly like Restaurant/Weekend.
+        repl["event_of_the_week_link_embedded"] = (
+            f'<a href="{ev_link}" target="_blank" '
+            f'rel="noopener noreferrer"><strong>{_ev_domain}</strong></a>'
+        ) if ev_link and _ev_domain else ""
         # Prefer the body composite GIF (built by build_event_body_gif —
         # has the ticket / date / address / venue text overlaid on rotating
         # candidate photos) over the raw event photo. Mirrors what the
