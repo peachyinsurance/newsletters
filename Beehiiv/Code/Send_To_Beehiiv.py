@@ -1264,6 +1264,8 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             f'<a href="{ev_link}" target="_blank" '
             f'rel="noopener noreferrer"><strong>{_ev_domain}</strong></a>'
         ) if ev_link and _ev_domain else ""
+        # Alias: the template uses {event_of_the_week_embedded} (no `_link_`).
+        repl["event_of_the_week_embedded"] = repl["event_of_the_week_link_embedded"]
         # Prefer the body composite GIF (built by build_event_body_gif —
         # has the ticket / date / address / venue text overlaid on rotating
         # candidate photos) over the raw event photo. Mirrors what the
