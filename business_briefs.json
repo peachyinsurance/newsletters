@@ -20,7 +20,7 @@
     "relevance_score": "74",
     "total_score": "74",
     "date_generated": "2026-06-21",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "Perimeter_Post",
     "default_winner": ""
   },
@@ -42,7 +42,7 @@
     "relevance_score": "78",
     "total_score": "78",
     "date_generated": "2026-06-21",
-    "status": "pending",
+    "status": "approved",
     "newsletter_name": "Perimeter_Post",
     "default_winner": ""
   },
@@ -63,7 +63,7 @@
     "relevance_score": "82",
     "total_score": "82",
     "date_generated": "2026-06-21",
-    "status": "pending",
+    "status": "rejected",
     "newsletter_name": "Perimeter_Post",
     "default_winner": "yes"
   }
