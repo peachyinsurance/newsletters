@@ -2570,11 +2570,12 @@ def _build_in_search_of(newsletter_name: str) -> list[dict]:
         out.append(paragraph_block_with_markdown(blurb))
         url = r.get("job_listings_url") or ""
         if url:
-            if r.get("bonus"):
-                label = f"👉 Visit {r.get('employer', 'site')}"
-            else:
-                label = "👉 Browse openings"
-            out.append(link_block(label, url))
+            # Show the bare root domain as the link text — same format as the
+            # other sections (Business Brief, Weekend Planner, Sponsor, …) —
+            # instead of a generic 'Browse openings' CTA.
+            domain = display_domain(url)
+            prefix = "Visit" if r.get("bonus") else "Apply"
+            out.append(paragraph_block_with_markdown(f"**{prefix}:** [{domain}]({url})"))
         out.append(paragraph_block(""))  # spacer between rows
     # Strip trailing spacer
     if out and out[-1]["paragraph"]["rich_text"] == []:
