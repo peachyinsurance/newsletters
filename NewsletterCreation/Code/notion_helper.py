@@ -2077,34 +2077,39 @@ def save_tips_to_notion(results: list, newsletter_name: str) -> None:
         saved += 1
     print(f"  Saved {saved} new tips to Notion for {newsletter_name}")
 
-    # Age out PRIOR cycles: once this run saved fresh candidates, flip the
-    # newsletter's older pending/approved rows (from earlier dates) to
-    # 'approved - old'. Insurance tips had no cleanup, so every past run's rows
-    # — each with its own Default Winner — piled up; the review app (which shows
-    # all non-approved-old rows) ended up displaying multiple winners + a stack
-    # of stale choices. This keeps only the CURRENT cycle active. Guarded on
-    # `saved` and on Date < today so a 0-save (dedup) run or a same-day re-run
-    # never blanks the section or ages out this run's own rows.
-    if saved:
-        today_str = datetime.today().strftime("%Y-%m-%d")
-        try:
-            existing = query_database(NOTION_TIPS_DB_ID, filters={
-                "property": "Newsletter", "select": {"equals": newsletter_name}})
-        except Exception:
-            existing = []
-        aged = 0
-        for page in existing:
-            props = page["properties"]
-            status = (props.get("Status", {}).get("select") or {}).get("name", "")
-            if status not in ("pending", "approved"):
-                continue
-            date = (props.get("Date Generated", {}).get("date") or {}).get("start", "") or ""
-            if not date or date >= today_str:
-                continue   # keep today's fresh rows (incl. same-day re-runs)
+    # Tidy PRIOR cycles for this newsletter (single pass over earlier-dated rows).
+    # Insurance tips had no cleanup, so every past run's rows piled up and the
+    # review app (which shows all non-approved-old rows) ended up displaying
+    # multiple winners + a stack of stale choices and rejects.
+    #   • pending/approved (earlier dates) → 'approved - old' — only if this run
+    #     saved fresh candidates, so a 0-save (dedup) run never blanks the section.
+    #   • rejected (earlier dates) → ARCHIVED (removed) — always safe, since a
+    #     rejected row is never the displayed tip; this clears the old rejects
+    #     out of Notion + the review app instead of letting them accumulate.
+    # Date < today protects this run's own rows (incl. same-day re-runs).
+    today_str = datetime.today().strftime("%Y-%m-%d")
+    try:
+        existing = query_database(NOTION_TIPS_DB_ID, filters={
+            "property": "Newsletter", "select": {"equals": newsletter_name}})
+    except Exception:
+        existing = []
+    aged = purged = 0
+    for page in existing:
+        props = page["properties"]
+        status = (props.get("Status", {}).get("select") or {}).get("name", "")
+        date = (props.get("Date Generated", {}).get("date") or {}).get("start", "") or ""
+        if not date or date >= today_str:
+            continue   # keep today's rows (incl. same-day re-runs)
+        if status == "rejected":
+            archive_page(page["id"])
+            purged += 1
+        elif saved and status in ("pending", "approved"):
             update_page(page["id"], {"Status": {"select": {"name": "approved - old"}}})
             aged += 1
-        if aged:
-            print(f"  Aged {aged} prior tip row(s) → 'approved - old' for {newsletter_name}")
+    if aged:
+        print(f"  Aged {aged} prior tip row(s) → 'approved - old' for {newsletter_name}")
+    if purged:
+        print(f"  Archived {purged} old rejected tip row(s) for {newsletter_name}")
 
 
 # ---------------------------------------------------------------------------

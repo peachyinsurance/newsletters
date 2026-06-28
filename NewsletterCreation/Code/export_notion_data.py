@@ -274,8 +274,9 @@ def export_memes():
 
 
 def export_insurance_tips():
-    """Export Insurance Tip candidates for the review app. Skips
-    `approved - old` so archived weeks don't appear."""
+    """Export Insurance Tip candidates for the review app. Skips `approved - old`
+    (archived weeks) and `rejected` (passed-over picks) so the tile shows only
+    the current cycle's live candidates — not a growing pile of stale rejects."""
     db_id = os.environ.get("NOTION_TIPS_DB_ID", "")
     if not db_id:
         print("⚠ NOTION_TIPS_DB_ID empty — skipping insurance tips export")
@@ -286,7 +287,7 @@ def export_insurance_tips():
     for page in pages:
         props = page["properties"]
         status_val = extract_text(props.get("Status", {})) or "pending"
-        if status_val == "approved - old":
+        if status_val in ("approved - old", "rejected"):
             continue
         tips.append({
             "tip_title":           extract_text(props.get("Tip Title", {})),
