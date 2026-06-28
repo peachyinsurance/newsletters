@@ -630,9 +630,14 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
     # real text node (unlike {slot}_link, which lives in an href attribute), so
     # we use it to drag the hyperlink block into the cloned card.
     ph_token    = f"{{{slot_key}_url_placeholder}}"
+    short_token = f"{{{slot_key}_url_short}}"   # bare display domain (In Search Of)
 
-    title_text = soup.find(string=lambda t: t and title_token in str(t))
-    if not title_text:
+    anchor_text = soup.find(string=lambda t: t and title_token in str(t))
+    if not anchor_text:
+        # Some sections (In Search Of) leave the title empty and omit
+        # {slot}_title from the template — anchor the card on {slot}_message.
+        anchor_text = soup.find(string=lambda t: t and msg_token in str(t))
+    if not anchor_text:
         return -1, 0
 
     # Whether each token exists ANYWHERE in the template — tested against the
@@ -643,8 +648,8 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
     # hyperlink block outside the cloned card so its tokens never substitute.
     full_html = str(soup)
 
-    # Walk up to the nearest block-level container for the title.
-    title_node = title_text.parent
+    # Walk up to the nearest block-level container for the anchor.
+    title_node = anchor_text.parent
     while title_node is not None and title_node.name not in _CARD_BLOCK_TAGS:
         title_node = title_node.parent
     if title_node is None:
@@ -655,16 +660,18 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
     # wraps each placeholder in its own <table><tr><td> for email-safe
     # rendering, so they're cousins under a common column ancestor; walking up
     # until all present tokens are in the subtree finds that ancestor.
-    need_msg  = msg_token  in full_html
-    need_link = link_token in full_html
-    need_ph   = ph_token   in full_html
+    need_msg   = msg_token   in full_html
+    need_link  = link_token  in full_html
+    need_ph    = ph_token    in full_html
+    need_short = short_token in full_html
     ancestor = title_node
     while ancestor is not None:
         s = str(ancestor)
-        has_msg  = (not need_msg)  or (msg_token  in s)
-        has_link = (not need_link) or (link_token in s)
-        has_ph   = (not need_ph)   or (ph_token   in s)
-        if has_msg and has_link and has_ph:
+        has_msg   = (not need_msg)   or (msg_token   in s)
+        has_link  = (not need_link)  or (link_token  in s)
+        has_ph    = (not need_ph)    or (ph_token    in s)
+        has_short = (not need_short) or (short_token in s)
+        if has_msg and has_link and has_ph and has_short:
             break
         ancestor = ancestor.parent
     if ancestor is None:
@@ -681,7 +688,7 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
     for i, c in enumerate(element_children):
         cs = str(c)
         if (title_token in cs or msg_token in cs or link_token in cs
-                or ph_token in cs):
+                or ph_token in cs or short_token in cs):
             indices.append(i)
     if indices:
         start_idx = min(indices)
