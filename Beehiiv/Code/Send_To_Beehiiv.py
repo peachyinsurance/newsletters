@@ -631,6 +631,7 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
     # we use it to drag the hyperlink block into the cloned card.
     ph_token    = f"{{{slot_key}_url_placeholder}}"
     short_token = f"{{{slot_key}_url_short}}"   # bare display domain (In Search Of)
+    embed_token = f"{{{slot_key}_embedded}}"    # embedded bold domain link (Local Lowdown)
 
     anchor_text = soup.find(string=lambda t: t and title_token in str(t))
     if not anchor_text:
@@ -664,6 +665,7 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
     need_link  = link_token  in full_html
     need_ph    = ph_token    in full_html
     need_short = short_token in full_html
+    need_embed = embed_token in full_html
     ancestor = title_node
     while ancestor is not None:
         s = str(ancestor)
@@ -671,7 +673,8 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
         has_link  = (not need_link)  or (link_token  in s)
         has_ph    = (not need_ph)    or (ph_token    in s)
         has_short = (not need_short) or (short_token in s)
-        if has_msg and has_link and has_ph and has_short:
+        has_embed = (not need_embed) or (embed_token in s)
+        if has_msg and has_link and has_ph and has_short and has_embed:
             break
         ancestor = ancestor.parent
     if ancestor is None:
@@ -688,7 +691,7 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
     for i, c in enumerate(element_children):
         cs = str(c)
         if (title_token in cs or msg_token in cs or link_token in cs
-                or ph_token in cs or short_token in cs):
+                or ph_token in cs or short_token in cs or embed_token in cs):
             indices.append(i)
     if indices:
         start_idx = min(indices)
@@ -870,11 +873,21 @@ def expand_weekend_slots(html: str, events: list[dict]) -> str:
 def _lowdown_story_to_card(story: dict, slot_key: str) -> dict[str, str]:
     """Map a parsed lowdown story to the title/message/link placeholders.
     Message gets markdown→HTML conversion so `**bold**` and `[label](url)`
-    in the body render correctly inside Beehiiv."""
+    in the body render correctly inside Beehiiv.
+
+    {slot}_embedded is the EMBEDDED bold domain link for this story's source —
+    drop "for more {local_lowdown_embedded}" in the card as plain text."""
+    url = (story.get("url") or "").strip()
+    domain = display_domain(url) if url else ""
+    embedded = (
+        f'<a href="{url}" target="_blank" '
+        f'rel="noopener noreferrer"><strong>{domain}</strong></a>'
+    ) if url and domain else ""
     return {
-        f"{slot_key}_title":   story.get("heading", ""),
-        f"{slot_key}_message": md_to_html(story.get("body", "")),
-        f"{slot_key}_link":    story.get("url", ""),
+        f"{slot_key}_title":    story.get("heading", ""),
+        f"{slot_key}_message":  md_to_html(story.get("body", "")),
+        f"{slot_key}_link":     url,
+        f"{slot_key}_embedded": embedded,
     }
 
 
