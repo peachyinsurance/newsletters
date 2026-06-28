@@ -230,6 +230,7 @@ def _image_looks_real(url: str) -> bool:
 def fetch_event_image(source_url: str,
                       *, validate: bool = False,
                       allow_root_fallback: bool = True,
+                      meta_only: bool = False,
                       _html: str | None = None) -> str:
     """Scrape a hero image URL from `source_url`. Tries (in order):
        1. og:image / twitter:image / image_src meta tags
@@ -237,6 +238,11 @@ def fetch_event_image(source_url: str,
        3. First reasonably-large <img> in body (width >= 400)
        4. If `allow_root_fallback` and nothing found, retry once
           against the site's root URL (skipped for marketplace hosts).
+
+    `meta_only=True` skips step 3 (the raw <img> scan), which on article pages
+    often grabs a popup/ad/related-story image rather than the lead photo. Use
+    it (with allow_root_fallback=False) for news stories where only the article's
+    declared og:image/JSON-LD hero is trustworthy — better no image than a wrong one.
 
     `validate=True` re-checks each candidate via HEAD/GET (content-type
     is image/* AND size >= 5KB). Slow — only enable for one-off picks.
@@ -258,6 +264,7 @@ def fetch_event_image(source_url: str,
                 if root and root != source_url:
                     return fetch_event_image(
                         root, validate=validate, allow_root_fallback=False,
+                        meta_only=meta_only,
                     )
         except Exception:
             pass
@@ -327,8 +334,10 @@ def fetch_event_image(source_url: str,
             elif isinstance(img, dict) and isinstance(img.get("url"), str):
                 candidates.append(img["url"])
 
-    # 3. First reasonably-large <img> tag (width >= 400) — last resort.
-    for pat in (
+    # 3. First reasonably-large <img> tag (width >= 400) — last resort. Skipped
+    # in meta_only mode: on article pages this often picks a popup/ad/related
+    # image instead of the lead photo.
+    for pat in () if meta_only else (
         r'<img[^>]+width=["\']?(\d+)["\']?[^>]+src=["\']([^"\']+)["\']',
         r'<img[^>]+src=["\']([^"\']+)["\'][^>]+width=["\']?(\d+)["\']?',
     ):

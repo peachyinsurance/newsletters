@@ -1437,7 +1437,10 @@ def build_replacements(client: BeehiivClient, publication_id: str,
                 if not src:
                     continue
                 try:
-                    img = _fetch_img(src)
+                    # Article hero only — validate, no homepage-logo fallback,
+                    # skip the popup/ad <img> scan. Correct photo or none.
+                    img = _fetch_img(src, validate=True,
+                                     allow_root_fallback=False, meta_only=True)
                 except Exception:
                     img = ""
                 if not img or not img.lower().startswith(("http://", "https://")):

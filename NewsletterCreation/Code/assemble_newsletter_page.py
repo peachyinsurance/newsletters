@@ -2016,7 +2016,11 @@ def _build_lowdown(newsletter_name: str) -> list[dict]:
         if _fetch_img:
             for url in source_urls:
                 try:
-                    img = _fetch_img(url)
+                    # Article hero only: validate it's a real image, never fall
+                    # back to the publisher homepage logo, and skip the raw <img>
+                    # scan (which grabs popups/ads). Correct photo or none.
+                    img = _fetch_img(url, validate=True,
+                                     allow_root_fallback=False, meta_only=True)
                 except Exception:
                     img = ""
                 if not img or not img.lower().startswith(("http://", "https://")):

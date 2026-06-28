@@ -80,10 +80,13 @@ EXCLUDED_KEYWORDS = {
     "partisan", "impeach",
 }
 
-# Domains with metered/soft paywalls that slip past automated detection
+# Domains we never source from: metered/soft paywalls that slip past automated
+# detection, plus low-quality news AGGREGATORS that republish others' reporting
+# (we want original local sources, not rewrites).
 BLOCKED_DOMAINS = {
     "mdjonline.com",
     "ajc.com",
+    "cobbcourier.com",   # aggregator — republishes other outlets' stories
 }
 
 # Pure event-aggregator domains (no real news content). These get dropped entirely.
