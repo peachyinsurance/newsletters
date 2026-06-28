@@ -1295,7 +1295,13 @@ def build_replacements(client: BeehiivClient, publication_id: str,
               f"(tier={featured.get('tier','')})")
         repl["restaurant_radar_name"]    = featured.get("name", "")
         repl["restaurant_radar_message"] = featured.get("blurb", "")
-        repl["restaurant_radar_url"]     = featured.get("maps_url") or featured.get("website") or ""
+        # Prefer the restaurant's own website so the link text reads as a real
+        # root domain (joespizza.com), not 'google.com' from a Maps link; fall
+        # back to Maps when there's no website. href + visible text point at the
+        # same place for consistency.
+        rest_url = featured.get("website") or featured.get("maps_url") or ""
+        repl["restaurant_radar_url"]            = rest_url
+        repl["restaurant_radar_url_placeholder"] = display_domain(rest_url) if rest_url else ""
         img_url = featured.get("gif") or featured.get("photo")
         if img_url:
             hosted = upload_remote_image(client, publication_id, img_url)
@@ -1720,6 +1726,9 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             repl["free_event_link_1"]        = link
             # Alias: template URL fields sometimes drop the trailing `_1`
             repl["free_event_link"]          = link
+            # Visible link text = root domain, for templates that phrase the
+            # link as e.g. "For more click {free_event_url_placeholder}".
+            repl["free_event_url_placeholder"] = display_domain(link) if link else ""
 
             # Event photo(s): 2+ pictures are combined into a single cycling
             # GIF (free_event_render_images → [gif_url]); 0-1 pass through as
