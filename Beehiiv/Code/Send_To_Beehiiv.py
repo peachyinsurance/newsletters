@@ -562,16 +562,18 @@ WEEKEND_SLOT_KEYS: list[tuple[str, str, str]] = [
 
 
 def _weekend_event_to_card(ev: dict, slot_key: str) -> dict[str, str]:
-    """Render one event into the template's title / message / link / url-placeholder
-    fields. The event name is bolded with the leading emoji; the message chains
-    venue / address / time / price (pipe-separated) plus the one-sentence
-    description on the next line.
+    """Render one event into the title / message / link fields. The event name
+    is bolded with the leading emoji; the message chains venue / address / time
+    / price (pipe-separated), then the source link as 'More: domain', then the
+    one-sentence description on the next line.
 
-    The source link is NOT inlined in the message anymore — it's wired through
-    the Beehiiv template's own hyperlink, whose href is `{slot}_link` (the full
-    URL) and whose visible (bold) text is `{slot}_url_placeholder` (the display
-    domain, e.g. `cityofmarietta.com`). That lets the template control the link
-    styling/bolding instead of injecting an inline anchor Beehiiv re-styles."""
+    The link is INLINE in the message (same as Restaurant / 'More info') — NOT a
+    separate template hyperlink. Beehiiv rewrites tokens placed in a link/URL
+    field ({slot}_link → http://slot_link?utm…, and splits a bolded
+    {slot}_url_placeholder across <b> tags), so a template-wired hyperlink can't
+    be substituted. {slot}_message is a plain text token Beehiiv leaves intact,
+    so the inline <a> survives. ({slot}_link is still returned for any template
+    that wires a standalone button to it.)"""
     emoji = (ev.get("emoji") or "").strip()
     name  = (ev.get("event_name") or "").strip()
     title = f"{emoji} <strong>{name}</strong>".strip()
@@ -580,16 +582,19 @@ def _weekend_event_to_card(ev: dict, slot_key: str) -> dict[str, str]:
     parts = [p for p in parts if p]
     url = (ev.get("source_url") or "").strip()
     domain = display_domain(url) if url else ""
+    if url and domain:
+        parts.append(
+            f'More: <a href="{url}" target="_blank" rel="noopener noreferrer">'
+            f'<strong>{domain}</strong></a>')
 
     line = title + (" - " + " | ".join(parts) if parts else "")
     desc = (ev.get("description") or "").strip()
     message = line + (f"<br>{desc}" if desc else "")
 
     return {
-        f"{slot_key}_title":           "",
-        f"{slot_key}_message":         message,
-        f"{slot_key}_link":            url,      # href for the template hyperlink
-        f"{slot_key}_url_placeholder": domain,   # visible (bold) link text
+        f"{slot_key}_title":   "",
+        f"{slot_key}_message": message,
+        f"{slot_key}_link":    url,
     }
 
 
