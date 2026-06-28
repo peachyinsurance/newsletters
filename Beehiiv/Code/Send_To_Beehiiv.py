@@ -1717,6 +1717,11 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         repl["PET_DOMAIN"]        = _pet_domain
         repl["PET_LINK_EMBEDDED"] = _pet_embed
         repl["PET_EMBEDDED"]      = _pet_embed  # alias
+        # Lowercase aliases too — tokens are case-sensitive and the template
+        # uses {pet_link_embedded}/{pet_embedded}.
+        repl["pet_link_embedded"] = _pet_embed
+        repl["pet_embedded"]      = _pet_embed
+        repl["pet_domain"]        = _pet_domain
         # Prefer the animated gh-pages GIF, but a pet's GIF URL is written to
         # Notion at generation time and may be SENT a cycle later. If the
         # gh-pages file was wiped (e.g. an older newsletter's run) or never
