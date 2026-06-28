@@ -1697,7 +1697,19 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         if pet.get("shelter_email"):   _pet_meta.append(pet["shelter_email"])
         if pet.get("shelter_hours"):   _pet_meta.append(pet["shelter_hours"])
         repl["pet_meta_data"]        = "<br>".join(_pet_meta)
-        repl["PET_SOURCE_URL"]       = pet.get("url", "")
+        pet_url = pet.get("url", "")
+        repl["PET_SOURCE_URL"]       = pet_url  # raw URL
+        # EMBEDDED bold clickable link as a plain-text token. Put e.g.
+        # "meet them at {PET_LINK_EMBEDDED}" in the template as PLAIN text
+        # (don't bold it / don't use a Beehiiv link field). Bold is baked in.
+        _pet_domain = display_domain(pet_url) if pet_url else ""
+        _pet_embed = (
+            f'<a href="{pet_url}" target="_blank" '
+            f'rel="noopener noreferrer"><strong>{_pet_domain}</strong></a>'
+        ) if pet_url and _pet_domain else ""
+        repl["PET_DOMAIN"]        = _pet_domain
+        repl["PET_LINK_EMBEDDED"] = _pet_embed
+        repl["PET_EMBEDDED"]      = _pet_embed  # alias
         # Prefer the animated gh-pages GIF, but a pet's GIF URL is written to
         # Notion at generation time and may be SENT a cycle later. If the
         # gh-pages file was wiped (e.g. an older newsletter's run) or never
