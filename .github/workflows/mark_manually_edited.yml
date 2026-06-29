@@ -1,0 +1,48 @@
+name: Mark Weekend Events as Manually Edited
+
+# Set "Manually Edited = True" on Weekend Events rows so a re-scrape won't
+# overwrite their curated content (save_event leaves Manually Edited rows
+# intact). Run this after hand-editing events you want to freeze.
+
+on:
+  workflow_dispatch:
+    inputs:
+      newsletter:
+        description: 'Which newsletter to mark'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'East_Cobb_Connect'
+          - 'Perimeter_Post'
+          - 'Lewisville_Lake_Lookout'
+      dry_run:
+        description: 'Preview only (no writes)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+permissions:
+  contents: read
+
+jobs:
+  mark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+
+      - name: Mark rows as Manually Edited
+        env:
+          NOTION_API_KEY:              ${{ secrets.NOTION_API_KEY }}
+          NOTION_WEEKEND_EVENTS_DB_ID: ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
+          NEWSLETTER: ${{ github.event.inputs.newsletter || 'all' }}
+          DRY_RUN:    ${{ github.event.inputs.dry_run || 'false' }}
+        run: python "Weekend Events/Code/utilities/mark_manually_edited.py"
