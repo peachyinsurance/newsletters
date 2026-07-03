@@ -99,6 +99,21 @@ def _ensure_in_search_of_schema(db_id: str) -> None:
     _schema_ensured = True
 
 
+def _is_manually_edited(page_id: str) -> bool:
+    """True if the existing row has Manually Edited checked. Used to skip the
+    content refresh on re-scrape so hand-curated rows aren't clobbered. One
+    lightweight GET per existing row (only on the update path)."""
+    try:
+        r = requests.get(f"https://api.notion.com/v1/pages/{page_id}",
+                         headers=NOTION_HEADERS, timeout=20)
+        if not r.ok:
+            return False
+        props = r.json().get("properties", {}) or {}
+        return bool((props.get("Manually Edited", {}) or {}).get("checkbox"))
+    except Exception:
+        return False
+
+
 def save_job(db_id: str, row: dict, newsletter: str,
              page_id: str | None = None) -> bool:
     """Create a new In Search Of row, OR update an existing row when
@@ -151,6 +166,13 @@ def save_job(db_id: str, row: dict, newsletter: str,
         return r
 
     if page_id:
+        # Respect manual curation: a row marked Manually Edited is frozen — don't
+        # refresh its scraped content on re-scrape. New rows default to Manually
+        # Edited (below), so a job freezes after its first save.
+        if _is_manually_edited(page_id):
+            print(f"    🔒 manual edit preserved, skipping refresh: "
+                  f"{employer[:50]}")
+            return True
         r = _send_with_heal(
             "PATCH", f"https://api.notion.com/v1/pages/{page_id}",
             dict(refresh_props),
@@ -166,6 +188,7 @@ def save_job(db_id: str, row: dict, newsletter: str,
     create_props["Job Listings URL"] = {"url": row["job_listings_url"]}
     create_props["Newsletter"]       = {"select": {"name": newsletter}}
     create_props["Status"]           = {"select": {"name": "pending"}}
+    create_props["Manually Edited"]  = {"checkbox": True}
     # Description starts empty; Claude fills it during the curator pass.
     create_props["Description"]      = {"rich_text": [{"text": {"content": ""}}]}
     # Bonus checkbox seeded from the source registry's hint; the skill

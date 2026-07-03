@@ -944,6 +944,9 @@ def save_pets_to_notion(results: list, newsletter_name: str) -> None:
             "Cat Default":        {"checkbox": data.get("cat_default", "") == "yes"},
             "Dog Default":        {"checkbox": data.get("dog_default", "") == "yes"},
             "Animal Type":        {"select": {"name": data.get("animal_type", "cat")}},
+            # New rows default to Manually Edited so content is treated as
+            # curated/protected; the weekly cleanup archives prior-cycle rows.
+            "Manually Edited":    {"checkbox": True},
         }
         create_page(NOTION_PETS_DB_ID, properties)
         print(f"  ✓ {data.get('pet_name')}")
@@ -1213,6 +1216,9 @@ def save_restaurants_to_notion(results: list, newsletter_name: str) -> None:
             "Festive Score":          {"number": int(data.get("festive_score", 0) or 0)},
             "Scoring Notes":          {"rich_text": [{"text": {"content": safe_str(data.get("scoring_notes"))}}]},
             "Default Winner":         {"checkbox": data.get("default_winner", "") == "yes"},
+            # New rows default to Manually Edited (curated/protected); weekly
+            # cleanup archives prior-cycle rows so fresh content can regenerate.
+            "Manually Edited":        {"checkbox": True},
         }
         if place_id and place_id in rejected_rows:
             update_page(rejected_rows[place_id], properties)
@@ -1461,7 +1467,7 @@ def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
         "Section Header": {"rich_text": [{"text": {"content": safe_str(section_header)}}]},
         "Stories Count":  {"number": len(stories)},
         "Full Section":   {"rich_text": chunks},
-        "Manually Edited": {"checkbox": False},
+        "Manually Edited": {"checkbox": True},
     }
 
     create_page(NOTION_LOWDOWN_DB_ID, properties)
@@ -1759,6 +1765,9 @@ def save_events_to_notion(results: list, newsletter_name: str) -> None:
             "Audience Match Score":  {"number": int(data.get("audience_match_score", 0) or 0)},
             "Scoring Notes":         {"rich_text": [{"text": {"content": safe_str(data.get("scoring_notes"))}}]},
             "Default Winner":        {"checkbox": data.get("default_winner", "") == "yes"},
+            # New rows default to Manually Edited (curated/protected); weekly
+            # cleanup archives prior-cycle rows so fresh content can regenerate.
+            "Manually Edited":       {"checkbox": True},
         }
         create_page(NOTION_EVENTS_DB_ID, properties)
         print(f"  ✓ {data.get('event_name')}")
@@ -1862,7 +1871,7 @@ def save_intro_to_notion(result: dict, newsletter_name: str) -> None:
         "Word Count":        {"number": int(result.get("word_count", 0))},
         "Review Score":      {"number": int(result.get("review_score", 0))},
         "Review Violations": {"rich_text": [{"text": {"content": safe_str(violations_text)[:2000]}}]},
-        "Manually Edited":   {"checkbox": False},
+        "Manually Edited":   {"checkbox": True},
     }
 
     create_page(NOTION_INTRO_DB_ID, properties)
@@ -2067,7 +2076,7 @@ def save_tips_to_notion(results: list, newsletter_name: str) -> None:
             "Timeliness Score":     {"number": int(data.get("timeliness_score", 0) or 0)},
             "Scoring Notes":        {"rich_text": [{"text": {"content": safe_str(data.get("scoring_notes"))}}]},
             "Default Winner":       {"checkbox": data.get("default_winner", "") == "yes"},
-            "Manually Edited":      {"checkbox": False},
+            "Manually Edited":      {"checkbox": True},
         }
         if category:
             properties["Category"] = {"select": {"name": category}}
@@ -2286,7 +2295,7 @@ def save_free_events_to_notion(result: dict, newsletter_name: str) -> None:
         "Event URLs":     {"rich_text": [{"text": {"content": urls_text}}]},
         "Image URL":      {"url": image_url},
         "Image URLs":     {"rich_text": [{"text": {"content": image_urls_text}}]},
-        "Manually Edited": {"checkbox": False},
+        "Manually Edited": {"checkbox": True},
     }
 
     # (Prior 'approved' rows for this newsletter are already flipped to
@@ -2443,7 +2452,7 @@ def save_poll_to_notion(result: dict, newsletter_name: str) -> None:
         "Options":           {"rich_text": [{"text": {"content": options_text[:2000]}}]},
         "Target Businesses": {"rich_text": [{"text": {"content": categories_text}}]},
         "Ad Intel Mapping":  {"rich_text": [{"text": {"content": intel_text}}]},
-        "Manually Edited":   {"checkbox": False},
+        "Manually Edited":   {"checkbox": True},
     }
 
     create_page(NOTION_POLLS_DB_ID, properties)
@@ -2617,7 +2626,7 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str,
             "Status":           {"select":    {"name": "pending"}},
             "Date Generated":   {"date":      {"start": datetime.today().strftime("%Y-%m-%d")}},
             "Scoring Notes":    {"rich_text": [{"text": {"content": safe_str(data.get("scoring_notes"))}}]},
-            "Manually Edited":  {"checkbox":  False},
+            "Manually Edited":  {"checkbox":  True},
         }
         # Only attach Date if we got a valid ISO date — Notion rejects empty start
         date_val = safe_str(data.get("date"))
@@ -2717,7 +2726,7 @@ def save_business_briefs_to_notion(results: list, newsletter_name: str) -> None:
             "Relevance Score":  {"number":    int(data.get("relevance_score", 0) or 0)},
             "Scoring Notes":    {"rich_text": [{"text": {"content": safe_str(data.get("scoring_notes"))}}]},
             "Default Winner":   {"checkbox":  data.get("default_winner", "") == "yes"},
-            "Manually Edited":  {"checkbox":  False},
+            "Manually Edited":  {"checkbox":  True},
         }
 
         # Price Level select — only set if Claude returned a valid value

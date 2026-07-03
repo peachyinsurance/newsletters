@@ -773,7 +773,9 @@ def save_real_estate_to_notion(results: list[dict], newsletter_name: str) -> Non
             "Newsletter":     {"select": {"name": newsletter_name}},
             "Date Generated": {"date": {"start": datetime.today().strftime("%Y-%m-%d")}},
             "Status":         {"select": {"name": "approved"}},
-            "Manually Edited": {"checkbox": False},
+            # Default to Manually Edited (curated/protected); cleanup keeps
+            # approved-old forever for anti-repeat, so this just protects content.
+            "Manually Edited": {"checkbox": True},
         }
         create_page(NOTION_RE_DB_ID, properties)
         print(f"  ✓ Saved: {tier} - {listing.get('address')}")

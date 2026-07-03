@@ -110,6 +110,21 @@ def existing_source_urls(db_id: str,
     return out
 
 
+def _is_manually_edited(page_id: str) -> bool:
+    """True if the existing row has Manually Edited checked. Used to skip the
+    content refresh on re-scrape so hand-curated rows aren't clobbered. One
+    lightweight GET per existing row (only on the update path)."""
+    try:
+        r = requests.get(f"https://api.notion.com/v1/pages/{page_id}",
+                         headers=NOTION_HEADERS, timeout=20)
+        if not r.ok:
+            return False
+        props = r.json().get("properties", {}) or {}
+        return bool((props.get("Manually Edited", {}) or {}).get("checkbox"))
+    except Exception:
+        return False
+
+
 def save_event(db_id: str, ev: dict, newsletter: str,
                page_id: str | None = None) -> bool:
     """Create a new event row, OR update an existing row when `page_id`
@@ -224,6 +239,14 @@ def save_event(db_id: str, ev: dict, newsletter: str,
         return r
 
     if page_id:
+        # Respect manual curation: a row marked Manually Edited is frozen — don't
+        # overwrite its content on re-scrape. New rows default to Manually Edited
+        # (below), so an event freezes after its first save; the weekly cleanup
+        # archives past rows so the next cycle still creates fresh ones.
+        if _is_manually_edited(page_id):
+            print(f"    🔒 manual edit preserved, skipping refresh: "
+                  f"{ev.get('event_name','')[:50]}")
+            return True
         r = _send_with_heal(
             "PATCH", f"https://api.notion.com/v1/pages/{page_id}",
             dict(content),
@@ -238,6 +261,7 @@ def save_event(db_id: str, ev: dict, newsletter: str,
     create_props["Source URL"] = {"url": ev["source_url"]}
     create_props["Newsletter"] = {"select": {"name": newsletter}}
     create_props["Status"]     = {"select": {"name": "pending"}}
+    create_props["Manually Edited"] = {"checkbox": True}
     r = _send_with_heal("POST", "https://api.notion.com/v1/pages", create_props)
     if not r.ok:
         print(f"    ✗ save failed: {r.status_code} {r.text[:200]}")

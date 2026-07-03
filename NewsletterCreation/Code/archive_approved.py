@@ -38,9 +38,15 @@ from notion_helper import (
 
 import requests
 
-# Stale-manual-edit window. Rows older than this with
-# Manually Edited == True flip to approved - old on Friday.
-MAX_MANUAL_EDIT_DAYS = 7
+# Stale-manual-edit window, in days. Rows with Manually Edited == True and a
+# Date Generated OLDER than this flip to approved - old on the weekly run.
+# Set to 0 so any manually-edited row from a PREVIOUS day (i.e. a prior cycle)
+# is archived as soon as the weekly cleanup runs — now that EVERY new row
+# defaults to Manually Edited, the old 7-day wait would keep last cycle's
+# content "current" for ~2 weeks. Rows generated TODAY are still protected
+# (row_date must be strictly before today), so a same-day regeneration isn't
+# nuked by the same run.
+MAX_MANUAL_EDIT_DAYS = 0
 
 
 def flip_status(database_id: str, db_name: str, active_statuses: list[str]) -> int:
@@ -171,8 +177,9 @@ if __name__ == "__main__":
     print(f"Section archive done. Total items archived: {total}\n")
 
     # ── Pass 2: stale manually-edited rows across every DB ───────────
-    print(f"Sweeping for manually-edited rows older than "
-          f"{MAX_MANUAL_EDIT_DAYS} days...\n")
+    window = ("from before today" if MAX_MANUAL_EDIT_DAYS == 0
+              else f"older than {MAX_MANUAL_EDIT_DAYS} days")
+    print(f"Sweeping for manually-edited rows {window}...\n")
     stale_total = 0
     sections = [
         ("Welcome Intro",   NOTION_INTRO_DB_ID),
