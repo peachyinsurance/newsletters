@@ -266,6 +266,9 @@ def save_candidate(newsletter_name: str, post: dict, sub_label: str) -> bool:
         "Caption":          {"rich_text": [{"text": {"content": title}}]},
         "Status":           {"select": {"name": "pending"}},
         "Date Generated":   {"date": {"start": datetime.today().date().isoformat()}},
+        # New rows default to Manually Edited (curated/protected); weekly
+        # cleanup archives prior-cycle rows so fresh content can regenerate.
+        "Manually Edited":  {"checkbox": True},
     }
     try:
         create_page(NOTION_MEMES_DB_ID, properties)

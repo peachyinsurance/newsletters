@@ -601,6 +601,7 @@ def setup_notion_databases():
                 {"name": "rejected",       "color": "red"},
             ]}},
             "Date Generated":   {"date": {}},
+            "Manually Edited":  {"checkbox": {}},
         }
         r = requests.patch(
             f"https://api.notion.com/v1/databases/{NOTION_MEMES_DB_ID}",
@@ -790,6 +791,7 @@ def setup_notion_databases():
                 {"name": "wp_used"},
             ]}},
             "Date Generated":   {"date": {}},
+            "Manually Edited":  {"checkbox": {}},
         }
         r = requests.patch(
             f"https://api.notion.com/v1/databases/{NOTION_WEEKEND_EVENTS_DB_ID}",
