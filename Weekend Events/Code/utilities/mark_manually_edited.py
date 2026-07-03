@@ -32,6 +32,24 @@ ALL_NEWSLETTER_TAGS = [
 ]
 
 
+def _ensure_column() -> None:
+    """Make sure the `Manually Edited` checkbox column exists before we try to
+    write it — the DB may predate the column. Idempotent (Notion leaves an
+    existing property untouched)."""
+    try:
+        r = requests.patch(
+            f"https://api.notion.com/v1/databases/{WEEKEND_EVENTS_DB_ID}",
+            headers=NOTION_HEADERS,
+            json={"properties": {"Manually Edited": {"checkbox": {}}}},
+            timeout=30,
+        )
+        if not r.ok:
+            print(f"  ⚠ could not ensure Manually Edited column: "
+                  f"{r.status_code} {r.text[:150]}")
+    except Exception as e:
+        print(f"  ⚠ could not ensure Manually Edited column: {e}")
+
+
 def _mark_newsletter(tag: str) -> tuple[int, int, int]:
     """Mark one newsletter tag. Returns (marked, already, failed)."""
     pages = query_database(WEEKEND_EVENTS_DB_ID, filters={
@@ -86,6 +104,9 @@ def main() -> int:
     mode = "DRY RUN (no writes)" if DRY_RUN else "WRITING"
     print(f"Marking Weekend Events as Manually Edited — {mode}")
     print(f"  newsletter(s): {tags}\n")
+
+    if not DRY_RUN:
+        _ensure_column()
 
     tot_marked = tot_already = tot_failed = 0
     for tag in tags:

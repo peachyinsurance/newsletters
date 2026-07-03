@@ -49,11 +49,12 @@ _columns_ensured: set[str] = set()
 
 
 def _ensure_event_columns(db_id: str) -> None:
-    """Idempotently add the `Price` (rich_text) and `Free` (checkbox) columns
-    before the first write into `db_id` this run. The scrapers write Price but
-    run BEFORE the post-scrape free_tagger that would otherwise create the
-    column, so without this the very first run after these columns were
-    introduced would silently drop every price. Cheap: one PATCH per process."""
+    """Idempotently add the `Price` (rich_text), `Free` (checkbox), and
+    `Manually Edited` (checkbox) columns before the first write into `db_id`
+    this run. The scrapers write these but run BEFORE any post-scrape utility
+    that would otherwise create the column, so without this the very first run
+    after a column was introduced would silently drop the value (the missing-
+    property heal strips it). Cheap: one PATCH per process."""
     if not db_id or db_id in _columns_ensured:
         return
     _columns_ensured.add(db_id)
@@ -61,12 +62,13 @@ def _ensure_event_columns(db_id: str) -> None:
         requests.patch(
             f"https://api.notion.com/v1/databases/{db_id}",
             headers=NOTION_HEADERS,
-            json={"properties": {"Price": {"rich_text": {}},
-                                 "Free":  {"checkbox": {}}}},
+            json={"properties": {"Price":           {"rich_text": {}},
+                                 "Free":            {"checkbox": {}},
+                                 "Manually Edited": {"checkbox": {}}}},
             timeout=30,
         )
     except Exception as e:
-        print(f"    ⚠ could not ensure Price/Free columns: {e}")
+        print(f"    ⚠ could not ensure Price/Free/Manually Edited columns: {e}")
 
 
 def existing_source_urls(db_id: str,
