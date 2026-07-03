@@ -20,6 +20,19 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+      - name: Verify push token is set
+        env:
+          PAT: ${{ secrets.RUNNER_PAT }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "::error::RUNNER_PAT secret is empty/unset for this repo. Add a PAT"
+            echo "::error::with 'repo' + 'workflow' scope as the Repository secret RUNNER_PAT"
+            echo "::error::(Settings > Secrets and variables > Actions). Editing the PAT's"
+            echo "::error::scopes in Developer Settings does NOT update the stored secret value."
+            exit 1
+          fi
+          echo "✓ RUNNER_PAT is present"
+
       - uses: actions/checkout@v4
         with:
           # MUST be a PAT with the `workflow` scope (fine-grained: Workflows
