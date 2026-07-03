@@ -22,7 +22,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # MUST be a PAT with the `workflow` scope (fine-grained: Workflows
+          # read+write). The default GITHUB_TOKEN is a GitHub App token, which
+          # GitHub forbids from creating/updating files under .github/workflows/
+          # — this job rewrites those files, so it needs a real PAT. checkout
+          # persists this token, so the `git push` below authenticates with it.
+          token: ${{ secrets.RUNNER_PAT }}
 
       - uses: actions/setup-python@v5
         with:
