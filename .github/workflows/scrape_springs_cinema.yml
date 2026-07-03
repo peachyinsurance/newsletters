@@ -17,9 +17,10 @@ on:
         default: 'East_Cobb_Connect'
         type: choice
         options:
+          - 'all'
           - 'East_Cobb_Connect'
-          - 'ECC_PP'
           - 'Perimeter_Post'
+          - 'Lewisville_Lake_Lookout'
 
 permissions:
   contents: read
