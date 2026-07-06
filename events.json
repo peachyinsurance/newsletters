@@ -1005,35 +1005,5 @@
     "header_image_url": "https://peachyinsurance.github.io/newsletters/gifs/Newsletter_Header_image_East_Cobb_Connect_City_of_Marietta_s_4th_in_the_Park_Celeb.png?v=1782747197",
     "gif_url": "https://peachyinsurance.github.io/newsletters/gifs/event_gif_East_Cobb_Connect_City_of_Marietta_s_4th_in_the_Park_Celeb.gif?v=1782747209",
     "default_winner": "yes"
-  },
-  {
-    "source_url": "https://travelcobb.org/event/mariettas-fourth-in-the-park/",
-    "event_name": "Marietta's Fourth in the Park",
-    "date": "Saturday, July 4",
-    "time": "All Day",
-    "venue": "Marietta Square, Marietta, GA",
-    "price": "Free",
-    "blurb": "If there's one Fourth of July tradition in Cobb County that actually earns the word 'tradition,' it's this one. Marietta's Fourth in the Park has everything the day is supposed to feel like: a morning parade down the Square, arts and crafts vendors, food, carnival games, and then a full evening concert from Departure (the Journey tribute band that never disappoints) capped off with fireworks. It's the kind of day where you show up in the morning and somehow it's 10pm. Whether you're bringing the kids, meeting up with neighbors, or just want somewhere to be on the 4th that doesn't feel like a parking lot, Marietta Square delivers. No tickets, no hassle. Just show up.",
-    "ticket_url": "",
-    "date_generated": "2026-06-28",
-    "status": "approved",
-    "newsletter_name": "East_Cobb_Connect",
-    "total_score": "25",
-    "demographic_fit_score": "9",
-    "uniqueness_score": "7",
-    "audience_match_score": "9",
-    "scoring_notes": "Annual anchor event for the area. East Cobb residents are close to Marietta Square and this is the definitive local July 4th celebration. Hits both established families and empty nesters. Free price point removes any friction. Uniqueness score docked slightly because it is an annual recurring event, but the scale and production make it a genuine can't-miss.",
-    "image_url": "https://travelcobb.org/wp-content/uploads/2026/04/3db1f723-258d-4787-8f8a-593e70a5a0ef.png",
-    "image_candidates": [
-      "https://travelcobb.org/wp-content/uploads/2026/04/3db1f723-258d-4787-8f8a-593e70a5a0ef.png",
-      "https://www.atlantaareaparks.com/wp-content/uploads/East-Cobb-Park-Marietta-Book-Little-Free-Library-1_c-240x180.jpg",
-      "https://img.barkparkfinder.com/2025/11/marietta-georgia-east-cobb-park-1-800x450.jpg",
-      "https://www.atlantaareaparks.com/wp-content/uploads/2020/07/East-Cobb-Park-Marietta-Field-1024x576.jpg",
-      "https://www.atlantaareaparks.com/wp-content/uploads/2020/12/East-Cobb-Park-Marietta-Amphitheater-and-stage-building-1024x576.jpg",
-      "https://www.atlantaareaparks.com/wp-content/uploads/2020/07/East-Cobb-Park-Marietta-Parking-lot-front.jpg"
-    ],
-    "header_image_url": "https://peachyinsurance.github.io/newsletters/gifs/Newsletter_Header_image_East_Cobb_Connect_Marietta_s_Fourth_in_the_Park.png?v=1782665112",
-    "gif_url": "https://peachyinsurance.github.io/newsletters/gifs/event_gif_East_Cobb_Connect_Marietta_s_Fourth_in_the_Park.gif?v=1782665120",
-    "default_winner": ""
   }
 ]
