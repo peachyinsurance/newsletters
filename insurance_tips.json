@@ -1,1 +1,40 @@
-[]
+[
+  {
+    "tip_title": "You Made the Home Inventory. But Did You Write Down What Things Are Actually Worth?",
+    "topic": "Home Inventory - Valuing Items for Insurance Claims",
+    "blurb": "💡 **Insurance Tip: You Made the Home Inventory. But Did You Write Down What Things Are Actually Worth?**\n\nA lot of homeowners have some version of a home inventory — a list, a phone video, a spreadsheet — but most of them stop short of recording the actual value of each item. That gap matters at claim time. Your insurer doesn't just need to know you owned a couch; they need to know what it's worth so they can calculate what you get back. For big-ticket stuff (electronics, jewelry, musical instruments, furniture), keep receipts or note the purchase price and year so there's a real number to work with instead of a guess made under pressure after a loss.\n\nNot sure if your current personal property coverage is in the right ballpark for what you actually own? Your Peachy agent can help you think through it.\n\n📖 [Learn more from NerdWallet](https://www.nerdwallet.com/insurance/homeowners/learn/actual-cash-value-vs-replacement-cost)",
+    "summary": "Covers the importance of recording item values (not just item names) in a home inventory, so there's a documented number to support a personal property claim rather than an undocumented guess made after a loss.",
+    "source_url": "https://www.nerdwallet.com/insurance/homeowners/learn/actual-cash-value-vs-replacement-cost",
+    "source_name": "NerdWallet",
+    "sponsor_name": "Peachy Insurance",
+    "category": "home",
+    "total_score": "24",
+    "relevance_score": "9",
+    "actionability_score": "9",
+    "timeliness_score": "6",
+    "scoring_notes": "Prior tip (2026-04-27) covered HOW to build a home inventory using phone video walkthroughs. This tip takes a substantively different angle: HOW TO VALUE items already on the inventory so they actually support a claim payout. New angle stated explicitly. High homeowner population in both audiences (78% East Cobb). Actionable this week — pull up the inventory and add purchase prices. Evergreen but fresh angle justifies the pick. Source is NerdWallet (trusted list). No carrier names, no dollar figures for premiums.",
+    "date_generated": "2026-07-10",
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
+  },
+  {
+    "tip_title": "Summer Storms Can Total a Car Without Another Vehicle Ever Being Involved",
+    "topic": "Auto Insurance - Comprehensive Coverage and Summer Weather",
+    "blurb": "💡 **Insurance Tip: Summer Storms Can Total a Car Without Another Vehicle Ever Being Involved**\n\nJuly in Georgia means afternoon thunderstorms, flash flooding, hail, and the occasional tree limb that finds your hood at the worst possible time. None of those events are covered by collision insurance — they fall under comprehensive coverage, which is the part of your auto policy that handles non-collision damage like weather, falling objects, and flooding. If you dropped comprehensive to save money (especially on an older vehicle), now is a good time to check whether that tradeoff still makes sense given what the car is worth and what's sitting outside your house during storm season.\n\nNot sure what your current auto policy actually covers? Your Peachy agent can pull up the details and walk you through it in a few minutes.\n\n📖 [Learn more from Forbes Advisor](https://www.forbes.com/advisor/car-insurance/gap-insurance/)",
+    "summary": "Covers comprehensive auto coverage in the context of summer storm season in Georgia, focused on weather-related non-collision damage events (hail, flooding, falling objects) and whether dropping comprehensive on an older vehicle still makes sense.",
+    "source_url": "https://www.forbes.com/advisor/car-insurance/gap-insurance/",
+    "source_name": "Forbes Advisor",
+    "sponsor_name": "Peachy Insurance",
+    "category": "auto",
+    "total_score": "26",
+    "relevance_score": "9",
+    "actionability_score": "8",
+    "timeliness_score": "9",
+    "scoring_notes": "Prior comprehensive vs. collision tip (2026-06-29) explained the functional difference between the two coverage types. This tip takes a different angle: the seasonal Georgia storm context as a reason to check whether you still HAVE comprehensive, particularly on older vehicles where people drop it to save money. Storm season is peak-relevant in July. Both audiences have meaningful auto exposure. Forbes Advisor is on the trusted source list. No carrier names, no premium figures.",
+    "date_generated": "2026-07-10",
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": "yes"
+  }
+]
