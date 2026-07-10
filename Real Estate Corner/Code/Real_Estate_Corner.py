@@ -199,7 +199,7 @@ def fetch_listings(location: str, limit: int = 100) -> list[dict]:
 
 def has_valid_photo(listing: dict) -> bool:
     """Check if a listing has a real photo (not a placeholder)."""
-    photo = listing.get("primary_photo", {}).get("href", "")
+    photo = (listing.get("primary_photo") or {}).get("href", "")
     if not photo:
         return False
     # 'l-f' in URL = placeholder/coming soon, 'l-m' = real photo
@@ -231,9 +231,10 @@ def filter_by_tier(listings: list[dict], min_price: int, max_price: int | None,
     filtered = []
     for r in listings:
         price = r.get("list_price", 0) or 0
-        beds = r.get("description", {}).get("beds", 0) or 0
-        baths = r.get("description", {}).get("baths", 0) or 0
-        prop_type = r.get("description", {}).get("type", "") or ""
+        desc = r.get("description") or {}
+        beds = desc.get("beds", 0) or 0
+        baths = desc.get("baths", 0) or 0
+        prop_type = desc.get("type", "") or ""
 
         if price < min_price:
             continue
@@ -261,8 +262,8 @@ def build_listing_url(raw: dict) -> str:
 
 def parse_listing(raw: dict) -> dict:
     """Parse a raw API listing into a clean dict."""
-    loc = raw.get("location", {}).get("address", {})
-    desc = raw.get("description", {})
+    loc = (raw.get("location") or {}).get("address") or {}
+    desc = raw.get("description") or {}
     listing_url = build_listing_url(raw)
 
     # Get full-size photos (Realtor's API often returns thumbnails).
@@ -292,13 +293,13 @@ def parse_listing(raw: dict) -> dict:
         url = _re.sub(r"w(\d{2,4})(?=[_./])", _bump, url)
         return url
 
-    primary_photo = _upgrade_photo(raw.get("primary_photo", {}).get("href", ""))
+    primary_photo = _upgrade_photo((raw.get("primary_photo") or {}).get("href", ""))
 
     # Get up to 3 valid photo URLs (scan up to 6 in case some are missing/empty).
     all_photos = []
     seen = set()
-    for p in raw.get("photos", [])[:6]:
-        url = _upgrade_photo(p.get("href", ""))
+    for p in (raw.get("photos") or [])[:6]:
+        url = _upgrade_photo((p or {}).get("href", ""))
         if url and url not in seen:
             all_photos.append(url)
             seen.add(url)
@@ -831,7 +832,7 @@ if __name__ == "__main__":
             if not url or validate_url(url):
                 valid_listings.append(r)
             else:
-                loc = r.get("location", {}).get("address", {})
+                loc = (r.get("location") or {}).get("address") or {}
                 addr = f"{loc.get('line', '')} {loc.get('city', '')}".strip()
                 print(f"    ✗ Dead listing URL: {addr} ({url[:80]})")
         if len(valid_listings) < len(all_listings):
