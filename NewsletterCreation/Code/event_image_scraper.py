@@ -23,6 +23,7 @@ module for one 4-line helper.
 """
 from __future__ import annotations
 
+import html as _html_lib
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -357,7 +358,10 @@ def fetch_event_image(source_url: str,
     # isn't on the skip list. If validate is on, also HEAD-check.
     seen: set = set()
     for url in candidates:
-        url = (url or "").strip()
+        # URLs regex-scraped from HTML attributes carry entity-escaped
+        # ampersands (&amp;) — signed CDN URLs (e.g. Arc resizer ?auth=…&width=…)
+        # 400/404 unless decoded before saving.
+        url = _html_lib.unescape((url or "").strip())
         if not url or url in seen:
             continue
         seen.add(url)
@@ -506,7 +510,7 @@ def _cta_link_hero(html: str, source_url: str) -> str:
         hm = re.search(r'href=["\']([^"\']+)["\']', m.group(0), re.IGNORECASE)
         if not hm:
             continue
-        cand = _absolutize(hm.group(1).strip().replace("&amp;", "&"), source_url)
+        cand = _absolutize(_html_lib.unescape(hm.group(1).strip()), source_url)
         if not cand.startswith("http"):
             continue
         host = (urlparse(cand).hostname or "").lower().removeprefix("www.")
@@ -540,7 +544,7 @@ def _cta_link_hero(html: str, source_url: str) -> str:
     # 1. Largest (data-)srcset hero — lazyload <img> real source (mlbstatic).
     for attr in ("data-srcset", "srcset"):
         for sm in re.finditer(attr + r'=["\']([^"\']+)["\']', page, re.IGNORECASE):
-            best = _best_from_srcset(sm.group(1))
+            best = _best_from_srcset(_html_lib.unescape(sm.group(1)))
             if not best:
                 continue
             best = _unwrap_evbuc(_unwrap_next_image(_absolutize(best, target)))
@@ -557,7 +561,8 @@ def _cta_link_hero(html: str, source_url: str) -> str:
     ):
         mm = re.search(pat, page, re.IGNORECASE)
         if mm:
-            img = _unwrap_evbuc(_unwrap_next_image(_absolutize(mm.group(1).strip(), target)))
+            img = _unwrap_evbuc(_unwrap_next_image(_absolutize(
+                _html_lib.unescape(mm.group(1).strip()), target)))
             if img and not img.startswith("data:") and \
                not any(skip in img.lower() for skip in SKIP_TOKENS):
                 return img

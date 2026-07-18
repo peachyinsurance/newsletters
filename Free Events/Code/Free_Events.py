@@ -33,6 +33,7 @@ from event_date_filter import (
 )
 
 import re as _re
+import html as _html_lib
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -309,7 +310,9 @@ def fetch_event_image(source_url: str, _allow_root_fallback: bool = True) -> str
     # Validate each candidate (in priority order) until one passes
     seen: set = set()
     for url in candidates:
-        url = (url or "").strip()
+        # Decode entity-escaped ampersands (&amp;) from regex-scraped HTML —
+        # signed CDN URLs 400/404 with mangled query params.
+        url = _html_lib.unescape((url or "").strip())
         if not url or url in seen:
             continue
         seen.add(url)
@@ -485,7 +488,7 @@ def fetch_event_images(source_url: str, max_results: int = 8,
     for url in raw:
         if len(valid) >= max_results:
             break
-        url = (url or "").strip()
+        url = _html_lib.unescape((url or "").strip())
         if not url or url in seen_exact:
             continue
         seen_exact.add(url)
