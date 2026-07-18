@@ -1,1 +1,21 @@
-[]
+[
+  {
+    "tip_title": "Your Deductible Is a Number You Set Once and Then Forget. That's the Problem.",
+    "topic": "auto insurance deductibles explained",
+    "blurb": "💡 **Insurance Tip: Your Deductible Is a Number You Set Once and Then Forget. That's the Problem.**\n\nYour deductible is the amount you pay out of pocket before your insurance kicks in on a claim. Most people pick a number when they first set up a policy and never look at it again. But your financial situation changes. The deductible that felt manageable five years ago might now be too low (meaning you're paying more in premium than you need to) or too high (meaning you'd actually struggle to cover it if something happened tomorrow). It shows up right on your declarations page, so this is a two-minute check, not a big project.\n\nNot sure if your current deductible still makes sense for where you are financially? Your Peachy agent can walk through the tradeoffs with you.\n\n📖 [Learn more from the Insurance Information Institute](https://www.iii.org/article/understanding-your-insurance-deductibles)",
+    "summary": "Covers how insurance deductibles work (dollar amount vs. percentage) and why the number you set at policy inception may no longer fit your current financial situation, framed as a periodic review action item.",
+    "source_url": "https://www.iii.org/article/understanding-your-insurance-deductibles",
+    "source_name": "Insurance Information Institute",
+    "sponsor_name": "Peachy Insurance",
+    "category": "auto",
+    "total_score": "24",
+    "relevance_score": "9",
+    "actionability_score": "9",
+    "timeliness_score": "6",
+    "scoring_notes": "Evergreen topic with strong relevance for both audiences — 78% homeowner rate means many have both home and auto deductibles worth reviewing. Not covered in the prior 6 months. Actionable in under 5 minutes (declarations page check). Scores a 6 on timeliness because it's not seasonally acute, but mid-summer is when people are driving more, using their vehicles more, and hurricane-season awareness has them thinking about their policies generally. Trusted source (iii.org). No carrier names, no dollar figures for premiums, no scare tactics.",
+    "date_generated": "2026-07-18",
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": "yes"
+  }
+]
