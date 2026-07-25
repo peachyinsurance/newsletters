@@ -1,1 +1,40 @@
-[]
+[
+  {
+    "tip_title": "Working From Home? Your Homeowners Policy Probably Doesn't Cover Your Business.",
+    "topic": "home insurance coverage for home business",
+    "blurb": "💡 **Insurance Tip: Working From Home? Your Homeowners Policy Probably Doesn't Cover Your Business.**\n\nIf you run any kind of business out of your house — freelance work, a side hustle, client consultations, whatever it is — your standard homeowners policy is almost certainly not built for it. Most policies cap business property coverage at around $2,500, and that's just for your equipment. Liability coverage for a client who slips on your front steps or a delivery person who takes a bad fall? That's typically not included at all. The fix isn't complicated — sometimes it's an endorsement on your existing policy, sometimes it's a separate home business policy — but you do need to actually check.\n\nNot sure if your current policy covers what happens at your home office? Your Peachy agent can take a look and tell you exactly where you stand.\n\n📖 [Learn more from the Insurance Information Institute](https://www.iii.org/article/insuring-your-home-based-business)",
+    "summary": "Covers the gap between standard homeowners coverage and what's actually needed when running a business from home — specifically the low business property cap (~$2,500) and the absence of business liability coverage, and what options exist to close that gap.",
+    "source_url": "https://www.iii.org/article/insuring-your-home-based-business",
+    "source_name": "Insurance Information Institute",
+    "sponsor_name": "Peachy Insurance",
+    "category": "home",
+    "total_score": "25",
+    "relevance_score": "9",
+    "actionability_score": "9",
+    "timeliness_score": "7",
+    "scoring_notes": "Remote and hybrid work is mainstream across both audiences — high-income East Cobb households skew toward professional work-from-home setups, consulting, and side businesses. This topic has never been covered in the prior 6 months. Actionable right now: readers can pull their policy and ask a specific question. Not seasonal, but evergreen at a strong 7 because the remote-work economy doesn't have an off-season. Source is iii.org, fully trusted.",
+    "date_generated": "2026-07-24",
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
+  },
+  {
+    "tip_title": "Hurricane Season Isn't Over. One Policy Detail That's Easy to Miss Before a Storm Hits.",
+    "topic": "hurricane preparation insurance checklist",
+    "blurb": "💡 **Insurance Tip: Hurricane Season Isn't Over. One Policy Detail That's Easy to Miss Before a Storm Hits.**\n\nAtlantic hurricane season runs through November 30, and late July through October is actually peak activity. Most homeowners think about hurricane prep in terms of plywood and bottled water — and that stuff matters — but there's one insurance detail worth checking right now while it's calm: your wind or hurricane deductible. In many states, including Georgia, insurers can write a separate deductible specifically for hurricane or windstorm damage, and it's often calculated as a percentage of your dwelling coverage rather than a flat dollar amount. On a $350,000 home, a 2% hurricane deductible means you're covering the first $7,000 out of pocket before your policy kicks in. That's a very different number than a standard $1,000 flat deductible, and a lot of homeowners don't realize those are two separate things until after a claim.\n\nWant to know what your hurricane deductible actually is? Pull your declarations page or ask your Peachy agent — it takes about two minutes to find.\n\n📖 [Learn more from the Insurance Information Institute](https://www.iii.org/article/hurricane-season-insurance-guide)",
+    "summary": "Covers the hurricane/windstorm deductible as a distinct policy mechanic — specifically the percentage-based deductible structure and how it differs from a standard flat deductible — framed as a mid-season check during peak hurricane activity rather than the pre-season prep checklist angle used in the June 22 tip.",
+    "source_url": "https://www.iii.org/article/hurricane-season-insurance-guide",
+    "source_name": "Insurance Information Institute",
+    "sponsor_name": "Peachy Insurance",
+    "category": "seasonal",
+    "total_score": "27",
+    "relevance_score": "8",
+    "actionability_score": "9",
+    "timeliness_score": "10",
+    "scoring_notes": "Hurricane season covered on 6/22 but that tip focused on three declaration page checks as pre-season prep (dwelling coverage adequacy, wind deductible existence, flood coverage). This tip zeroes in on HOW the percentage-based hurricane deductible actually works and what it costs the homeowner at claim time — a meaningfully different angle: prior tip said 'check if you have it,' this one explains 'here's what it actually means in dollars.' July 24 is squarely inside peak season. Both audiences are 78% homeowners. High timeliness score fully justified. Source is iii.org, trusted.",
+    "date_generated": "2026-07-24",
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": "yes"
+  }
+]
