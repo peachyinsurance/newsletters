@@ -2343,6 +2343,17 @@ def main():
         f"Newsletter_Header_image_{NEWSLETTER}.png"
     )
 
+    # Debug dump: persist the final body so the workflow can upload it as
+    # an artifact (splitter tuning + template forensics without API keys).
+    try:
+        out_dir = Path(__file__).parent / "output"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        dump_path = out_dir / f"final_body_{NEWSLETTER}.html"
+        dump_path.write_text(new_body, encoding="utf-8")
+        print(f"\n  [debug] Final body dumped to {dump_path}")
+    except Exception as e:
+        print(f"\n  [debug] Body dump failed (non-fatal): {e}")
+
     # Create the post
     print(f"\n  Creating Beehiiv post (status: {STATUS}, content_mode: {CONTENT_MODE})…")
     print(f"  Thumbnail: {thumbnail_url}")

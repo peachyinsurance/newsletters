@@ -123,6 +123,17 @@ jobs:
           CONTENT_MODE:                  ${{ github.event.inputs.content_mode || 'body_content' }}
         run: python "Beehiiv/Code/Send_To_Beehiiv.py"
 
+      # Debug artifact: the final rendered body HTML exactly as sent to
+      # Beehiiv. Used for tuning the blocks splitter and template forensics.
+      - name: Upload final body artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-body-html
+          path: Beehiiv/Code/output/final_body_*.html
+          if-no-files-found: ignore
+          retention-days: 7
+
       # When the newsletter is actually being sent (not a draft), kick off
       # a poll-counts refresh immediately so the landing page reflects votes
       # from the moment subscribers start clicking — no waiting for the next
