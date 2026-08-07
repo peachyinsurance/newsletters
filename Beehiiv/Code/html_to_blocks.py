@@ -208,6 +208,271 @@ def html_to_section_blocks(html: str, *, verbose: bool = True) -> list[dict]:
     return [{"type": "html", "html": c["html"]} for c in chunks]
 
 
+# ===========================================================================
+# NATIVE MODE (Phase 2): convert widget rows to native Beehiiv blocks so the
+# COPY itself is click-and-type editable in the editor — not just the
+# section chunks. Rows that can't be converted faithfully (weekend-planner
+# card grid, meme grid, dividers, share/button rows) stay `html` blocks.
+# ===========================================================================
+
+# The content column is 630px wide in the rendered template; image widget
+# widths are expressed as a 1-100 percentage of that column.
+_CONTENT_COL_PX = 630
+
+_STYLE_TAGS = {
+    "strong": "bold", "b": "bold",
+    "em": "italic", "i": "italic",
+    "u": "underline",
+    "s": "strikethrough", "strike": "strikethrough", "del": "strikethrough",
+}
+
+
+def _inline_runs(node: Tag, styling: tuple[str, ...] = (),
+                 link: dict | None = None) -> list[dict]:
+    """Walk inline content and emit formattedText runs:
+    {"text", "styling"?, "link"?}. <br> becomes a newline in the run text —
+    VERIFY in the editor that Beehiiv renders it as a line break."""
+    runs: list[dict] = []
+    for child in node.children:
+        if isinstance(child, Tag):
+            if child.name == "br":
+                runs.append({"text": "\n", "styling": list(styling), "link": link})
+                # Malformed `<br>text</br>` parses as text nested INSIDE the
+                # br — recurse so that copy isn't silently dropped.
+                runs.extend(_inline_runs(child, styling, link))
+            elif child.name in _STYLE_TAGS:
+                extra = _STYLE_TAGS[child.name]
+                runs.extend(_inline_runs(child, styling + ((extra,) if extra not in styling else ()), link))
+            elif child.name == "a":
+                href = (child.get("href") or "").strip()
+                new_link = {"href": href, "target": "_blank"} if href else link
+                runs.extend(_inline_runs(child, styling, new_link))
+            else:  # span/font/etc. — recurse transparently
+                runs.extend(_inline_runs(child, styling, link))
+        else:
+            text = str(child).replace("\xa0", " ")
+            if text:
+                runs.append({"text": text, "styling": list(styling), "link": link})
+    return runs
+
+
+def _merge_runs(runs: list[dict]) -> list[dict]:
+    """Collapse whitespace-only fragmentation and drop empty runs; merge
+    adjacent runs with identical styling+link. Emit schema-clean dicts."""
+    merged: list[dict] = []
+    for r in runs:
+        if not r["text"]:
+            continue
+        prev = merged[-1] if merged else None
+        if prev is not None and prev["styling"] == r["styling"] and prev["link"] == r["link"]:
+            prev["text"] += r["text"]
+        else:
+            merged.append(dict(r))
+    out = []
+    for r in merged:
+        if not r["text"].strip() and not out:
+            continue  # leading pure-whitespace run
+        d: dict = {"text": r["text"]}
+        if r["styling"]:
+            d["styling"] = r["styling"]
+        if r["link"]:
+            d["link"] = r["link"]
+        out.append(d)
+    # trailing pure-whitespace run
+    while out and not out[-1]["text"].strip():
+        out.pop()
+    return out
+
+
+def _alignment_of(node: Tag) -> str | None:
+    """Extract left/center/right from align attrs or inline text-align,
+    checking the node itself then ancestors up to and including its <td>."""
+    n: Tag | None = node
+    while isinstance(n, Tag):
+        align = (n.get("align") or "").lower()
+        style = (n.get("style") or "").lower().replace(" ", "")
+        for cand in ("center", "right", "left"):
+            if f"text-align:{cand}" in style or align == cand:
+                return cand
+        if n.name in ("td", "tr"):
+            break
+        n = n.parent  # type: ignore[assignment]
+    return None
+
+
+def _paragraph_block(p: Tag) -> dict | None:
+    runs = _merge_runs(_inline_runs(p))
+    if not runs:
+        return None
+    block: dict = {"type": "paragraph", "formattedText": runs}
+    align = _alignment_of(p)
+    if align and align != "left":
+        block["textAlignment"] = align
+    return block
+
+
+def _heading_block(h: Tag) -> dict | None:
+    text = (h.get_text() or "").replace("\xa0", " ").strip()
+    if not text:
+        return None
+    block: dict = {"type": "heading", "level": h.name[1], "text": text}
+    align = _alignment_of(h)
+    if align and align != "left":
+        block["textAlignment"] = align
+    return block
+
+
+def _image_block(img: Tag) -> dict | None:
+    src = (img.get("src") or "").strip()
+    if not src:
+        return None
+    block: dict = {"type": "image", "imageUrl": src}
+    alt = (img.get("alt") or "").strip()
+    if alt:
+        block["alt_text"] = alt
+    a = img.find_parent("a")
+    if a is not None and (a.get("href") or "").strip():
+        block["url"] = a["href"].strip()
+    # width: px → % of the 630px content column
+    px = None
+    style = (img.get("style") or "").replace(" ", "").lower()
+    import re as _re
+    m = _re.search(r"max-width:(\d+)px", style)
+    if m:
+        px = int(m.group(1))
+    elif str(img.get("width") or "").isdigit():
+        px = int(img["width"])
+    if px and px < _CONTENT_COL_PX:
+        block["width"] = max(1, min(100, round(px * 100 / _CONTENT_COL_PX)))
+    align = _alignment_of(img)
+    if align:
+        block["imageAlignment"] = align
+    return block
+
+
+def _list_block(lst: Tag) -> dict | None:
+    items = []
+    for li in lst.find_all("li", recursive=False) or lst.find_all("li"):
+        runs = _merge_runs(_inline_runs(li))
+        if runs:
+            items.append({"formattedText": runs})
+    if not items:
+        return None
+    return {"type": "list", "items": items,
+            "listType": "ordered" if lst.name == "ol" else "unordered"}
+
+
+_SEMANTIC_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "img")
+_MAX_PARAS_PER_ROW = 12  # beyond this it's an injected card grid, not prose
+
+
+def _is_card_box(row: Tag) -> bool:
+    """Styled card containers (background color / solid border / rounded
+    corners on an inner table cell) can't be reproduced by bare native
+    blocks — converting would lose the card look."""
+    for el in row.find_all(["td", "table", "div"]):
+        style = (el.get("style") or "").lower().replace(" ", "")
+        if el.get("bgcolor") or "background-color:" in style \
+                or "border-style:solid" in style or "border-radius:" in style:
+            # Ignore the plain image-frame borders (border-width:0)
+            if "border-width:0" in style and not el.get("bgcolor") \
+                    and "background-color:" not in style:
+                continue
+            return True
+    return False
+
+
+def _convert_row(row: Tag) -> list[dict] | None:
+    """Convert one widget row to native block(s) in document order, or
+    None → keep the row as an html fallback block."""
+    if row.find("hr") is not None:
+        return None  # divider: keep exact rendering
+    if _is_card_box(row):
+        return None  # pink card boxes etc.: keep exact rendering
+
+    # Top-level semantic elements (skip ones nested inside another, e.g.
+    # <p>/<img> inside <li>, <img> inside <p>).
+    elems = [e for e in row.find_all(_SEMANTIC_TAGS)
+             if not any(isinstance(a, Tag) and a is not row and a.name in _SEMANTIC_TAGS
+                        for a in e.parents)]
+    if not elems:
+        return None
+
+    paras = [e for e in elems if e.name == "p"]
+    imgs = [e for e in elems if e.name == "img"]
+    headings = [e for e in elems if e.name.startswith("h")]
+    if len(paras) > _MAX_PARAS_PER_ROW:
+        return None  # injected card grid (weekend planner)
+    if len(imgs) > 1 and not (paras or headings):
+        return None  # image grid (memes): stacking would break the layout
+    if any(h.find("a") is not None for h in headings):
+        return None  # native heading blocks can't carry links
+
+    blocks: list[dict] = []
+    for e in elems:
+        if e.name == "p":
+            b = _paragraph_block(e)
+        elif e.name in ("ul", "ol"):
+            b = _list_block(e)
+        elif e.name == "img":
+            b = _image_block(e)
+        else:
+            b = _heading_block(e)
+        if b is None:
+            # An element we can't express natively (e.g. img with no src):
+            # bail on the whole row so nothing is dropped or reordered.
+            if (e.get_text() or "").strip() or e.name == "img":
+                return None
+            continue  # empty p/heading: skippable
+        blocks.append(b)
+    return blocks or None
+
+
+def html_to_native_blocks(html: str, *, verbose: bool = True) -> list[dict]:
+    """Convert rendered email HTML into a Beehiiv `blocks` array using
+    NATIVE block types (paragraph/heading/image/list) wherever a widget row
+    converts faithfully; consecutive unconvertible rows merge into `html`
+    fallback blocks (wrapped in the container chain, like section mode)."""
+    soup = BeautifulSoup(html, "html.parser")
+    root: Tag = soup.body if soup.body is not None else soup  # type: ignore[assignment]
+
+    container, chain, prefix, suffix = _find_row_container(root)
+    rows = _element_children(container)
+    if not rows:
+        return html_to_section_blocks(html, verbose=verbose)
+
+    out: list[dict] = []
+    pending_html: list[str] = list(str(n) for n in prefix)
+    stats = {"native": 0, "html_rows": 0}
+
+    def flush():
+        if pending_html:
+            out.append({"type": "html", "html": _wrap("".join(pending_html), chain)})
+            pending_html.clear()
+
+    for row in rows:
+        converted = _convert_row(row)
+        if converted:
+            flush()
+            out.extend(converted)
+            stats["native"] += len(converted)
+        else:
+            pending_html.append(str(row))
+            stats["html_rows"] += 1
+    pending_html.extend(str(n) for n in suffix)
+    flush()
+
+    if verbose:
+        kinds: dict[str, int] = {}
+        for b in out:
+            kinds[b["type"]] = kinds.get(b["type"], 0) + 1
+        print(f"  Native conversion: {len(out)} blocks total — "
+              + ", ".join(f"{v} {k}" for k, v in sorted(kinds.items())))
+        print(f"    ({stats['native']} native blocks from converted rows; "
+              f"{stats['html_rows']} rows kept as html fallback)")
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Local smoke test: python html_to_blocks.py [path/to/body.html]
 # ---------------------------------------------------------------------------

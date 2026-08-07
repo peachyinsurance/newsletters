@@ -20,13 +20,14 @@ on:
           - confirmed
           - scheduled
       content_mode:
-        description: 'body_content = whole issue as one uneditable HTML block (legacy). blocks = one editable block per section in the Beehiiv editor.'
+        description: 'body_content = whole issue as one uneditable HTML block (legacy). blocks = one block per section (reorderable, copy still HTML). native = copy click-and-type editable in the editor (paragraph/heading/image blocks).'
         required: false
         default: 'body_content'
         type: choice
         options:
           - body_content
           - blocks
+          - native
 
 permissions:
   contents: write

@@ -19,9 +19,11 @@ Env vars (optional):
   NEWSLETTER   — "East_Cobb_Connect" (default; only ECC supported in v1)
   STATUS       — "draft" (default), "scheduled", or "confirmed"
   CONTENT_MODE — "body_content" (default; whole issue = one uneditable
-                 htmlSnippet block) or "blocks" (split at h1/h2 section
-                 boundaries into one html block per section, so editors can
-                 reorder/edit/delete sections in the Beehiiv editor)
+                 htmlSnippet block), "blocks" (one html block per section:
+                 sections reorderable/deletable but copy still raw HTML), or
+                 "native" (copy converted to native paragraph/heading/image/
+                 list blocks — click-and-type editable in the Beehiiv editor;
+                 complex rows like the weekend card grid stay html blocks)
 """
 import json
 import mimetypes
@@ -59,7 +61,7 @@ from assemble_newsletter_page import (
 
 import anthropic
 from beehiiv_client import BeehiivClient, BeehiivError
-from html_to_blocks import html_to_section_blocks
+from html_to_blocks import html_to_section_blocks, html_to_native_blocks
 
 
 # ---------------------------------------------------------------------------
@@ -2357,16 +2359,22 @@ def main():
     # Create the post
     print(f"\n  Creating Beehiiv post (status: {STATUS}, content_mode: {CONTENT_MODE})…")
     print(f"  Thumbnail: {thumbnail_url}")
-    if CONTENT_MODE == "blocks":
-        # One html block per newsletter section (split at h1/h2) so the
-        # post is editable section-by-section in the Beehiiv editor,
-        # instead of one giant uneditable htmlSnippet.
-        section_blocks = html_to_section_blocks(new_body)
+    if CONTENT_MODE in ("blocks", "native"):
+        # blocks: one html block per newsletter section — sections are
+        #   reorderable/deletable but their copy is still raw HTML.
+        # native: copy converted to native paragraph/heading/image/list
+        #   blocks so it's click-and-type editable; rows that can't convert
+        #   faithfully (weekend card grid, meme grid, card boxes, dividers)
+        #   remain html blocks.
+        if CONTENT_MODE == "native":
+            post_blocks = html_to_native_blocks(new_body)
+        else:
+            post_blocks = html_to_section_blocks(new_body)
         new_post = client.create_post(
             cfg["publication_id"],
             title=title,
             subject_line=subject,
-            blocks=section_blocks,
+            blocks=post_blocks,
             status=STATUS,
         )
     else:
