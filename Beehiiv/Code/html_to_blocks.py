@@ -6,22 +6,32 @@ Split a fully-rendered newsletter email HTML string into a list of Beehiiv
 Why: sending the whole body as `body_content` makes Beehiiv wrap the entire
 issue in ONE htmlSnippet block, which is uneditable as a unit in the editor.
 Sending an array of html blocks (one per section) keeps the rendered output
-byte-identical per section while letting editors reorder, delete, or edit a
-single section in isolation. (Phase 1 of the blocks migration — Phase 2
-converts prose sections to native paragraph/heading/image blocks.)
+the same while letting editors reorder, delete, or edit a single section in
+isolation. (Phase 1 of the blocks migration — Phase 2 converts prose
+sections to native paragraph/heading/image blocks.)
+
+How the real template is shaped (verified against the rendered ECC body):
+the whole email is nested tables; the actual content is ONE table with
+~78 <tr> rows, one row per editor widget. Sections are delimited by the
+section-title banner images (restaurant-radar.png, local-lowdown-2.png,
+meme-corner.png, …), NOT by heading tags — h1/h2/h3 usage is inconsistent
+(h1 = weekend day headers, h2 = individual lowdown stories, h3 = various).
 
 Splitting strategy
 ------------------
-1. Parse the HTML; if a <body> exists, work inside it.
-2. Descend through "lone wrappers" (nodes with exactly one element child and
-   no meaningful text of their own) to find the level where the actual
-   content siblings live. The wrapper chain is REMEMBERED, not discarded:
-   every emitted chunk is re-wrapped in the same chain so per-block styling
-   (widths, background colors on container tables) is preserved.
-3. Walk the siblings; a sibling whose subtree contains an <h1> or <h2>
-   starts a new chunk. Everything before the first heading forms the
-   "preamble" chunk (header image, intro).
-4. Emit `{"type": "html", "html": <chunk>}` per chunk.
+1. Parse; descend from <body> through wrapper chains: single-child nodes,
+   or nodes where one child dominates (>DOMINANCE of the length) — classic
+   email nesting like table>tr>td>table>… Siblings skipped on the way down
+   (preheader div, unsubscribe footer row) are folded into the first/last
+   chunk. Stop at the first node with several children and no dominant one:
+   that's the widget-row container.
+2. Group rows into chunks, starting a new chunk at every row that contains
+   a section banner image (img src matching SECTION_BANNER_HINTS).
+3. If no banner rows were found (different template design), fall back to
+   splitting at rows containing h1/h2, then to a single chunk.
+4. Re-wrap every chunk in copies of the wrapper chain so container styling
+   (widths, backgrounds, cellpadding) survives, and emit
+   {"type": "html", "html": …} per chunk.
 
 The module never raises on unexpected structure — worst case it returns a
 single block containing the whole body, which is exactly what body_content
@@ -29,53 +39,79 @@ does today. Callers should check `len(blocks)` and log.
 """
 from __future__ import annotations
 
-import re
-
 from bs4 import BeautifulSoup, Tag
 
-# Headings that mark the start of a newsletter section in the template.
-SECTION_HEADING_TAGS = ("h1", "h2")
+# A row containing an <img> whose src matches one of these (case-insensitive
+# substring) STARTS a new section chunk. These are the section-title banner
+# assets shared by the newsletter templates; harmless if some never match.
+SECTION_BANNER_HINTS = (
+    "table-of-contents",
+    "section_titles", "section-titles",
+    "sponsor-corner",
+    "restaurant-radar",
+    "business-brief",
+    "real-estate-corner",
+    "local-lowdown",
+    "furry-friends",
+    "local-events",
+    "family-fun",
+    "adult-events",
+    "free-activity",
+    "insurance-tip",
+    "in-search-of",
+    "meme-corner",
+    "poll-",
+)
 
-# A lone wrapper with more text than this isn't a wrapper — it's content.
-_WRAPPER_TEXT_BUDGET = 0
+# Fallback boundary tags when no banner images are found.
+SECTION_HEADING_TAGS = ("h1", "h2")
+_HEADING_SENTINEL = "\x00heading"
+
+# Descend into a child when it holds more than this share of its parent's
+# serialized length (email wrapper nesting), but never descend past a node
+# that already has a healthy number of children (that IS the row container).
+DOMINANCE = 0.60
+MIN_ROWS_TO_STOP = 6
 
 
 def _element_children(node: Tag) -> list[Tag]:
     return [c for c in node.children if isinstance(c, Tag)]
 
 
-def _own_text(node: Tag) -> str:
-    """Text directly inside `node` excluding its element children."""
-    return "".join(
-        s for s in node.strings
-        if s.parent is node
-    ).replace("\xa0", " ").strip()
+def _find_row_container(root: Tag) -> tuple[Tag, list[Tag], list[Tag], list[Tag]]:
+    """Descend to the widget-row container.
 
-
-def _descend_wrappers(root: Tag) -> tuple[Tag, list[Tag]]:
-    """Walk down through nodes that have exactly one element child and no
-    text of their own — classic email wrapper chains like
-    <table><tbody><tr><td>. Returns (split_level_node, wrapper_chain).
-
-    The split-level node's children are the siblings we group into
-    sections. `wrapper_chain` (outer → inner) is every container BELOW the
-    root down to and including the split-level node; each emitted chunk is
-    re-wrapped in copies of this chain so container styling survives the
-    split. The root itself (<body> / document) is never in the chain.
+    Returns (container, wrapper_chain, prefix_nodes, suffix_nodes):
+    - wrapper_chain (outer→inner): containers below the root down to and
+      including the row container; chunks get re-wrapped in copies of these.
+    - prefix/suffix_nodes: siblings skipped while descending (in document
+      order) — folded into the first/last chunk by the caller.
     """
     chain: list[Tag] = []
+    prefix: list[Tag] = []
+    suffix: list[Tag] = []
     node = root
     while True:
         kids = _element_children(node)
-        if len(kids) != 1 or len(_own_text(node)) > _WRAPPER_TEXT_BUDGET:
-            # `node` is the split level. It wraps the siblings, so chunks
-            # must be re-wrapped in it too — unless it's the root.
-            if node is not root:
-                chain.append(node)
-            return node, chain
         if node is not root:
             chain.append(node)
-        node = kids[0]
+        if not kids:
+            return node, chain, prefix, suffix
+        if len(kids) == 1:
+            node = kids[0]
+            continue
+        if len(kids) >= MIN_ROWS_TO_STOP:
+            return node, chain, prefix, suffix
+        sizes = [len(str(k)) for k in kids]
+        total = sum(sizes) or 1
+        big = max(range(len(kids)), key=lambda i: sizes[i])
+        if sizes[big] / total < DOMINANCE:
+            return node, chain, prefix, suffix
+        prefix.extend(kids[:big])
+        # Suffix accumulates inner-first; the caller appends them after the
+        # last chunk in the order encountered (outer siblings last).
+        suffix[:0] = kids[big + 1:]
+        node = kids[big]
 
 
 def _wrap(chunk_html: str, chain: list[Tag]) -> str:
@@ -90,51 +126,71 @@ def _wrap(chunk_html: str, chain: list[Tag]) -> str:
     return out
 
 
-def _contains_section_heading(node: Tag) -> bool:
-    if node.name in SECTION_HEADING_TAGS:
+def _banner_hint(row: Tag) -> str | None:
+    """Return the matched banner hint if this row holds a section banner."""
+    imgs = ([row] if row.name == "img" else []) + row.find_all("img")
+    for img in imgs:
+        src = (img.get("src") or "").lower()
+        for hint in SECTION_BANNER_HINTS:
+            if hint in src:
+                return hint
+    return None
+
+
+def _contains_heading(row: Tag) -> bool:
+    if row.name in SECTION_HEADING_TAGS:
         return True
-    return node.find(SECTION_HEADING_TAGS) is not None
+    return row.find(SECTION_HEADING_TAGS) is not None
 
 
-def _first_heading_text(nodes: list[Tag]) -> str:
-    for n in nodes:
-        h = n if n.name in SECTION_HEADING_TAGS else n.find(SECTION_HEADING_TAGS)
+def _label(rows: list[Tag], hint: str | None) -> str:
+    if hint and hint != _HEADING_SENTINEL:
+        return hint
+    for r in rows:
+        h = r if r.name in ("h1", "h2", "h3") else r.find(["h1", "h2", "h3"])
         if h is not None:
             t = (h.get_text() or "").replace("\xa0", " ").strip()
             if t:
-                return t
-    return "(no heading)"
+                return t[:70]
+    return "(no label)"
 
 
 def split_email_html(html: str) -> list[dict]:
     """Split rendered email HTML into per-section chunks.
 
     Returns a list of dicts: [{"label": str, "html": str}, ...].
-    `label` is the section's first h1/h2 text ("(preamble)" for content
-    before the first heading) — for logging only, not sent to Beehiiv.
+    `label` is the banner hint or first heading text — logging only.
     """
     soup = BeautifulSoup(html, "html.parser")
     root: Tag = soup.body if soup.body is not None else soup  # type: ignore[assignment]
 
-    split_node, chain = _descend_wrappers(root)
-    siblings = _element_children(split_node)
-    if not siblings:
+    container, chain, prefix, suffix = _find_row_container(root)
+    rows = _element_children(container)
+    if not rows:
         return [{"label": "(whole body)", "html": html}]
 
-    # Group siblings into chunks at section-heading boundaries.
-    groups: list[list[Tag]] = [[]]
-    for sib in siblings:
-        if _contains_section_heading(sib) and groups[-1]:
-            groups.append([])
-        groups[-1].append(sib)
-    groups = [g for g in groups if g]
+    # Pick the boundary test: banners first, headings as fallback.
+    # (_HEADING_SENTINEL marks a boundary without naming it — _label falls
+    # through to the chunk's first real heading text.)
+    boundaries: list[str | None] = [_banner_hint(r) for r in rows]
+    if not any(boundaries):
+        boundaries = [_HEADING_SENTINEL if _contains_heading(r) else None for r in rows]
+
+    groups: list[tuple[str | None, list[Tag]]] = []
+    for row, hint in zip(rows, boundaries):
+        if hint or not groups:
+            groups.append((hint, []))
+        groups[-1][1].append(row)
 
     chunks: list[dict] = []
-    for i, g in enumerate(groups):
-        label = "(preamble)" if (i == 0 and not _contains_section_heading(g[0])) \
-                else _first_heading_text(g)
-        chunk_html = "".join(str(n) for n in g)
-        chunks.append({"label": label, "html": _wrap(chunk_html, chain)})
+    for i, (hint, grp) in enumerate(groups):
+        parts = [str(n) for n in grp]
+        if i == 0:
+            parts = [str(n) for n in prefix] + parts
+        if i == len(groups) - 1:
+            parts += [str(n) for n in suffix]
+        label = "(preamble)" if (i == 0 and not hint) else _label(grp, hint)
+        chunks.append({"label": label, "html": _wrap("".join(parts), chain)})
     return chunks
 
 
@@ -147,7 +203,7 @@ def html_to_section_blocks(html: str, *, verbose: bool = True) -> list[dict]:
         for i, c in enumerate(chunks):
             print(f"    [{i:2d}] {len(c['html']):>7,} chars  {c['label'][:70]}")
         if len(chunks) == 1:
-            print("    ⚠ Only 1 chunk — no h1/h2 boundaries found at the split level.")
+            print("    ⚠ Only 1 chunk — no banner or heading boundaries found.")
             print("      Post will behave like body_content (single uneditable block).")
     return [{"type": "html", "html": c["html"]} for c in chunks]
 
@@ -159,19 +215,7 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1:
         raw = open(sys.argv[1], encoding="utf-8").read()
+        blocks = html_to_section_blocks(raw)
+        print(f"\n{len(blocks)} block(s) total")
     else:
-        raw = """
-        <div id="content-blocks">
-          <table><tr><td><img src="hero.png"></td></tr></table>
-          <p>Welcome intro paragraph.</p>
-          <h2>Event of the Week</h2>
-          <table><tr><td>event card</td></tr></table>
-          <h2>Restaurant Radar</h2>
-          <p>restaurant blurb</p>
-          <table><tr><td><h2>The Local Lowdown</h2><p>news</p></td></tr></table>
-          <hr>
-          <p>footer-ish text</p>
-        </div>
-        """
-    blocks = html_to_section_blocks(raw)
-    print(f"\n{len(blocks)} block(s) total")
+        print("usage: python html_to_blocks.py path/to/body.html")
