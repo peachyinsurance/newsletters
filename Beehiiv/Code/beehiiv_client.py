@@ -105,9 +105,22 @@ class BeehiivClient:
                     subject_line: str | None = None,
                     preview_text: str | None = None,
                     content_html: str = "",
+                    blocks: list[dict] | None = None,
                     status: str = "draft",
                     **_ignored) -> dict:
         """Create a new post. status: 'draft', 'confirmed', 'scheduled'.
+
+        Content goes in EITHER `blocks` (list of Beehiiv block dicts — each
+        becomes a real editable widget in the Beehiiv editor) OR
+        `content_html` (single HTML string — Beehiiv wraps it in ONE
+        htmlSnippet block, which renders fine but is uneditable as a unit).
+        Passing both raises; the API treats them as mutually exclusive.
+
+        Subject line / preview text: the API only honors these inside the
+        `email_settings` object (`email_subject_line`, `email_preview_text`).
+        The old top-level `subject_line`/`preview_text` fields are not part
+        of the create-post schema and were silently dropped. Kept sending
+        them too (harmless) in case an older API path honored them.
 
         NOTE: per-post thumbnail is plan-locked on Beehiiv — `thumbnail_url`
         and `web_thumbnail_url` are silently dropped on POST and PATCH. Set
@@ -115,14 +128,24 @@ class BeehiivClient:
         in-body header swap handles displaying the Canva composite inside
         the email content.
         """
+        if blocks and content_html:
+            raise ValueError("create_post: pass `blocks` OR `content_html`, not both")
         body: dict[str, Any] = {
-            "title":        title,
-            "status":       status,
-            "body_content": content_html,
+            "title":  title,
+            "status": status,
         }
+        if blocks is not None:
+            body["blocks"] = blocks
+        else:
+            body["body_content"] = content_html
         if subtitle:      body["subtitle"]      = subtitle
         if subject_line:  body["subject_line"]  = subject_line
         if preview_text:  body["preview_text"]  = preview_text
+        email_settings: dict[str, str] = {}
+        if subject_line:  email_settings["email_subject_line"] = subject_line
+        if preview_text:  email_settings["email_preview_text"] = preview_text
+        if email_settings:
+            body["email_settings"] = email_settings
         result = self._request("POST", f"/publications/{publication_id}/posts",
                                json_body=body)
         return result.get("data") or result

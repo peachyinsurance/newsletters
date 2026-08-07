@@ -19,6 +19,14 @@ on:
           - draft
           - confirmed
           - scheduled
+      content_mode:
+        description: 'body_content = whole issue as one uneditable HTML block (legacy). blocks = one editable block per section in the Beehiiv editor.'
+        required: false
+        default: 'body_content'
+        type: choice
+        options:
+          - body_content
+          - blocks
 
 permissions:
   contents: write
@@ -112,6 +120,7 @@ jobs:
           # Run params
           NEWSLETTER:                    ${{ github.event.inputs.newsletter || 'East_Cobb_Connect' }}
           STATUS:                        ${{ github.event.inputs.status || 'draft' }}
+          CONTENT_MODE:                  ${{ github.event.inputs.content_mode || 'body_content' }}
         run: python "Beehiiv/Code/Send_To_Beehiiv.py"
 
       # When the newsletter is actually being sent (not a draft), kick off

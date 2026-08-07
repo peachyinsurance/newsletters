@@ -16,8 +16,12 @@ Env vars (required):
   BEEHIIV_ECC_TEMPLATE_POST_ID
 
 Env vars (optional):
-  NEWSLETTER  — "East_Cobb_Connect" (default; only ECC supported in v1)
-  STATUS      — "draft" (default), "scheduled", or "confirmed"
+  NEWSLETTER   — "East_Cobb_Connect" (default; only ECC supported in v1)
+  STATUS       — "draft" (default), "scheduled", or "confirmed"
+  CONTENT_MODE — "body_content" (default; whole issue = one uneditable
+                 htmlSnippet block) or "blocks" (split at h1/h2 section
+                 boundaries into one html block per section, so editors can
+                 reorder/edit/delete sections in the Beehiiv editor)
 """
 import json
 import mimetypes
@@ -55,6 +59,7 @@ from assemble_newsletter_page import (
 
 import anthropic
 from beehiiv_client import BeehiivClient, BeehiivError
+from html_to_blocks import html_to_section_blocks
 
 
 # ---------------------------------------------------------------------------
@@ -62,8 +67,9 @@ from beehiiv_client import BeehiivClient, BeehiivError
 # ---------------------------------------------------------------------------
 CLAUDE_API_KEY = os.environ["CLAUDE_API_KEY"]
 
-NEWSLETTER = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
-STATUS     = os.environ.get("STATUS", "draft")
+NEWSLETTER   = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
+STATUS       = os.environ.get("STATUS", "draft")
+CONTENT_MODE = os.environ.get("CONTENT_MODE", "body_content")  # or "blocks"
 
 
 # Per-newsletter Beehiiv config — built dynamically from the central
@@ -2338,15 +2344,28 @@ def main():
     )
 
     # Create the post
-    print(f"\n  Creating Beehiiv post (status: {STATUS})…")
+    print(f"\n  Creating Beehiiv post (status: {STATUS}, content_mode: {CONTENT_MODE})…")
     print(f"  Thumbnail: {thumbnail_url}")
-    new_post = client.create_post(
-        cfg["publication_id"],
-        title=title,
-        subject_line=subject,
-        content_html=new_body,
-        status=STATUS,
-    )
+    if CONTENT_MODE == "blocks":
+        # One html block per newsletter section (split at h1/h2) so the
+        # post is editable section-by-section in the Beehiiv editor,
+        # instead of one giant uneditable htmlSnippet.
+        section_blocks = html_to_section_blocks(new_body)
+        new_post = client.create_post(
+            cfg["publication_id"],
+            title=title,
+            subject_line=subject,
+            blocks=section_blocks,
+            status=STATUS,
+        )
+    else:
+        new_post = client.create_post(
+            cfg["publication_id"],
+            title=title,
+            subject_line=subject,
+            content_html=new_body,
+            status=STATUS,
+        )
     new_post_id = new_post.get("id", "")
     print(f"  ✓ Post created: {new_post_id}")
 
