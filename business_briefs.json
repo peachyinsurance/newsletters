@@ -1,5 +1,24 @@
 [
   {
+    "source_url": "https://www.bookmiser.net",
+    "business_name": "Bookmiser",
+    "city": "Marietta",
+    "blurb": "Some of you already know Bookmiser, the used bookstore at Village East on Roswell Road. What you might not know is what they've been through this year. A fire next door last September wrecked almost half of their 35,000 books, and the store sat dark for five months while crews stripped the place down to the cinder blocks. Annell Gerson and her husband rebuilt the whole thing, and when the doors opened again in March, customers were lined up to hug her.\n\nThe store is the same clean, bright, organized place it's always been, without the musty smell you get in most used bookstores. Bring in books you're done with and you get store credit good toward half of your next used purchase. They keep school required-reading lists stocked year round and discount new school books too, which matters right about now if your kid just came home with a syllabus. Seven book clubs meet there if you want in.\n\nOpen Monday through Saturday 10 to 6, Sunday 12 to 5.",
+    "price_level": "$",
+    "hours": "Mon–Sat 10am–6pm, Sun 12–5pm",
+    "address": "3822 Roswell Rd #117, Marietta, GA 30062",
+    "source_domain": "bookmiser.net",
+    "image_url": "https://eastcobbnews.com/wp-content/uploads/2026/03/Bookmiser-12.jpeg",
+    "image_candidates": [],
+    "scoring_notes": "Indie used bookstore in coverage area since 1998 (Village East since 2010). Reopened March 2026 after five-month fire closure; strong community comeback story. Back-to-school angle: stocks school required-reading lists year round and discounts new school books. Seven book clubs meet in-store.",
+    "relevance_score": "90",
+    "total_score": "90",
+    "date_generated": "2026-08-10",
+    "status": "approved",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": "yes"
+  },
+  {
     "source_url": "https://www.altitudetrampolinepark.com/locations/georgia/marietta/4880-lower-roswell-rd/",
     "business_name": "Altitude Trampoline Park",
     "city": "Marietta",
