@@ -1,1 +1,40 @@
-[]
+[
+  {
+    "tip_title": "Buying Your Teen a Car This Fall? The Vehicle Itself Affects the Insurance Bill",
+    "topic": "teen driver auto insurance tips",
+    "blurb": "💡 **Insurance Tip: Buying Your Teen a Car This Fall? The Vehicle Itself Affects the Insurance Bill**\n\nMost parents focus on the sticker price when picking a car for a teen driver. The insurance cost is a separate calculation, and it can surprise you. Sports cars, newer luxury models, and high-horsepower vehicles cost more to insure because they cost more to repair and they're statistically involved in more claims. A used sedan with good safety ratings, on the other hand, tends to sit in a much friendlier premium bracket. Bundling that vehicle onto the same policy as your home is another move worth asking about, since multi-policy discounts are real and often add up.\n\nNot sure how your teen's car is rated, or whether you're getting every discount available? Your Peachy agent can pull the actual numbers for you.\n\n📖 [Learn more from Consumer Reports](https://www.consumerreports.org/money/car-insurance/everything-you-need-to-know-about-teen-car-insurance-a9669094340/)",
+    "summary": "Covers vehicle selection as a cost lever when insuring a teen driver, specifically how a car's make, model, and safety rating affects premiums, plus bundling as a discount strategy. Distinct from prior tips on good-student discounts and deductible adjustment.",
+    "source_url": "https://www.consumerreports.org/money/car-insurance/everything-you-need-to-know-about-teen-car-insurance-a9669094340/",
+    "source_name": "Consumer Reports",
+    "sponsor_name": "Peachy Insurance",
+    "category": "auto",
+    "total_score": "25",
+    "relevance_score": "9",
+    "actionability_score": "8",
+    "timeliness_score": "8",
+    "scoring_notes": "East Cobb audience skews families with teens and college-age kids. August is peak car-buying season before fall semester. Vehicle selection angle is distinct from the July 6 tip (premium impact plus discounts) and August 3 tip (raising deductibles). Consumer Reports is on the trusted source list. Both audiences have meaningful family populations for whom this applies.",
+    "date_generated": "2026-08-21",
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
+  },
+  {
+    "tip_title": "Your Flood Policy Covers the Building. But Does It Also Cover What's Inside?",
+    "topic": "flood insurance separate policy FEMA",
+    "blurb": "💡 **Insurance Tip: Your Flood Policy Covers the Building. But Does It Also Cover What's Inside?**\n\nFlood insurance is actually two separate coverages rolled into one decision: building coverage, which pays to repair or rebuild the structure, and contents coverage, which pays to replace the stuff inside it. A lot of homeowners buy a flood policy and assume it covers everything. It doesn't, not automatically. If you only have building coverage and a flood wipes out your furniture, appliances, and personal property, that side of the loss comes out of your pocket. Check your flood policy declarations page and look for both lines before peak storm season pushes into September.\n\nNot sure what your flood policy actually includes? Your Peachy agent can read through the declarations with you and tell you exactly what you have.\n\n📖 [Learn more from FEMA](https://www.fema.gov/flood-insurance)",
+    "summary": "Covers the building vs. contents coverage split within flood insurance policies, specifically that contents coverage is a separate election and not automatic, framed as a check-your-current-policy action item during peak hurricane season.",
+    "source_url": "https://www.fema.gov/flood-insurance",
+    "source_name": "FEMA",
+    "sponsor_name": "Peachy Insurance",
+    "category": "flood",
+    "total_score": "26",
+    "relevance_score": "8",
+    "actionability_score": "9",
+    "timeliness_score": "9",
+    "scoring_notes": "August is peak hurricane season in Georgia. Flood has been covered frequently, but prior tips focused on the 30-day waiting period (August 17), NFIP vs. private comparison (July 20), and declaration page checks for wind/flood gap (June 22, August 14). The building-vs-contents split is a genuinely distinct angle not previously addressed. High homeownership in both audiences makes this relevant. FEMA is a trusted source. Relaxed dedup angle slightly given prior flood coverage frequency, but the angle is substantively different enough to justify.",
+    "date_generated": "2026-08-21",
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": "yes"
+  }
+]
