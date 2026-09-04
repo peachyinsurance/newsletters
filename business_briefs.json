@@ -1,1 +1,21 @@
-[]
+[
+  {
+    "source_url": "https://frameworksgallery.com/",
+    "business_name": "Frameworks Gallery",
+    "city": "Marietta",
+    "blurb": "Fifty-two years is a long run for any shop, let alone an art gallery in a strip of storefronts. Two sisters, Diane Spencer and Sunny Walker, opened Frameworks in 1974, and Diane still runs it today with her son heading up the framing side. Custom framing is the workhorse; the gallery side carries original work from Atlanta artists, custom mirrors, and Audubon Birds of America prints. Mon-Sat 10-5.",
+    "price_level": "$$$",
+    "hours": "Mon-Sat 10:00 AM - 5:00 PM",
+    "address": "1205 Johnson Ferry Rd, Suite 110 (Woodlawn Square), Marietta, GA 30068",
+    "source_domain": "frameworksgallery.com",
+    "image_url": "",
+    "image_candidates": [],
+    "scoring_notes": "Sisters-founded 1974, still family-run (Diane Spencer; son runs framing). 52 years in business, ~20 in Woodlawn Square. Confirmed by Victor for Sep 03 2026 edition.",
+    "relevance_score": "0",
+    "total_score": "0",
+    "date_generated": "2026-08-29",
+    "status": "approved",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
+  }
+]
