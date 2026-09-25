@@ -36,24 +36,5 @@
     "status": "pending",
     "newsletter_name": "Perimeter_Post",
     "default_winner": ""
-  },
-  {
-    "tip_title": "If You're Not Driving Much, Your Auto Policy Should Reflect That",
-    "topic": "Auto Insurance - Usage-Based and Low-Mileage Discounts",
-    "blurb": "💡 **Insurance Tip: If You're Not Driving Much, Your Auto Policy Should Reflect That**\n\nA lot of people are still paying for auto insurance priced around old driving habits — a long commute, five days a week, multiple road trips per year. If your mileage has dropped (remote work, a shorter commute, a second car that mostly sits in the garage), there's a good chance you're leaving money on the table. Many insurers offer usage-based programs where a mobile app or a plug-in device tracks how much and how safely you drive, then adjusts your premium based on real data rather than assumptions. Drivers who qualify can see meaningful savings — some programs advertise discounts up to 30% for low-mileage or low-risk driving patterns.\n\nWorth a five-minute conversation with your Peachy agent to see if a usage-based program makes sense for how your household actually drives today.\n\n📖 [Learn more from The Zebra](https://www.thezebra.com/auto-insurance/driver/other-factors/car-insurance-low-mileage-drivers/)",
-    "summary": "Covers usage-based auto insurance programs that track mileage and driving behavior through an app or device, framed as a savings opportunity for households whose driving patterns have changed — lower mileage, remote work, or a secondary vehicle.",
-    "source_url": "https://www.thezebra.com/auto-insurance/driver/other-factors/car-insurance-low-mileage-drivers/",
-    "source_name": "The Zebra",
-    "sponsor_name": "Peachy Insurance",
-    "category": "auto",
-    "total_score": "23",
-    "relevance_score": "8",
-    "actionability_score": "9",
-    "timeliness_score": "6",
-    "scoring_notes": "Usage-based auto was covered in July 2026 but that tip was framed as an 'overlooked savings lever worth asking about' in general terms. This tip takes a different angle: specifically targeting households whose driving patterns have shifted (remote work, hybrid schedules, secondary vehicles sitting idle) — a concrete life-stage trigger rather than a generic 'you might save' angle. Strong fit across all three audiences: East Cobb (established families, multiple vehicles, some empty nesters with reduced driving), Perimeter (young professionals, many hybrid/remote workers), and Lewisville Lake (mixed income, family households, college-adjacent younger skew with varying commutes). Actionability is high — readers can ask their agent or download an app this week. Evergreen but not overused. Source (The Zebra) is not on the preferred trusted-source list, but the usage-based discount data is well-established consumer information. No scare tactics, no carrier names, no specific premium promises. Noting the source flag: thezebra.com is a comparison/consumer site with editorial insurance content. The prior tip on this subject (July 20, 2026) was generic; this tip is anchored to a life-change trigger and specific discount mechanism, making it substantively distinct.",
-    "date_generated": "2026-09-21",
-    "status": "pending",
-    "newsletter_name": "East_Cobb_Connect",
-    "default_winner": "yes"
   }
 ]
