@@ -1,1 +1,25 @@
-[]
+[
+  {
+    "source_url": "http://insightbalance.com/",
+    "business_name": "Insight Balance Bodyworks by Drew",
+    "city": "Atlanta",
+    "blurb": "If your neck and back have been talking to you lately, Drew at Insight Balance Bodyworks might be worth listening to. He works out of a suite on Lake Forrest Drive and specializes in therapeutic massage — trigger point work, deep tissue, the kind of session that's less about relaxation and more about actually fixing something. Reviewers aren't being polite when they describe the difference he's made. One client came in with chronic neck and back pain and said the results were \"out of this world.\" Another has been seeing him for years specifically because his understanding of anatomy sets him apart from a standard massage therapist — he knows what's connected to what and why it matters. This isn't a spa day situation. It's more like having a knowledgeable, skilled practitioner who takes your body's problems seriously and works on them methodically. If you've cycled through massage therapists and never found one who actually moved the needle on something chronic, Drew is the kind of practitioner people tend to stick with once they find him.",
+    "price_level": "$$",
+    "hours": "Mon Closed, Tue–Wed 2:00 – 8:00 PM, Thu 10:00 AM – 4:00 PM, Fri 12:00 – 5:00 PM, Sat 10:00 AM – 5:00 PM, Sun Closed",
+    "address": "6065 Lake Forrest Dr NW Unit 250, Atlanta, GA 30328, USA",
+    "source_domain": "insightbalance.com",
+    "image_url": "https://lh3.googleusercontent.com/grass-cs/ACvplmPgmiAYemHPwUvyXoa4ygTmDQhzsMEDVghKEci5dOn9edcfYlW_Yd1yanQNqpVTD6LJQbeHj7VD3cUCoH3zrydWWKL2iWKKtKLBlNfA5u6Ogkkse3Q1irX7OuAFlvBp5k30S50mFSjtcEM=s4800-h800",
+    "image_candidates": [
+      "https://lh3.googleusercontent.com/grass-cs/ACvplmPgmiAYemHPwUvyXoa4ygTmDQhzsMEDVghKEci5dOn9edcfYlW_Yd1yanQNqpVTD6LJQbeHj7VD3cUCoH3zrydWWKL2iWKKtKLBlNfA5u6Ogkkse3Q1irX7OuAFlvBp5k30S50mFSjtcEM=s4800-h800",
+      "https://lh3.googleusercontent.com/grass-cs/ACvplmPNlTkUsMrr9g2cTi9xnhWaofo3uSLNLTCSAZN9Zt9ZLGn5oYB_LU7HyIPOn58siufiQm8X6OZu6D1HJ0o_2N7O9LC8E4QIuDxzv6QvCEs5Gk8tBjK0D9wmNA88dEKsS5EJ_5tSQwGeviuE=s4800-h588",
+      "https://lh3.googleusercontent.com/grass-cs/ACvplmNqvGBYpvyjS2uWrE6OF8Y1Ij4u37_byAhIY3QYzbQXMkGsO7ke-wTlTwyA587SuPO6r1aF2rCBAgfxLkesEftXbohR-QuKm5u81GtAvxlSU3lxIA8KOTKn2aQ0-zLLxyQ9sStdPsOusxyg=s4800-h720"
+    ],
+    "scoring_notes": "Perfect service-type fit for a community newsletter audience and falls within Sandy Springs coverage area, but thin review count (only 5 reviews) limits confidence in signal strength.",
+    "relevance_score": "72",
+    "total_score": "72",
+    "date_generated": "2026-09-28",
+    "status": "pending",
+    "newsletter_name": "Perimeter_Post",
+    "default_winner": "yes"
+  }
+]
