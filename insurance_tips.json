@@ -1,1 +1,21 @@
-[]
+[
+  {
+    "tip_title": "You Have Two Kinds of Deductibles on Your Policies. Most People Think They Have One.",
+    "topic": "Insurance Deductibles - Flat vs. Percentage Across Policy Types",
+    "blurb": "💡 **Insurance Tip: You Have Two Kinds of Deductibles on Your Policies. Most People Think They Have One.**\n\nHere's something most people never think about: your auto policy and your homeowners policy don't use the same kind of deductible. On your auto policy, your deductible is almost always a flat dollar amount — say $500 or $1,000. You know exactly what you owe before your insurer pays. On your homeowners policy, though, there are often two layers: a flat deductible for most claims, and a separate percentage-based deductible that kicks in specifically for wind, hail, or named-storm damage. That second number isn't $500. It's typically 1% to 5% of your dwelling coverage amount — which on a $400,000 home is anywhere from $4,000 to $20,000 out of pocket before a dollar of coverage applies. Both numbers are on your declarations page. Most people have looked at neither.\n\nNot sure what your deductibles actually are across your home and auto policies? Your Peachy agent can pull both declarations pages and walk you through the numbers in one conversation.\n\n📖 [Learn more from the Insurance Information Institute](https://www.iii.org/article/understanding-your-insurance-deductibles)",
+    "summary": "Covers the functional difference between flat dollar deductibles (standard in auto policies) and percentage-based deductibles (common in homeowners policies for wind/hail), framed as a cross-policy comparison most policyholders have never made — distinct from prior tips focused on auto deductible review alone or storm-season deductible checks.",
+    "source_url": "https://www.iii.org/article/understanding-your-insurance-deductibles",
+    "source_name": "Insurance Information Institute",
+    "sponsor_name": "Peachy Insurance",
+    "category": "auto/home",
+    "total_score": "23",
+    "relevance_score": "9",
+    "actionability_score": "8",
+    "timeliness_score": "6",
+    "scoring_notes": "Works for both East Cobb audiences — 78% homeownership rate means the percentage-deductible side lands hard, and virtually every household has an auto policy too. October is late hurricane season in Georgia so wind/hail deductible awareness still has seasonal teeth without being a repeat of the storm-prep framing. Fresh angle: cross-policy deductible type comparison (flat vs. percentage) rather than a single-policy deductible review or storm-season check. Prior auto deductible tip (July 18) was a general review prompt; prior hail/wind tips (June 12, Aug 24) were percentage-mechanic explainers in a storm context — this tip reframes both as a side-by-side across policy types, which no prior tip has done. iii.org is a trusted source per guardrails.",
+    "date_generated": "2026-10-10",
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": "yes"
+  }
+]
