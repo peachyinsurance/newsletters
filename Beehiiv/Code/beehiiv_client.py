@@ -9,9 +9,7 @@ Reference: https://developers.beehiiv.com/api-reference
 from __future__ import annotations
 
 import io
-import json
 import os
-import time
 from typing import Any
 
 import requests
@@ -150,12 +148,6 @@ class BeehiivClient:
                                json_body=body)
         return result.get("data") or result
 
-    def update_post(self, publication_id: str, post_id: str, **fields) -> dict:
-        result = self._request("PATCH",
-                               f"/publications/{publication_id}/posts/{post_id}",
-                               json_body=fields)
-        return result.get("data") or result
-
     # --------------------------------------------------------------- media
     def upload_image(self, publication_id: str, image_bytes: bytes, filename: str,
                      content_type: str = "image/png") -> str:
@@ -186,22 +178,6 @@ class BeehiivClient:
         if not url:
             raise BeehiivError(f"Media upload succeeded but no URL in response: {result}")
         return url
-
-    # ----------------------------------------------------------------- polls
-    def create_poll(self, publication_id: str, *,
-                    title: str,
-                    options: list[str],
-                    description: str | None = None) -> dict:
-        """Create a Beehiiv poll. Returns the poll record (use its id to attach to a post)."""
-        body = {
-            "title":    title,
-            "options":  [{"option": o} for o in options],
-        }
-        if description:
-            body["description"] = description
-        result = self._request("POST", f"/publications/{publication_id}/polls",
-                               json_body=body)
-        return result.get("data") or result
 
 
 # --------------------------------------------------------------------------

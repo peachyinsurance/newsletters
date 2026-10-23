@@ -4,8 +4,9 @@ Newsletter Automation - Send issue to Beehiiv.
 
 Pulls all section data from Notion (using the same get_* helpers the assembler
 uses, so manual edits flow through), uploads images to Beehiiv's media library,
-fills the template-post placeholders, creates a draft post, and (optionally)
-attaches a native Beehiiv poll.
+fills the template-post placeholders, and creates a draft post. (The poll is
+inline HTML with click-tracked vote links; Beehiiv's native polls API is
+plan-locked.)
 
 Env vars (required):
   CLAUDE_API_KEY                — for subject-line generation
@@ -32,9 +33,11 @@ import re
 import sys
 import time
 from datetime import datetime
+from html import escape as _attr_escape
 from pathlib import Path
 
 import requests
+from bs4 import BeautifulSoup
 
 # Reuse Notion data fetchers from the assembler
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
@@ -321,15 +324,7 @@ def prune_empty_slots(html: str, replacements: dict[str, str]) -> str:
     the HTML and remove the smallest enclosing structural element (preferring
     <tr>, falling back to <table> or <div>). Beehiiv emails use deeply nested
     table layouts, so a single <tr> typically wraps one card/row.
-
-    Falls back gracefully (no-op) if BeautifulSoup isn't installed.
     """
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        print("  ⚠ beautifulsoup4 not installed; skipping slot pruning")
-        return html
-
     soup = BeautifulSoup(html, "html.parser")
     pruned = 0
     for primary_key, anchor in PRUNEABLE_SLOTS:
@@ -452,6 +447,13 @@ def md_to_html(text: str) -> str:
     return md_inline_to_html(text)
 
 
+def _embedded_link(url: str, domain: str) -> str:
+    """Bold clickable domain link (<a><strong>domain</strong></a>) dropped into
+    the template as a plain-text token value. Callers decide when it's empty."""
+    return (f'<a href="{url}" target="_blank" rel="noopener noreferrer">'
+            f'<strong>{domain}</strong></a>')
+
+
 def _paragraph_to_html(p: str, attrs_html: str = "") -> str:
     """Render one blank-line-delimited block to HTML. A run of '•' bullets —
     whether inline ('• a • b • c') or one-per-line — becomes a real
@@ -498,10 +500,6 @@ def expand_paragraph_field(html: str, placeholder_key: str, text: str) -> str:
     without paragraph breaks)."""
     if not text:
         return html
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        return html
 
     token = "{" + placeholder_key + "}"
     if token not in html:
@@ -528,8 +526,10 @@ def expand_paragraph_field(html: str, placeholder_key: str, text: str) -> str:
         return str(soup)
 
     # Preserve the wrapping <p>'s attributes (style, class, id) so the
-    # new paragraphs inherit the template's typography.
-    attrs_html = "".join(f' {k}="{v}"' for k, v in (block.attrs or {}).items()
+    # new paragraphs inherit the template's typography. Values come back
+    # entity-decoded from BeautifulSoup, so re-escape (a `"` inside a style
+    # would otherwise end the attribute early).
+    attrs_html = "".join(f' {k}="{_attr_escape(v)}"' for k, v in (block.attrs or {}).items()
                          if isinstance(v, str))
     if "class" in (block.attrs or {}):
         cls = " ".join(block["class"]) if isinstance(block["class"], list) else block["class"]
@@ -542,16 +542,6 @@ def expand_paragraph_field(html: str, placeholder_key: str, text: str) -> str:
         block.insert_before(child)
     block.decompose()
     return str(soup)
-
-
-def hide_unused_lowdown_slots(html: str, used_count: int) -> str:
-    """For Local Lowdown placeholders we don't fill (e.g., we have 3 stories, slots
-    4-5 are unused), wipe the remaining placeholders so they don't render literally."""
-    for n in range(used_count + 1, 6):
-        for key in (f"local_lowdown{n}_title", f"local_lowdown{n}_message"):
-            for token in _placeholder_variants(key):
-                html = html.replace(token, "")
-    return html
 
 
 # ---------------------------------------------------------------------------
@@ -591,9 +581,7 @@ def _weekend_event_to_card(ev: dict, slot_key: str) -> dict[str, str]:
     url = (ev.get("source_url") or "").strip()
     domain = display_domain(url) if url else ""
     if url and domain:
-        parts.append(
-            f'More: <a href="{url}" target="_blank" rel="noopener noreferrer">'
-            f'<strong>{domain}</strong></a>')
+        parts.append(f"More: {_embedded_link(url, domain)}")
 
     line = title + (" - " + " | ".join(parts) if parts else "")
     desc = (ev.get("description") or "").strip()
@@ -625,11 +613,6 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
     Returns the number of cards rendered (0 if the slot is empty AND
     the placeholder cards were removed; -1 if the title placeholder
     wasn't found in the template; otherwise len(items))."""
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        return -1
-
     title_token = f"{{{slot_key}_title}}"
     msg_token   = f"{{{slot_key}_message}}"
     link_token  = f"{{{slot_key}_link}}"
@@ -776,6 +759,29 @@ def _expand_one_slot(soup, slot_key: str, items: list[dict],
 # scales down on narrow/mobile widths but never blows up to full email width
 # (the "too big" complaint). Bump this one number to resize every weekend photo.
 WP_IMAGE_MAX_WIDTH_PX = 300
+_CARD_IMG_STYLE = (f"display:block;width:100%;max-width:{WP_IMAGE_MAX_WIDTH_PX}px;"
+                   "height:auto;margin:0 auto 12px;border-radius:6px;")
+_CARD_TEXT_BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "div", "td", "li"}
+
+
+def _first_text_block(clone_soup):
+    """First text-bearing block element in a cloned card (normally the
+    title): the anchor a per-card photo is inserted into."""
+    return next((el for el in clone_soup.find_all(True)
+                 if el.name in _CARD_TEXT_BLOCK_TAGS and (el.get_text() or "").strip()), None)
+
+
+def _insert_card_img(clone_soup, anchor, new_img) -> None:
+    """Insert `new_img` as the first child of `anchor`; with no anchor, put it
+    before the card's first element (or append to an empty clone)."""
+    if anchor is not None:
+        anchor.insert(0, new_img)
+    else:
+        first = clone_soup.find(True)
+        if first is not None:
+            first.insert_before(new_img)
+        else:
+            clone_soup.append(new_img)
 
 
 def _weekend_image_mutator(clone_soup, ev: dict) -> None:
@@ -794,8 +800,7 @@ def _weekend_image_mutator(clone_soup, ev: dict) -> None:
     full-bleed."""
     img_url = (ev.get("image_url") or "").strip()
     existing = clone_soup.find("img")
-    style = (f"display:block;width:100%;max-width:{WP_IMAGE_MAX_WIDTH_PX}px;"
-             "height:auto;margin:0 auto 12px;border-radius:6px;")
+    style = _CARD_IMG_STYLE
     if not img_url:
         if existing is not None:
             existing.decompose()
@@ -822,29 +827,13 @@ def _weekend_image_mutator(clone_soup, ev: dict) -> None:
     # which is what made "all the photos pile up on top" instead of sitting
     # with each event. Inserting it within the title's block keeps the
     # photo glued directly above that event's text.
-    _BLOCK = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "div", "td", "li"}
-    anchor = next((el for el in clone_soup.find_all(True)
-                   if el.name in _BLOCK and (el.get_text() or "").strip()), None)
-    if anchor is not None:
-        anchor.insert(0, new_img)
-    else:
-        first = clone_soup.find(True)
-        if first is not None:
-            first.insert_before(new_img)
-        else:
-            clone_soup.append(new_img)
+    _insert_card_img(clone_soup, _first_text_block(clone_soup), new_img)
 
 
 def expand_weekend_slots(html: str, events: list[dict]) -> str:
     """For each (day, audience) Weekend Planner slot, duplicate the
     template card once per event. See `_expand_one_slot` for the
     template structure. Empty slots have their card removed."""
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        print("  ⚠ beautifulsoup4 not installed; skipping Weekend Planner expansion")
-        return html
-
     soup = BeautifulSoup(html, "html.parser")
     total_expanded = 0
     for slot_key, day, audience in WEEKEND_SLOT_KEYS:
@@ -887,10 +876,7 @@ def _lowdown_story_to_card(story: dict, slot_key: str) -> dict[str, str]:
     drop "for more {local_lowdown_embedded}" in the card as plain text."""
     url = (story.get("url") or "").strip()
     domain = display_domain(url) if url else ""
-    embedded = (
-        f'<a href="{url}" target="_blank" '
-        f'rel="noopener noreferrer"><strong>{domain}</strong></a>'
-    ) if url and domain else ""
+    embedded = _embedded_link(url, domain) if url and domain else ""
     return {
         f"{slot_key}_title":    story.get("heading", ""),
         f"{slot_key}_message":  md_to_html(story.get("body", "")),
@@ -916,9 +902,7 @@ def _lowdown_image_mutator(clone_soup, story: dict) -> None:
             existing.decompose()
         return
     # First text-bearing block element in the card — the photo's anchor.
-    _BLOCK = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "div", "td", "li"}
-    anchor = next((el for el in clone_soup.find_all(True)
-                   if el.name in _BLOCK and (el.get_text() or "").strip()), None)
+    anchor = _first_text_block(clone_soup)
     if existing is not None:
         # Swap the story photo into YOUR placeholder and PRESERVE the size you
         # set in the Beehiiv UI (don't overwrite width/style) — only move it
@@ -933,16 +917,8 @@ def _lowdown_image_mutator(clone_soup, story: dict) -> None:
     # Planner) so it isn't full-bleed.
     new_img = clone_soup.new_tag("img", src=img_url, alt=alt)
     new_img["width"] = str(WP_IMAGE_MAX_WIDTH_PX)
-    new_img["style"] = (f"display:block;width:100%;max-width:{WP_IMAGE_MAX_WIDTH_PX}px;"
-                        "height:auto;margin:0 auto 12px;border-radius:6px;")
-    if anchor is not None:
-        anchor.insert(0, new_img)
-    else:
-        first = clone_soup.find(True)
-        if first is not None:
-            first.insert_before(new_img)
-        else:
-            clone_soup.append(new_img)
+    new_img["style"] = _CARD_IMG_STYLE
+    _insert_card_img(clone_soup, anchor, new_img)
 
 
 def _meme_to_card(meme: dict, slot_key: str) -> dict[str, str]:
@@ -979,12 +955,6 @@ def expand_meme_slots(html: str, memes: list[dict]) -> str:
     / {meme_link} placeholders (mirrors Local Lowdown). One placeholder
     image inside the card gets per-clone src swapped to the matching
     meme's actual image URL via _meme_image_mutator."""
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        print("  ⚠ beautifulsoup4 not installed; skipping Meme Corner expansion")
-        return html
-
     soup = BeautifulSoup(html, "html.parser")
     n, width = _expand_one_slot(
         soup, "meme", memes, _meme_to_card,
@@ -1012,12 +982,6 @@ def expand_free_event_images(html: str, image_urls: list[str]) -> str:
     The template placeholder is the <img> whose src contains the 'free-event'
     token. With 0 images the block is removed; with 1 its src is retargeted;
     with 2-3 the enclosing image-only block is cloned per URL."""
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        print("  ⚠ beautifulsoup4 not installed; skipping Free Event image expansion")
-        return html
-
     soup = BeautifulSoup(html, "html.parser")
 
     # Locate the template free-event <img> by its 'free-event' filename token.
@@ -1074,12 +1038,6 @@ def expand_lowdown_slots(html: str, stories: list[dict]) -> str:
     Slot key: `local_lowdown`. The template should contain ONE card with
     {local_lowdown_title}, {local_lowdown_message}, {local_lowdown_link}
     placeholders in consecutive block elements."""
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        print("  ⚠ beautifulsoup4 not installed; skipping Local Lowdown expansion")
-        return html
-
     soup = BeautifulSoup(html, "html.parser")
     n, width = _expand_one_slot(soup, "local_lowdown", stories, _lowdown_story_to_card,
                                 item_dom_mutator=_lowdown_image_mutator)
@@ -1124,9 +1082,7 @@ def _in_search_of_to_card(row: dict, slot_key: str) -> dict[str, str]:
     if city:
         lines.append(f"📍 {city}")
     if url and domain:
-        lines.append(
-            f'Apply: <a href="{url}" target="_blank" rel="noopener noreferrer">'
-            f'<strong>{domain}</strong></a>')
+        lines.append(f"Apply: {_embedded_link(url, domain)}")
 
     return {
         f"{slot_key}_title":     "",
@@ -1142,10 +1098,6 @@ def prune_in_search_of_section(html: str, has_listings: bool) -> str:
     show an empty 'In Search Of' heading. No-op when listings exist or when
     the template lacks the `in-search-of` anchor."""
     if has_listings:
-        return html
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
         return html
     soup = BeautifulSoup(html, "html.parser")
     removed = 0
@@ -1167,12 +1119,6 @@ def expand_in_search_of_slots(html: str, rows: list[dict]) -> str:
     Slot key: `in_search_of`. The template should contain ONE card with
     {in_search_of_title}, {in_search_of_message}, {in_search_of_link}
     placeholders in consecutive block elements (mirrors Local Lowdown)."""
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        print("  ⚠ beautifulsoup4 not installed; skipping In Search Of expansion")
-        return html
-
     soup = BeautifulSoup(html, "html.parser")
     n, width = _expand_one_slot(soup, "in_search_of", rows, _in_search_of_to_card)
     if n == -1:
@@ -1297,9 +1243,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         # (either mangles it). The bold (<strong>) is baked into the value and
         # survives, exactly like Restaurant/Weekend.
         repl["event_of_the_week_link_embedded"] = (
-            f'<a href="{ev_link}" target="_blank" '
-            f'rel="noopener noreferrer"><strong>{_ev_domain}</strong></a>'
-        ) if ev_link and _ev_domain else ""
+            _embedded_link(ev_link, _ev_domain) if ev_link and _ev_domain else "")
         # Alias: the template uses {event_of_the_week_embedded} (no `_link_`).
         repl["event_of_the_week_embedded"] = repl["event_of_the_week_link_embedded"]
         # Prefer the body composite GIF (built by build_event_body_gif —
@@ -1324,14 +1268,13 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         # at the shared `Newsletter_Header_image_{nl}.png` file — that
         # generic name gets overwritten by every event and surfaces the
         # wrong image when an older row is approved.
-        import time as _t
         safe_title = "".join(
             c if c.isalnum() else "_" for c in (event.get("event_name") or "")
         )[:40] or "event"
         header_url = event.get("header_image_url") or (
             f"https://peachyinsurance.github.io/newsletters/gifs/"
             f"Newsletter_Header_image_{newsletter_name}_{safe_title}.png"
-            f"?v={int(_t.time())}"
+            f"?v={int(time.time())}"
         )
         alt_swaps["newsletter_header_image"] = header_url
 
@@ -1370,9 +1313,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         if address: info_lines.append(f"<strong>Address:</strong> {address}")
         if phone:   info_lines.append(f"<strong>Phone:</strong> {phone}")
         if website:
-            info_lines.append(
-                f'<a href="{website}" target="_blank" rel="noopener noreferrer">'
-                f'<strong>{domain}</strong></a>')
+            info_lines.append(_embedded_link(website, domain))
         repl["restaurant_info"] = "<br>".join(info_lines)
         img_url = featured.get("gif") or featured.get("photo")
         if img_url:
@@ -1562,11 +1503,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         # value is the full <a><strong>domain</strong></a>, dropped in as plain
         # text). Use {business_brief_link_embedded} / {business_brief_embedded}
         # in the template for a bold website link.
-        if bb_url:
-            _bb_embed = (f'<a href="{bb_url}" target="_blank" rel="noopener '
-                         f'noreferrer"><strong>{display_domain(bb_url)}</strong></a>')
-        else:
-            _bb_embed = ""
+        _bb_embed = _embedded_link(bb_url, display_domain(bb_url)) if bb_url else ""
         repl["business_brief_link_embedded"] = _bb_embed
         repl["business_brief_embedded"]      = _bb_embed
         # ONE compact metadata block. Each separate {tag} sits in its own
@@ -1584,8 +1521,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         # City is intentionally omitted — it's already in the address caption
         # ({business_brief_location}), so repeating it here would be redundant.
         if bb_url and bb_domain:
-            _meta.append(f'<a href="{bb_url}" target="_blank" '
-                         f'rel="noopener noreferrer"><strong>{bb_domain}</strong></a>')
+            _meta.append(_embedded_link(bb_url, bb_domain))
         repl["business_brief_meta"]     = "<br>".join(_meta)
         # Address as a small caption under the photo (the {business_brief_location}
         # token you added). The address is no longer part of the metadata block.
@@ -1703,10 +1639,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         # EMBEDDED bold clickable link as a plain-text token. Put e.g.
         # "for more {insurance_tip_link_embedded}" in the template as PLAIN text
         # (don't bold it / don't use a Beehiiv link field). Bold is baked in.
-        _tip_embed = (
-            f'<a href="{tip_url}" target="_blank" '
-            f'rel="noopener noreferrer"><strong>{_tip_domain}</strong></a>'
-        ) if tip_url and _tip_domain else ""
+        _tip_embed = _embedded_link(tip_url, _tip_domain) if tip_url and _tip_domain else ""
         repl["insurance_tip_link_embedded"] = _tip_embed
         repl["insurance_tip_embedded"]      = _tip_embed  # alias (no `_link_`)
         # Static sponsor attribution — every tip row defaults to
@@ -1754,10 +1687,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         # "meet them at {PET_LINK_EMBEDDED}" in the template as PLAIN text
         # (don't bold it / don't use a Beehiiv link field). Bold is baked in.
         _pet_domain = display_domain(pet_url) if pet_url else ""
-        _pet_embed = (
-            f'<a href="{pet_url}" target="_blank" '
-            f'rel="noopener noreferrer"><strong>{_pet_domain}</strong></a>'
-        ) if pet_url and _pet_domain else ""
+        _pet_embed = _embedded_link(pet_url, _pet_domain) if pet_url and _pet_domain else ""
         repl["PET_DOMAIN"]        = _pet_domain
         repl["PET_LINK_EMBEDDED"] = _pet_embed
         repl["PET_EMBEDDED"]      = _pet_embed  # alias
@@ -1852,9 +1782,7 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             # {free_event_link} only prints the URL text. Keep your own "click
             # here " label before it → "click here <domain>".
             repl["free_event_link_embedded"] = (
-                f'<a href="{link}" target="_blank" '
-                f'rel="noopener noreferrer"><strong>{_fe_domain}</strong></a>'
-            ) if link and _fe_domain else ""
+                _embedded_link(link, _fe_domain) if link and _fe_domain else "")
 
             # Event photo(s): 2+ pictures are combined into a single cycling
             # GIF (free_event_render_images → [gif_url]); 0-1 pass through as
@@ -1950,6 +1878,39 @@ def build_replacements(client: BeehiivClient, publication_id: str,
     return repl, image_swaps, alt_swaps, story_count, weekend_events, lowdown_stories, paragraph_prose, memes, free_event_images, in_search_of_rows
 
 
+# Map: logical image-slot key → filename token to look for in <img src> URLs.
+# Shared by swap_images_by_alt and prune_unused_image_slots.
+# IMPORTANT: tokens must NOT collide with section-banner filenames
+# already in the template (restaurant-radar.png, furry-friends.png,
+# real-estate-corner.png are headers).
+# `restaurant-radar-1` etc. don't collide with `restaurant-radar` (substring).
+# `furry-friends` would collide → use `pet-photo` instead.
+SLOT_TO_FILENAME = {
+    "newsletter_header_image":     "output-onlinepngtools",
+    "event_of_the_week_image":     "event-of-the-week",
+    "restaurant_radar_image":      "restaurant-radar-1",
+    "restaurant_radar_2_image":    "restaurant-radar-2",
+    "restaurant_radar_3_image":    "restaurant-radar-3",
+    "restaurant_radar_4_image":    "restaurant-radar-4",
+    "restaurant_radar_5_image":    "restaurant-radar-5",
+    "real_estate_image_starter":   "real-estate-starter",
+    "real_estate_image_sweetspot": "real-estate-sweetspot",
+    "real_estate_image_showcase":  "real-estate-showcase",
+    "PET_IMAGE":                   "pet-photo",
+    "PET_PHOTO":                   "pet-photo",
+    "free_event_image_1":          "free-event",
+    "business_brief_image":        "business-brief.png",
+    "sponsor_logo":                "sponsor_logo",
+    "sponsor_image":               "sponsor_image",
+    "friday_family_image":         "family_event_friday",
+    "friday_adult_image":          "adult_event_friday",
+    "saturday_family_image":       "family_event_saturday",
+    "saturday_adult_image":        "adult_event_saturday",
+    "sunday_family_image":         "family_event_sunday",
+    "sunday_adult_image":          "adult_event_sunday",
+}
+
+
 def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
     """Swap <img src> by detecting a filename token in the URL.
 
@@ -1964,37 +1925,6 @@ def swap_images_by_alt(html: str, alt_swaps: dict[str, str]) -> tuple[str, int]:
     """
     if not alt_swaps:
         return html, 0
-
-    # Map: logical slot key → filename token to look for in src URLs.
-    # IMPORTANT: tokens must NOT collide with section-banner filenames
-    # already in the template (restaurant-radar.png, furry-friends.png,
-    # real-estate-corner.png are headers).
-    # `restaurant-radar-1` etc. don't collide with `restaurant-radar` (substring).
-    # `furry-friends` would collide → use `pet-photo` instead.
-    SLOT_TO_FILENAME = {
-        "newsletter_header_image":     "output-onlinepngtools",
-        "event_of_the_week_image":     "event-of-the-week",
-        "restaurant_radar_image":      "restaurant-radar-1",
-        "restaurant_radar_2_image":    "restaurant-radar-2",
-        "restaurant_radar_3_image":    "restaurant-radar-3",
-        "restaurant_radar_4_image":    "restaurant-radar-4",
-        "restaurant_radar_5_image":    "restaurant-radar-5",
-        "real_estate_image_starter":   "real-estate-starter",
-        "real_estate_image_sweetspot": "real-estate-sweetspot",
-        "real_estate_image_showcase":  "real-estate-showcase",
-        "PET_IMAGE":                   "pet-photo",
-        "PET_PHOTO":                   "pet-photo",
-        "free_event_image_1":          "free-event",
-        "business_brief_image":        "business-brief.png",
-        "sponsor_logo":                "sponsor_logo",
-        "sponsor_image":               "sponsor_image",
-        "friday_family_image":         "family_event_friday",
-        "friday_adult_image":          "adult_event_friday",
-        "saturday_family_image":       "family_event_saturday",
-        "saturday_adult_image":        "adult_event_saturday",
-        "sunday_family_image":         "family_event_sunday",
-        "sunday_adult_image":          "adult_event_sunday",
-    }
 
     out = html
     total_swaps = 0
@@ -2081,31 +2011,6 @@ def prune_unused_image_slots(html: str, alt_swaps: dict[str, str]) -> tuple[str,
     template <img>'s src contains a known filename token AND we don't have
     a swap target for that slot, the <img> is removed.
     """
-    SLOT_TO_FILENAME = {
-        "newsletter_header_image":     "output-onlinepngtools",
-        "event_of_the_week_image":     "event-of-the-week",
-        "restaurant_radar_image":      "restaurant-radar-1",
-        "restaurant_radar_2_image":    "restaurant-radar-2",
-        "restaurant_radar_3_image":    "restaurant-radar-3",
-        "restaurant_radar_4_image":    "restaurant-radar-4",
-        "restaurant_radar_5_image":    "restaurant-radar-5",
-        "real_estate_image_starter":   "real-estate-starter",
-        "real_estate_image_sweetspot": "real-estate-sweetspot",
-        "real_estate_image_showcase":  "real-estate-showcase",
-        "PET_IMAGE":                   "pet-photo",
-        "PET_PHOTO":                   "pet-photo",
-        "free_event_image_1":          "free-event",
-        "business_brief_image":        "business-brief.png",
-        "sponsor_logo":                "sponsor_logo",
-        "sponsor_image":               "sponsor_image",
-        "friday_family_image":         "family_event_friday",
-        "friday_adult_image":          "adult_event_friday",
-        "saturday_family_image":       "family_event_saturday",
-        "saturday_adult_image":        "adult_event_saturday",
-        "sunday_family_image":         "family_event_sunday",
-        "sunday_adult_image":          "adult_event_sunday",
-    }
-
     out = html
     pruned = 0
     for slot_key, token in SLOT_TO_FILENAME.items():
@@ -2124,33 +2029,7 @@ def prune_unused_image_slots(html: str, alt_swaps: dict[str, str]) -> tuple[str,
 
 
 # ---------------------------------------------------------------------------
-# 5. POLL
-# ---------------------------------------------------------------------------
-def attach_poll_to_post(client: BeehiivClient, publication_id: str,
-                       newsletter_name: str) -> dict | None:
-    """If a poll exists for this newsletter, create it in Beehiiv and return the poll record.
-    Caller can embed the poll's id/url into the post body if Beehiiv requires it."""
-    poll = get_latest_poll(newsletter_name)
-    if not poll or not poll.get("question"):
-        return None
-    options = poll.get("options") or []
-    if not options:
-        return None
-    try:
-        result = client.create_poll(
-            publication_id,
-            title=poll["question"],
-            options=options[:4],
-        )
-        print(f"    ✓ Created Beehiiv poll: {result.get('id', '?')}")
-        return result
-    except BeehiivError as e:
-        print(f"    ⚠ Could not create Beehiiv poll (will skip): {e}")
-        return None
-
-
-# ---------------------------------------------------------------------------
-# 6. MAIN
+# 5. MAIN
 # ---------------------------------------------------------------------------
 def main():
     cfg = NEWSLETTER_CONFIG.get(NEWSLETTER)

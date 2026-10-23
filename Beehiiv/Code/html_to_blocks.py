@@ -39,6 +39,9 @@ does today. Callers should check `len(blocks)` and log.
 """
 from __future__ import annotations
 
+import re
+from html import escape as _attr_escape
+
 from bs4 import BeautifulSoup, Tag
 
 # A row containing an <img> whose src matches one of these (case-insensitive
@@ -118,8 +121,11 @@ def _wrap(chunk_html: str, chain: list[Tag]) -> str:
     """Re-wrap a chunk in copies of the wrapper chain (outer → inner)."""
     out = chunk_html
     for wrapper in reversed(chain):
+        # BeautifulSoup hands back attribute values entity-DECODED, so a
+        # style like font-family:&quot;Arial&quot; arrives with raw `"`;
+        # re-escape or it terminates the attribute early.
         attrs = "".join(
-            f' {k}="{" ".join(v) if isinstance(v, list) else v}"'
+            f' {k}="{_attr_escape(" ".join(v) if isinstance(v, list) else v)}"'
             for k, v in wrapper.attrs.items()
         )
         out = f"<{wrapper.name}{attrs}>{out}</{wrapper.name}>"
@@ -336,8 +342,7 @@ def _image_block(img: Tag) -> dict | None:
     # width: px → % of the 630px content column
     px = None
     style = (img.get("style") or "").replace(" ", "").lower()
-    import re as _re
-    m = _re.search(r"max-width:(\d+)px", style)
+    m = re.search(r"max-width:(\d+)px", style)
     if m:
         px = int(m.group(1))
     elif str(img.get("width") or "").isdigit():

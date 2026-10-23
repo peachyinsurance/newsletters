@@ -93,11 +93,17 @@ def aggregate_vote_counts(clicks: list[dict]) -> dict[str, int]:
         vote_slug = (qs.get("vote") or [""])[0]
         if not vote_slug:
             continue
-        n = c.get("clicks") or c.get("total_clicks") or c.get("count") or 1
-        try:
-            counts[vote_slug] += int(n)
-        except (TypeError, ValueError):
-            counts[vote_slug] += 1
+        # Largest count field that's PRESENT: a link with total_clicks == 0
+        # must add 0 (the old `or`-chain fell through to a default of 1), and
+        # taking the max keeps a 0 in one field from masking a real count in
+        # another. Only a link with no numeric count field at all counts as 1.
+        present = []
+        for k in ("clicks", "total_clicks", "count"):
+            try:
+                present.append(int(c[k]))
+            except (KeyError, TypeError, ValueError):
+                continue
+        counts[vote_slug] += max(present) if present else 1
     return dict(counts)
 
 
