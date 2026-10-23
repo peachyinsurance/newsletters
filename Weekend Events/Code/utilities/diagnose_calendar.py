@@ -96,7 +96,8 @@ def main() -> int:
     if db_id:
         try:
             from notion_save import existing_source_urls
-            existing = existing_source_urls(db_id)
+            # existing_source_urls is keyed by (url, date); reduce to URLs.
+            existing = {u for (u, _d) in existing_source_urls(db_id)}
             in_db = {u for u in by_url if u in existing}
             not_in_db = {u for u in by_url if u not in existing}
             in_db_but_not_calendar = existing - set(by_url)

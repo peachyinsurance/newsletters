@@ -28,7 +28,7 @@ automatically via the keyword 'free' / 'no charge' / etc., so we don't
 do any special tagging here.
 
 Shared helpers (_clean_html, _normalize_title, existing_source_urls,
-save_event, format_dates_human) imported from _shared/.
+save_event) imported from _shared/.
 """
 import os
 import re
@@ -50,10 +50,11 @@ EASTERN = ZoneInfo("America/New_York")
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "_shared"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
-from html_utils  import _clean_html, _normalize_title, format_dates_human  # noqa: E402
+from html_utils  import _clean_html, _normalize_title  # noqa: E402
 from notion_save import existing_source_urls, save_event  # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
-from event_image_scraper import is_cancelled_event, is_inappropriate_event, is_senior_event  # noqa: E402
+from event_image_scraper import (is_cancelled_event, is_inappropriate_event,  # noqa: E402
+                                 is_senior_event, backfill_images)
 
 WEEKEND_EVENTS_DB_ID = os.environ.get("NOTION_WEEKEND_EVENTS_DB_ID", "")
 NEWSLETTER = os.environ.get("NEWSLETTER", "East_Cobb_Connect")
@@ -360,10 +361,6 @@ def main() -> int:
     # event reaches this point with image_url="". Scrape each detail
     # page for an og:image / JSON-LD / body <img>. Concurrent so the
     # latency cost is manageable.
-    import sys as _sys, os as _os
-    _sys.path.append(_os.path.join(_os.path.dirname(__file__), "..", "..",
-                                   "..", "NewsletterCreation", "Code"))
-    from event_image_scraper import backfill_images  # noqa: E402
     filled = backfill_images(candidates)
     if filled:
         print(f"  ↳ Backfilled {filled} image(s) from event detail pages")

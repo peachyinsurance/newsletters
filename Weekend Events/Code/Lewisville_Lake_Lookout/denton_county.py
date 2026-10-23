@@ -17,14 +17,14 @@ import os
 import re
 import sys
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 import requests
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "_shared"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
-from html_utils  import _clean_html, _normalize_title, format_dates_human  # noqa: E402
+from html_utils  import _clean_html, _normalize_title  # noqa: E402
 from notion_save import existing_source_urls, save_event  # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
 from event_image_scraper import (is_cancelled_event,  # noqa: E402
@@ -184,8 +184,10 @@ def main() -> int:
     print(f"  → Date window:  {today} → {window_end}")
     print()
 
-    existing = existing_source_urls(WEEKEND_EVENTS_DB_ID, newsletter=NEWSLETTER)
-    print(f"Dedup: {len(existing)} URLs already in DB for {NEWSLETTER}\n")
+    # Unscoped dedup: geo_tagger re-tags rows by distance after every scrape
+    # (see notion_save.existing_source_urls).
+    existing = existing_source_urls(WEEKEND_EVENTS_DB_ID)
+    print(f"Dedup: {len(existing)} URLs already in DB\n")
 
     xml = _fetch(RSS_URL)
     if not xml:

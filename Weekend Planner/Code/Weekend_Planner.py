@@ -780,7 +780,7 @@ def group_candidates_by_title(candidates: list[dict],
     grouped = split = 0
     order = {d: i for i, d in enumerate(DAYS)}
     result: list[dict] = []
-    for rep, members in zip(reps, groups):
+    for rep, members in zip(reps, groups, strict=True):
         # De-dupe members per day (richest wins) — one card per day per event.
         by_day: dict[str, dict] = {}
         for m in members:

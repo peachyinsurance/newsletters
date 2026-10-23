@@ -33,6 +33,9 @@ ALL_NEWSLETTER_TAGS = [
     "Perimeter_Post",
     "Lewisville_Lake_Lookout",
     "ECC_PP",
+    # geo_tagger.py parks rows outside every newsletter's radius here; they
+    # still need archiving once past or they pile up in the pool forever.
+    "untagged_group",
 ]
 
 

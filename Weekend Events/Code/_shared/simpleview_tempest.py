@@ -27,13 +27,13 @@ import time
 from datetime import date, datetime, timedelta
 from urllib.parse import urljoin
 
-import requests
-
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
 from html_utils  import (_clean_html, _parse_iso_date,           # noqa: E402
-                         _normalize_title, parse_jsonld_price)
+                         _normalize_title, parse_jsonld_price,
+                         _normalize_image, _normalize_location,
+                         fetch_with_retry)
 from notion_save import existing_source_urls, save_event          # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
 from event_image_scraper import (is_cancelled_event,              # noqa: E402
@@ -64,23 +64,7 @@ def _fetch(url: str) -> str:
         "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
     }
-    for attempt in range(3):
-        try:
-            r = requests.get(url, timeout=15, headers=headers, allow_redirects=True)
-        except Exception as e:
-            print(f"    fetch error (attempt {attempt + 1}/3): {e}")
-            time.sleep(2 * (attempt + 1))
-            continue
-        if r.status_code == 200 and r.text:
-            return r.text
-        if r.status_code in (202, 429, 503) and attempt < 2:
-            wait = 3 * (attempt + 1)
-            print(f"    HTTP {r.status_code} — retry {attempt + 1}/3 in {wait}s")
-            time.sleep(wait)
-            continue
-        print(f"    HTTP {r.status_code} from {url}")
-        return ""
-    return ""
+    return fetch_with_retry(url, headers, timeout=15)
 
 
 def _fetch_event_urls(sitemap_url: str) -> list[str]:
@@ -112,20 +96,6 @@ def _extract_body_dates(html: str, today: date) -> list[date]:
     return out
 
 
-def _normalize_image(image) -> str:
-    if isinstance(image, str):
-        return image
-    if isinstance(image, dict):
-        return image.get("url", "") or ""
-    if isinstance(image, list) and image:
-        first = image[0]
-        if isinstance(first, str):
-            return first
-        if isinstance(first, dict):
-            return first.get("url", "") or ""
-    return ""
-
-
 # The Tempest JSON-LD/og image is usually a generic site-wide "meta-image"
 # (the same default photo on every event). The event's REAL photo lives in
 # the page's `figure.js-dir-gallery` — a lazy-loaded `/imager/` image whose
@@ -145,31 +115,6 @@ def _extract_gallery_image(html: str) -> str:
         return ""
     mm = _IMAGER_URL_RE.search(m.group(0))
     return mm.group(1) if mm else ""
-
-
-def _normalize_location(location) -> tuple[str, str, str]:
-    """Returns (location_name, address, city). City is returned separately
-    for the Notion City column / shared-tag sweep."""
-    if not location:
-        return "", "", ""
-    if isinstance(location, str):
-        return _clean_html(location), "", ""
-    if isinstance(location, dict):
-        name = _clean_html(location.get("name", "") or "")
-        city = ""
-        addr_obj = location.get("address", "")
-        if isinstance(addr_obj, dict):
-            city = (addr_obj.get("addressLocality", "") or "").strip()
-            parts = [
-                addr_obj.get("streetAddress", ""),
-                city,
-                addr_obj.get("addressRegion", ""),
-            ]
-            addr = _clean_html(", ".join(p for p in parts if p))
-        else:
-            addr = _clean_html(str(addr_obj or ""))
-        return name, addr, _clean_html(city).lower()
-    return "", "", ""
 
 
 # ---------------------------------------------------------------------------
@@ -358,8 +303,11 @@ def run_simpleview_tempest(sitemap_url: str, newsletter: str,
     if not urls:
         return 0
 
-    existing = existing_source_urls(db_id, newsletter=newsletter)
-    print(f"Dedup: {len(existing)} URLs already in DB for {newsletter}\n")
+    # Unscoped dedup: geo_tagger re-tags rows by distance after every scrape,
+    # so a row saved under `newsletter` may now carry another tag (see
+    # notion_save.existing_source_urls).
+    existing = existing_source_urls(db_id)
+    print(f"Dedup: {len(existing)} URLs already in DB\n")
 
     # Per-occurrence model: Tempest has ONE detail page per event that may
     # span several in-window dates (recurring series). Emit one occurrence

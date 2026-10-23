@@ -14,23 +14,25 @@ URL pattern for navigating months:
 We walk current month + next month to cover any 14-day window that
 straddles a month boundary.
 
-curl_cffi (chrome120 impersonation) required — Vision Internet
-TLS-fingerprints plain Python requests."""
+curl_cffi (Chrome impersonation, via vision_internet._fetch_html)
+required: Vision Internet TLS-fingerprints plain Python requests."""
 import json
 import os
 import re
 import sys
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from urllib.parse import urljoin
-
-import requests
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "_shared"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
-from html_utils  import _clean_html, _normalize_title, format_dates_human  # noqa: E402
+from html_utils  import _clean_html, _normalize_title, _parse_dt  # noqa: E402
 from notion_save import existing_source_urls, save_event  # noqa: E402
+# Same Vision Internet / Akamai front as visitlewisville.com: reuse the
+# shared fetcher that rotates Chrome TLS fingerprints (a lone chrome120
+# pin gets 403'd).
+from vision_internet import _fetch_html as _fetch  # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
 from event_image_scraper import (is_cancelled_event,  # noqa: E402
                                  is_inappropriate_event,
@@ -43,38 +45,6 @@ BASE_HOST       = "https://www.cityoflewisville.com"
 CALENDAR_PATH   = "/about-lewisville/things-to-do/event-calendar"
 END_WINDOW_DAYS = 14
 DETAIL_THROTTLE_SEC = 0.3
-
-
-def _fetch(url: str) -> str:
-    cffi_get = None
-    try:
-        from curl_cffi import requests as _cffi
-        cffi_get = lambda u: _cffi.get(u, impersonate="chrome120",
-                                       timeout=15, allow_redirects=True)
-    except ImportError:
-        pass
-    headers = {
-        "User-Agent":       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept":           "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language":  "en-US,en;q=0.5",
-    }
-    for attempt in range(3):
-        try:
-            r = cffi_get(url) if cffi_get is not None else \
-                requests.get(url, headers=headers, timeout=15, allow_redirects=True)
-        except Exception as e:
-            print(f"  fetch error (attempt {attempt + 1}/3): {e}")
-            time.sleep(2 * (attempt + 1))
-            continue
-        if r.status_code == 200 and r.text:
-            return r.text
-        if r.status_code in (202, 429, 503) and attempt < 2:
-            time.sleep(3 * (attempt + 1))
-            continue
-        print(f"  HTTP {r.status_code} from {url}")
-        return ""
-    return ""
 
 
 # Mini-calendar grid: each event link → `/Home/Components/Calendar/Event/<ID>/<MOD>`.
@@ -108,21 +78,6 @@ def fetch_event_urls(today: date) -> list[str]:
                 new += 1
         print(f"    → {len(urls)} link(s), {new} new")
     return seen
-
-
-def _parse_dt(s) -> tuple[date | None, str]:
-    if not s:
-        return None, ""
-    s = str(s)
-    try:
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        return dt.date(), dt.strftime("%-I:%M %p") if (dt.hour or dt.minute) else ""
-    except Exception:
-        pass
-    try:
-        return date.fromisoformat(s[:10]), ""
-    except Exception:
-        return None, ""
 
 
 def fetch_event(url: str, today: date, window_end: date) -> dict | None:
@@ -201,8 +156,10 @@ def main() -> int:
     print(f"  → Date window:  {today} → {window_end}")
     print()
 
-    existing = existing_source_urls(WEEKEND_EVENTS_DB_ID, newsletter=NEWSLETTER)
-    print(f"Dedup: {len(existing)} URLs already in DB for {NEWSLETTER}\n")
+    # Unscoped dedup: geo_tagger re-tags rows by distance after every scrape
+    # (see notion_save.existing_source_urls).
+    existing = existing_source_urls(WEEKEND_EVENTS_DB_ID)
+    print(f"Dedup: {len(existing)} URLs already in DB\n")
 
     urls = fetch_event_urls(today)
     print(f"\nCollected {len(urls)} unique event detail URL(s)\n")

@@ -13,9 +13,9 @@ Two public functions:
       Returns dict[(url, iso_date) -> page_id]. The dedup key is the
       (Source URL, Date) pair, NOT url alone — single-page sources reuse
       one URL across many dates, so url alone would collapse distinct
-      occurrences. Per-newsletter scope when `newsletter` is provided —
-      essential when the same source URL can land under multiple
-      newsletters (e.g. a Roswell event that ECC and PP both cover).
+      occurrences. Per-newsletter scope when `newsletter` is provided;
+      scrapers call it unscoped because geo_tagger re-tags rows after
+      each scrape (see the function docstring).
 
   save_event(db_id, ev, newsletter, page_id=None)
       Create a new row, OR refresh an existing row when page_id is
@@ -46,6 +46,10 @@ from event_image_scraper import is_senior_event  # noqa: E402
 # DBs whose Price/Free columns we've already ensured this process (one PATCH
 # per scraper run, not per event).
 _columns_ensured: set[str] = set()
+
+# page_id → Manually Edited checkbox, filled by existing_source_urls() from
+# the rows it already fetched (the dedup query returns every property).
+_manual_edit_cache: dict[str, bool] = {}
 
 
 def _ensure_event_columns(db_id: str) -> None:
@@ -83,11 +87,15 @@ def existing_source_urls(db_id: str,
     (url, "") so a legacy/dateless row still dedups by URL alone.
 
     `newsletter` scopes the lookup to rows tagged with that newsletter.
-    Crucial when the same source URL can legitimately surface under
-    multiple newsletters — without scoping, an East_Cobb_Connect run
-    that encountered a URL already saved under Perimeter_Post would
-    update the PP row in place, corrupting cross-newsletter state.
-    Defaults to None (all newsletters) for single-newsletter scrapers."""
+    Defaults to None (all newsletters), which is what the scrapers use:
+    utilities/geo_tagger.py re-tags every upcoming row by distance after
+    each scrape (ECC_PP → Perimeter_Post, LLL → untagged_group, …), so a
+    lookup scoped to the scraper's own tag misses its previously saved
+    rows and inserts a duplicate every run. Updating in place never
+    touches the Newsletter tag, so an unscoped match is safe.
+
+    Also caches each row's `Manually Edited` flag so save_event's update
+    path doesn't need a per-row GET."""
     filters = None
     if newsletter:
         filters = {"property": "Newsletter", "select": {"equals": newsletter}}
@@ -100,6 +108,8 @@ def existing_source_urls(db_id: str,
             continue
         iso = ((props.get("Date") or {}).get("date") or {}).get("start") or ""
         page_id = p.get("id", "")
+        _manual_edit_cache[page_id] = bool(
+            (props.get("Manually Edited", {}) or {}).get("checkbox"))
         # Key under both the trailing-slash and no-slash forms of the URL.
         # Notion (and successive scraper/site versions) can store the same
         # event URL with or without a trailing "/"; without this, a scraper
@@ -114,8 +124,11 @@ def existing_source_urls(db_id: str,
 
 def _is_manually_edited(page_id: str) -> bool:
     """True if the existing row has Manually Edited checked. Used to skip the
-    content refresh on re-scrape so hand-curated rows aren't clobbered. One
-    lightweight GET per existing row (only on the update path)."""
+    content refresh on re-scrape so hand-curated rows aren't clobbered. Served
+    from the existing_source_urls() query when the row was in it; otherwise
+    one lightweight GET (only on the update path)."""
+    if page_id in _manual_edit_cache:
+        return _manual_edit_cache[page_id]
     try:
         r = requests.get(f"https://api.notion.com/v1/pages/{page_id}",
                          headers=NOTION_HEADERS, timeout=20)

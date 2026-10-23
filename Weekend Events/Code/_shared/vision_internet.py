@@ -25,7 +25,7 @@ import os
 import re
 import sys
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from urllib.parse import urljoin
 
 import requests
@@ -33,7 +33,7 @@ import requests
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
-from html_utils  import _clean_html, _normalize_title, format_dates_human  # noqa: E402
+from html_utils  import _clean_html, _normalize_title, _parse_dt  # noqa: E402
 from notion_save import existing_source_urls, save_event  # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
 from event_image_scraper import (is_cancelled_event,  # noqa: E402
@@ -128,22 +128,6 @@ def _fetch_html(url: str) -> str:
     return ""
 
 
-def _parse_dt(s: str) -> tuple[date | None, str]:
-    """`datetime='2026-05-23T13:00+00:00'` → (date, 'H:MM AM/PM') tuple."""
-    if not s:
-        return None, ""
-    s = s.strip()
-    try:
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        return dt.date(), dt.strftime("%-I:%M %p") if (dt.hour or dt.minute) else ""
-    except Exception:
-        pass
-    try:
-        return date.fromisoformat(s[:10]), ""
-    except Exception:
-        return None, ""
-
-
 def _parse_tile(tile: str, *, base_host: str, default_city: str,
                 location_prefix: str, default_address: str) -> dict | None:
     """Extract one event from a tile HTML block."""
@@ -236,8 +220,11 @@ def run_vision_internet_tiles(
     print(f"  → Date window:  {today} → {window_end}")
     print()
 
-    existing = existing_source_urls(db_id, newsletter=newsletter)
-    print(f"Dedup: {len(existing)} URLs already in DB for {newsletter}\n")
+    # Unscoped dedup: geo_tagger re-tags rows by distance after every scrape,
+    # so a row saved under `newsletter` may now carry another tag (see
+    # notion_save.existing_source_urls).
+    existing = existing_source_urls(db_id)
+    print(f"Dedup: {len(existing)} URLs already in DB\n")
 
     html = _fetch_html(source_url)
     if not html:

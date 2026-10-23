@@ -197,7 +197,9 @@ def run(newsletter: str | None = None, db_id: str | None = None) -> int:
     print(f"{len(slugs)} film(s) in sitemap; filtering out first-run wide "
           f"releases (>= {FIRST_RUN_DAILY_SHOWTIMES} shows/day)\n")
 
-    existing = existing_source_urls(db_id, newsletter=newsletter)
+    # Unscoped dedup: geo_tagger re-tags rows by distance after every scrape
+    # (see notion_save.existing_source_urls).
+    existing = existing_source_urls(db_id)
 
     candidates: list[dict] = []
     skipped_first_run = 0

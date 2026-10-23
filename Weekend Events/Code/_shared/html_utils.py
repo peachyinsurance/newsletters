@@ -6,15 +6,21 @@ parsing logic without duplicating code.
 
 Functions:
   _clean_html(s)       — strip tags, decode all HTML entities, normalize ws
-  format_dates_human   — "May 22nd, 29th, June 5th" from a set of dates
   _normalize_title     — punctuation-stripped lowercase title key for dedup
   _parse_iso_date      — ISO-8601 → date (timezone-tolerant)
+  _parse_dt            - ISO-8601 → (date, display time)
+  _normalize_image     - JSON-LD image → URL
+  _normalize_location  - JSON-LD location → (name, address, city)
+  fetch_with_retry     - GET with retry on transient codes → body text
 """
 from __future__ import annotations
 
 import html
 import re
+import time
 from datetime import date, datetime
+
+import requests
 
 
 def _clean_html(s: str) -> str:
@@ -33,37 +39,6 @@ def _clean_html(s: str) -> str:
     s = re.sub(r"<[^>]+>", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s
-
-
-def format_dates_human(dates) -> str:
-    """Format an iterable of date objects as 'May 22nd, 29th, June 5th'.
-    Groups consecutive same-month entries under one month name and adds
-    English ordinal suffixes to the day numbers."""
-    seen = sorted(set(d for d in dates if d))
-    if not seen:
-        return ""
-
-    def _ord(n: int) -> str:
-        suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-        return f"{n}{suffix}"
-
-    chunks: list[str] = []
-    cur_key: tuple[int, int] | None = None
-    cur_month_name = ""
-    cur_days: list[str] = []
-    for d in seen:
-        key = (d.year, d.month)
-        if key != cur_key:
-            if cur_days:
-                chunks.append(f"{cur_month_name} {', '.join(cur_days)}")
-            cur_key = key
-            cur_month_name = d.strftime("%B")
-            cur_days = [_ord(d.day)]
-        else:
-            cur_days.append(_ord(d.day))
-    if cur_days:
-        chunks.append(f"{cur_month_name} {', '.join(cur_days)}")
-    return ", ".join(chunks)
 
 
 def _normalize_title(t: str) -> str:
@@ -88,6 +63,87 @@ def _parse_iso_date(s: str) -> date | None:
         return datetime.fromisoformat(s.replace("Z", "+00:00")).date()
     except Exception:
         return None
+
+
+def _parse_dt(s) -> tuple[date | None, str]:
+    """ISO datetime → (date, 'H:MM AM/PM' or '' for midnight / date-only).
+    Falls back to the leading YYYY-MM-DD when the full string won't parse."""
+    if not s:
+        return None, ""
+    s = str(s).strip()
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt.date(), dt.strftime("%-I:%M %p") if (dt.hour or dt.minute) else ""
+    except Exception:
+        pass
+    try:
+        return date.fromisoformat(s[:10]), ""
+    except Exception:
+        return None, ""
+
+
+def _normalize_image(image) -> str:
+    """JSON-LD `image` (str | ImageObject dict | list of either) → URL str."""
+    if isinstance(image, str):
+        return image
+    if isinstance(image, dict):
+        return image.get("url", "") or ""
+    if isinstance(image, list) and image:
+        first = image[0]
+        if isinstance(first, str):
+            return first
+        if isinstance(first, dict):
+            return first.get("url", "") or ""
+    return ""
+
+
+def _normalize_location(location) -> tuple[str, str, str]:
+    """JSON-LD `location` → (location_name, address, city). City is returned
+    separately for the Notion City column / shared-tag sweep."""
+    if not location:
+        return "", "", ""
+    if isinstance(location, str):
+        return _clean_html(location), "", ""
+    if isinstance(location, dict):
+        name = _clean_html(location.get("name", "") or "")
+        city = ""
+        addr_obj = location.get("address", "")
+        if isinstance(addr_obj, dict):
+            city = (addr_obj.get("addressLocality", "") or "").strip()
+            parts = [
+                addr_obj.get("streetAddress", ""),
+                city,
+                addr_obj.get("addressRegion", ""),
+            ]
+            addr = _clean_html(", ".join(p for p in parts if p))
+        else:
+            addr = _clean_html(str(addr_obj or ""))
+        return name, addr, _clean_html(city).lower()
+    return "", "", ""
+
+
+def fetch_with_retry(url: str, headers: dict, timeout: int) -> str:
+    """GET `url` (following redirects) and return the body text, or '' on
+    failure. Retries transport errors and the transient codes some
+    Cloudflare-fronted sites use as soft bot-checks (202, 429, 503)."""
+    for attempt in range(3):
+        try:
+            r = requests.get(url, timeout=timeout, headers=headers,
+                             allow_redirects=True)
+        except Exception as e:
+            print(f"    fetch error (attempt {attempt + 1}/3): {e}")
+            time.sleep(2 * (attempt + 1))
+            continue
+        if r.status_code == 200 and r.text:
+            return r.text
+        if r.status_code in (202, 429, 503) and attempt < 2:
+            wait = 3 * (attempt + 1)
+            print(f"    HTTP {r.status_code} — retry {attempt + 1}/3 in {wait}s")
+            time.sleep(wait)
+            continue
+        print(f"    HTTP {r.status_code} from {url}")
+        return ""
+    return ""
 
 
 # Currency code → symbol for the few we'd ever see; default to the bare code.

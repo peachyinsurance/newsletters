@@ -31,16 +31,14 @@ import json
 import os
 import re
 import sys
-import time
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-
-import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
-from html_utils  import _clean_html, _normalize_title              # noqa: E402
+from html_utils  import (_clean_html, _normalize_title,            # noqa: E402
+                         fetch_with_retry)
 from notion_save import existing_source_urls, save_event           # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
 from event_image_scraper import (is_cancelled_event,               # noqa: E402
@@ -61,24 +59,7 @@ def _fetch(url: str, accept: str = "text/html") -> str:
         "Accept":          accept,
         "Accept-Language": "en-US,en;q=0.5",
     }
-    for attempt in range(3):
-        try:
-            r = requests.get(url, timeout=20, headers=headers,
-                             allow_redirects=True)
-        except Exception as e:
-            print(f"    fetch error (attempt {attempt + 1}/3): {e}")
-            time.sleep(2 * (attempt + 1))
-            continue
-        if r.status_code == 200 and r.text:
-            return r.text
-        if r.status_code in (202, 429, 503) and attempt < 2:
-            wait = 3 * (attempt + 1)
-            print(f"    HTTP {r.status_code} — retry {attempt + 1}/3 in {wait}s")
-            time.sleep(wait)
-            continue
-        print(f"    HTTP {r.status_code} from {url}")
-        return ""
-    return ""
+    return fetch_with_retry(url, headers, timeout=20)
 
 
 # ---------------------------------------------------------------------------
@@ -242,8 +223,11 @@ def run_patch_source(patch_slug: str,
           f"{sum(len(v) if isinstance(v,list) else 1 for v in all_events.values())} entries, "
           f"promotedEvents {len(promoted)}\n")
 
-    existing = existing_source_urls(db_id, newsletter=newsletter)
-    print(f"Dedup: {len(existing)} URLs already in DB for {newsletter}\n")
+    # Unscoped dedup: geo_tagger re-tags rows by distance after every scrape,
+    # so a row saved under `newsletter` may now carry another tag (see
+    # notion_save.existing_source_urls).
+    existing = existing_source_urls(db_id)
+    print(f"Dedup: {len(existing)} URLs already in DB\n")
 
     candidates: list[dict] = []
     seen_urls: set[str] = set()
@@ -255,7 +239,7 @@ def run_patch_source(patch_slug: str,
 
     # Promoted events use the same schema; merge both streams.
     for source_dict in (all_events, promoted):
-        for ts_key, raw_or_list in source_dict.items():
+        for raw_or_list in source_dict.values():
             for raw in (raw_or_list if isinstance(raw_or_list, list) else [raw_or_list]):
                 ev = _normalize_event(raw, patch_slug)
                 if not ev:

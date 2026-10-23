@@ -19,14 +19,14 @@ import os
 import re
 import sys
 import time
-from datetime import date, datetime, timedelta
-
-import requests
+from datetime import date, timedelta
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "_shared"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..",
                              "NewsletterCreation", "Code"))
-from html_utils  import _clean_html, _normalize_title, format_dates_human  # noqa: E402
+from html_utils  import (_clean_html, _normalize_title, _parse_dt,  # noqa: E402
+                         _normalize_image, _normalize_location,
+                         fetch_with_retry)
 from notion_save import existing_source_urls, save_event  # noqa: E402
 from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
 from event_image_scraper import (is_cancelled_event,  # noqa: E402
@@ -56,23 +56,7 @@ def _fetch(url: str) -> str:
         "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
     }
-    for attempt in range(3):
-        try:
-            r = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
-        except Exception as e:
-            print(f"    fetch error (attempt {attempt + 1}/3): {e}")
-            time.sleep(2 * (attempt + 1))
-            continue
-        if r.status_code == 200 and r.text:
-            return r.text
-        if r.status_code in (202, 429, 503) and attempt < 2:
-            wait = 3 * (attempt + 1)
-            print(f"    HTTP {r.status_code} — retry {attempt + 1}/3 in {wait}s")
-            time.sleep(wait)
-            continue
-        print(f"    HTTP {r.status_code} from {url}")
-        return ""
-    return ""
+    return fetch_with_retry(url, headers, timeout=15)
 
 
 def fetch_event_urls() -> list[str]:
@@ -101,46 +85,6 @@ def fetch_event_urls() -> list[str]:
         if new_count == 0:
             break
     return seen
-
-
-def _parse_dt(s) -> tuple[date | None, str]:
-    """ISO datetime → (date, time-of-day or '')."""
-    if not s:
-        return None, ""
-    s = str(s)
-    try:
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        return dt.date(), dt.strftime("%-I:%M %p") if (dt.hour or dt.minute) else ""
-    except Exception:
-        pass
-    try:
-        return date.fromisoformat(s[:10]), ""
-    except Exception:
-        return None, ""
-
-
-def _normalize_location(loc) -> tuple[str, str, str]:
-    """Returns (location_name, address, city)."""
-    if not loc:
-        return "", "", ""
-    if isinstance(loc, str):
-        return _clean_html(loc), "", ""
-    if isinstance(loc, dict):
-        name = _clean_html(loc.get("name", "") or "")
-        city = ""
-        addr_obj = loc.get("address", "")
-        if isinstance(addr_obj, dict):
-            city = (addr_obj.get("addressLocality", "") or "").strip()
-            parts = [
-                addr_obj.get("streetAddress", ""),
-                city,
-                addr_obj.get("addressRegion", ""),
-            ]
-            addr = _clean_html(", ".join(p for p in parts if p))
-        else:
-            addr = _clean_html(str(addr_obj or ""))
-        return name, addr, _clean_html(city).lower()
-    return "", "", ""
 
 
 def fetch_event(url: str, today: date, window_end: date) -> dict | None:
@@ -185,12 +129,7 @@ def _build_event(item: dict, url: str,
     if start_t:
         time_str = f"{start_t} – {end_t}" if end_t and end_t != start_t else start_t
 
-    image = item.get("image") or ""
-    if isinstance(image, dict):
-        image = image.get("url", "") or ""
-    elif isinstance(image, list) and image:
-        first = image[0]
-        image = first if isinstance(first, str) else (first.get("url", "") if isinstance(first, dict) else "")
+    image = _normalize_image(item.get("image"))
 
     return {
         "event_name":  _clean_html(name),
@@ -230,8 +169,10 @@ def main() -> int:
     if not urls:
         return 0
 
-    existing = existing_source_urls(WEEKEND_EVENTS_DB_ID, newsletter=NEWSLETTER)
-    print(f"Dedup: {len(existing)} URLs already in DB for {NEWSLETTER}\n")
+    # Unscoped dedup: geo_tagger re-tags rows by distance after every scrape
+    # (see notion_save.existing_source_urls).
+    existing = existing_source_urls(WEEKEND_EVENTS_DB_ID)
+    print(f"Dedup: {len(existing)} URLs already in DB\n")
 
     # Per-occurrence model: one detail page per occurrence (own URL + date).
     # Emit one row per occurrence; de-dupe within this run on (url, date).
