@@ -58,7 +58,7 @@ jobs:
         run: |
           set -e
           for wf in featured_event free_events weekend_planner; do
-            curl -s -X POST \
+            curl -sS --fail-with-body -X POST \
               -H "Authorization: Bearer $GITHUB_TOKEN" \
               -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/${wf}.yml/dispatches" \

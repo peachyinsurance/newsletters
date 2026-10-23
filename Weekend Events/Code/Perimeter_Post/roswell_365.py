@@ -28,7 +28,7 @@ from html_utils  import (_clean_html, _normalize_title, _parse_dt,  # noqa: E402
                          _normalize_image, _normalize_location,
                          fetch_with_retry)
 from notion_save import existing_source_urls, save_event  # noqa: E402
-from event_date_filter import upcoming_friday as _upcoming_friday  # noqa: E402
+from event_date_filter import effective_today, upcoming_friday as _upcoming_friday  # noqa: E402
 from event_image_scraper import (is_cancelled_event,  # noqa: E402
                                  is_inappropriate_event,
                                  backfill_images)
@@ -153,7 +153,7 @@ def main() -> int:
         print("✗ NOTION_WEEKEND_EVENTS_DB_ID is not set in env.")
         return 1
 
-    today      = date.today()
+    today      = effective_today()  # honors ISSUE_DATE
     window_end = _upcoming_friday(today) + timedelta(days=END_WINDOW_DAYS)
 
     print("Roswell 365 scraper")

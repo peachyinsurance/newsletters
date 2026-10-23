@@ -52,7 +52,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -s -X POST \
+          curl -sS --fail-with-body -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
@@ -60,11 +60,12 @@ jobs:
           echo "✓ Newsletter page rebuild triggered"
 
       - name: Trigger Subject Line generation
+        if: ${{ !cancelled() }}  # still dispatch if an earlier dispatch failed
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEWSLETTER:   ${{ github.event.inputs.newsletter || 'all' }}
         run: |
-          curl -s -X POST \
+          curl -sS --fail-with-body -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/subject_line.yml/dispatches \
@@ -72,11 +73,12 @@ jobs:
           echo "→ Triggered Generate Subject Line for ${NEWSLETTER}"
 
       - name: Trigger In Today's Connect generation
+        if: ${{ !cancelled() }}  # still dispatch if an earlier dispatch failed
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEWSLETTER:   ${{ github.event.inputs.newsletter || 'all' }}
         run: |
-          curl -s -X POST \
+          curl -sS --fail-with-body -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/in_todays_connect.yml/dispatches \

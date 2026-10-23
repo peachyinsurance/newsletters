@@ -42,6 +42,10 @@ permissions:
 jobs:
   generate:
     runs-on: ubuntu-latest
+    # Job-level so every step sees it: the scrapers anchor their date
+    # window to it via event_date_filter.effective_today().
+    env:
+      ISSUE_DATE: ${{ github.event.inputs.issue_date || '' }}
     # Typical run is ~5-15 min; cap a hung step well short of the 6h default.
     timeout-minutes: 60
     steps:
@@ -226,7 +230,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -s -X POST \
+          curl -sS --fail-with-body -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
@@ -238,7 +242,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -s -X POST \
+          curl -sS --fail-with-body -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/deploy_review_app.yml/dispatches \
@@ -250,7 +254,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -s -X POST \
+          curl -sS --fail-with-body -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/free_events.yml/dispatches \

@@ -126,6 +126,10 @@ jobs:
   weekend_events:
     needs: pick-runner
     runs-on: ${{ needs.pick-runner.outputs.label }}
+    # Job-level so every step sees it: the scrapers anchor their date
+    # window to it via event_date_filter.effective_today().
+    env:
+      ISSUE_DATE: ${{ github.event.inputs.issue_date || '' }}
     # Typical run is ~15-25 min; cap a hung scraper well short of the 6h default.
     timeout-minutes: 120
     steps:
@@ -380,7 +384,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -s -X POST \
+          curl -sS --fail-with-body -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/newsletter.yml/dispatches \

@@ -55,7 +55,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -s -X POST \
+          curl -sS --fail-with-body -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/assemble_newsletter.yml/dispatches \
@@ -67,11 +67,11 @@ jobs:
       # + review-app deploy for the whole chain. (It previously skipped the
       # chain; Poll used to be the tail.)
       - name: Trigger next in chain (In Search Of)
-        if: ${{ (github.event.inputs.chain || 'true') == 'true' }}
+        if: ${{ !cancelled() && (github.event.inputs.chain || 'true') == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -s -X POST \
+          curl -sS --fail-with-body -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/peachyinsurance/newsletters/actions/workflows/in_search_of.yml/dispatches \
