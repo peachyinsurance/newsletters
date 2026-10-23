@@ -19,7 +19,6 @@ Or import `fetch_avfap_pets(target_per_species=3)` from another module.
 import os
 import re
 import sys
-import json
 import time
 import requests
 

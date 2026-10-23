@@ -14,7 +14,6 @@ import time
 from datetime import datetime, date, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-import math
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 
@@ -22,7 +21,7 @@ import requests
 import anthropic
 from notion_helper import get_approved_pet_urls, save_pets_to_notion
 from url_validator import filter_valid_items
-from newsletters_config import NEWSLETTERS, filter_by_env
+from newsletters_config import filter_by_env
 
 
 # ---------------------------------------------------------------------------
@@ -42,8 +41,6 @@ RESCUEGROUPS_API_BASE = "https://api.rescuegroups.org/v5/public"
 CUSTOM_PET_SOURCES = {
     "Lewisville_Lake_Lookout": "lewisville",
 }
-RESCUEGROUPS_SEARCH_RADIUS_MILES = 25
-RESCUEGROUPS_PAGE_LIMIT = 8   # how many pages to fetch (8 × 25 = 200 candidates)
 RESCUEGROUPS_TIMEOUT = 30
 
 
@@ -58,11 +55,6 @@ def load_skill_prompt() -> str:
     return prompt
 
 # ---------------------------------------------------------------------------
-# 4. LOAD PREVIOUSLY APPROVED URLS
-# ---------------------------------------------------------------------------
-approved_urls = get_approved_pet_urls()
-
-# ---------------------------------------------------------------------------
 # 5. FETCH PETS FROM RESCUEGROUPS API
 # ---------------------------------------------------------------------------
 # Petfinder migrated to client-side rendering + TLS fingerprinting that blocks
@@ -71,8 +63,6 @@ approved_urls = get_approved_pet_urls()
 # syndicate to RescueGroups are accessible — Mostly Mutts and Barkville for now.
 # Custom scrapers for non-RescueGroups shelters (e.g. Fulton County) added
 # later as a separate fallback.
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Per-species priority list of orgs (and per-org settings).
 # Search proceeds in order until target is reached. URL strategy is shelter-specific.
@@ -98,16 +88,6 @@ MAX_PAGES_PER_ORG = 6
 def _slugify_name(name: str) -> str:
     """Lowercase, replace non-alphanumerics with hyphens. 'Holly Hobby' → 'holly-hobby'."""
     return re.sub(r"[^a-z0-9]+", "-", (name or "").lower().strip()).strip("-")
-
-
-def _species_from_slug(rg_slug: str) -> str:
-    """Infer species from RescueGroups' animal slug. e.g. 'adopt-jacquelyn-...-dog'."""
-    s = (rg_slug or "").lower()
-    if s.endswith("-cat") or "-cat-" in s:
-        return "Cat"
-    if s.endswith("-dog") or "-dog-" in s:
-        return "Dog"
-    return ""
 
 
 def _build_pet_url(template: str, pet_name: str) -> str:
@@ -331,6 +311,20 @@ Profile:
 """
     return combined
 
+
+def _extract_json_text(raw: str) -> str:
+    """Strip code fences; if Claude returned prose before/after the JSON,
+    try to extract the array/object."""
+    clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
+    if not (clean.startswith("[") or clean.startswith("{")):
+        start = clean.find("[")
+        if start < 0:
+            start = clean.find("{")
+        end_bracket = clean.rfind("]") if start >= 0 and clean[start] == "[" else clean.rfind("}")
+        if start >= 0 and end_bracket > start:
+            clean = clean[start:end_bracket + 1]
+    return clean
+
 # ---------------------------------------------------------------------------
 # 7. GENERATE BLURBS VIA CLAUDE
 # ---------------------------------------------------------------------------
@@ -389,15 +383,7 @@ Exact format:
                 raise
 
     raw = next((block.text for block in response.content if block.type == "text"), "")
-    clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
-    # If Claude returned prose before/after the JSON, try to extract the array/object
-    if not (clean.startswith("[") or clean.startswith("{")):
-        start = clean.find("[")
-        if start < 0:
-            start = clean.find("{")
-        end_bracket = clean.rfind("]") if start >= 0 and clean[start] == "[" else clean.rfind("}")
-        if start >= 0 and end_bracket > start:
-            clean = clean[start:end_bracket + 1]
+    clean = _extract_json_text(raw)
     try:
         results = json.loads(clean)
     except json.JSONDecodeError as e:
@@ -405,9 +391,11 @@ Exact format:
         print(f"  Raw response (first 500 chars): {raw[:500]}")
         return []
 
-    # Build source lookups
+    # Build source lookups. RescueGroups pets carry their name as `_pet_name`;
+    # the Lewisville scraper uses `name`.
     source_by_url  = {p["url"]: p for p in pets}
-    source_by_name = {p["name"]: p for p in pets if p.get("name")}
+    source_by_name = {(p.get("name") or p.get("_pet_name")): p
+                      for p in pets if p.get("name") or p.get("_pet_name")}
 
     # For each result: match to source (by url, fallback to name), then OVERWRITE URL fields.
     # Claude only provides text: pet_name, blurb, animal_type.
@@ -428,7 +416,7 @@ Exact format:
         result["listing_url"]     = source.get("listing_url", "") or source["url"]
         result["photo_url"]       = source["photos"][0] if source.get("photos") else ""
         if not result.get("pet_name"):
-            result["pet_name"] = source.get("name", "")
+            result["pet_name"] = source.get("name") or source.get("_pet_name", "")
         validated.append(result)
 
     print(f"Generated {len(validated)} {animal_type} blurbs")
@@ -439,6 +427,8 @@ Exact format:
 # 8. SCORE ALL BLURBS IN ONE CLAUDE CALL
 # ---------------------------------------------------------------------------
 def score_blurbs(results: list[dict]) -> list[dict]:
+    if not results:
+        return results  # nothing to score; skip the Claude call
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
 
     scoring_input = ""
@@ -446,7 +436,7 @@ def score_blurbs(results: list[dict]) -> list[dict]:
         scoring_input += f"""
 --- Candidate {i} ({result.get('animal_type', 'unknown')}) ---
 Pet Name: {result['pet_name']}
-Shelter: {result['shelter_name']}
+Shelter: {result.get('shelter_name', '')}
 Blurb: {result['blurb']}
 Source URL: {result['source_url']}
 
@@ -501,20 +491,16 @@ Candidates to score:
                 raise
 
     raw = next((block.text for block in response.content if block.type == "text"), "")
-    clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
-    if not (clean.startswith("[") or clean.startswith("{")):
-        start = clean.find("[")
-        if start < 0:
-            start = clean.find("{")
-        end_bracket = clean.rfind("]") if start >= 0 and clean[start] == "[" else clean.rfind("}")
-        if start >= 0 and end_bracket > start:
-            clean = clean[start:end_bracket + 1]
+    clean = _extract_json_text(raw)
     try:
         scores = json.loads(clean)
     except json.JSONDecodeError as e:
         print(f"  ✗ Failed to parse Claude JSON for pet scoring: {e}")
         print(f"  Raw response (first 500 chars): {raw[:500]}")
-        return results  # return unscored results so pipeline continues
+        # Fall through with no scores so every result gets zeroed score fields
+        # below; flag_default_winners sorts on total_score and would KeyError
+        # on unscored rows.
+        scores = []
 
     # Validate scores come from real source_urls; fallback to pet_name match
     real_urls = {r["source_url"] for r in results}

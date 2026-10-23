@@ -42,11 +42,6 @@ def _permalink_of(page: dict) -> str:
     return (page.get("properties", {}).get("Reddit Permalink", {}).get("url") or "").strip()
 
 
-def _newsletter_of(page: dict) -> str:
-    sel = page.get("properties", {}).get("Newsletter", {}).get("select") or {}
-    return (sel.get("name") or "").strip()
-
-
 def approve_one(permalink: str, newsletter: str) -> int:
     """Find the row with this permalink + newsletter, flip Status to
     'approved'. Returns 0 on success, 1 on failure."""

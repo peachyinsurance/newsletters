@@ -16,7 +16,7 @@ import anthropic
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import save_poll_to_notion, get_used_poll_categories
-from newsletters_config import NEWSLETTERS, filter_by_env
+from newsletters_config import filter_by_env
 
 
 # ---------------------------------------------------------------------------

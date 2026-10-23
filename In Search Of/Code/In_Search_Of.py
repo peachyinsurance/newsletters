@@ -325,7 +325,7 @@ def _fetch(url: str) -> tuple[str, str]:
             print(f"      ⚠ {url[:55]} → HTTP {r.status_code}")
             return final, ""
         except Exception as e:
-            if attempt < 3:
+            if attempt < 2:
                 time.sleep(2 * (attempt + 1))
                 continue
             print(f"      ⚠ fetch failed for {url[:55]}: {e}")

@@ -303,7 +303,12 @@ def fetch_lewisville_pets(target_per_species: int = 3,
         for listing in listings:
             if len(result[species_key]) >= target_per_species:
                 break
-            if listing.get("detail_url") in exclude_urls:
+            # Saved/approved rows store the public Petplace URL (see
+            # _to_pipeline_pet), so match on that as well as the detail URL.
+            public_url = _public_pet_url(listing.get("id", ""),
+                                         (listing.get("species") or "").capitalize())
+            if (listing.get("detail_url") in exclude_urls
+                    or (public_url and public_url in exclude_urls)):
                 continue
             detail_html = _fetch(listing["detail_url"]) if listing.get("detail_url") else ""
             detail = parse_detail(detail_html) if detail_html else {}

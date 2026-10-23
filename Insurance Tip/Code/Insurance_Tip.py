@@ -16,7 +16,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterC
 from brave_search import search_web
 from claude_json import call_with_json_output, ClaudeJSONError
 from notion_helper import save_tips_to_notion, get_existing_tip_urls, get_existing_tip_subjects
-from newsletters_config import NEWSLETTERS, filter_by_env
+from newsletters_config import filter_by_env
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -360,7 +360,7 @@ from the candidates below. Repeating a recently-covered subject is allowed if
 that's the best you can do. Write the blurb in the skill's voice; keep it short.
 
 Audiences:
-{build_claude_user_prompt.__defaults__ if False else ''}
+
 
 Candidates:
 {json.dumps(candidates, indent=2)}

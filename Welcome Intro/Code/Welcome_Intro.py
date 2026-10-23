@@ -14,16 +14,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import requests
 import anthropic
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import (
-    HEADERS as NOTION_HEADERS,
     query_database,
     save_intro_to_notion,
 )
-from newsletters_config import NEWSLETTERS, filter_by_env
+from newsletters_config import filter_by_env
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -34,8 +32,6 @@ NOTION_API_KEY = os.environ["NOTION_API_KEY"]
 # Database IDs for reading context from other sections
 NOTION_RESTAURANTS_DB_ID  = os.environ.get("NOTION_RESTAURANTS_DB_ID", "")
 NOTION_PETS_DB_ID         = os.environ.get("NOTION_PETS_DB_ID", "")
-NOTION_LOWDOWN_DB_ID      = os.environ.get("NOTION_LOWDOWN_DB_ID", "")
-NOTION_RE_DB_ID           = os.environ.get("NOTION_RE_DB_ID", "")
 NOTION_EVENTS_DB_ID       = os.environ.get("NOTION_EVENTS_DB_ID", "")
 NOTION_FREE_EVENTS_DB_ID  = os.environ.get("NOTION_FREE_EVENTS_DB_ID", "")
 
