@@ -36,24 +36,5 @@
     "status": "pending",
     "newsletter_name": "Perimeter_Post",
     "default_winner": ""
-  },
-  {
-    "tip_title": "Whole Life Insurance Has a 'Cash Value' Component. Here's What That Actually Means.",
-    "topic": "Term Life vs. Whole Life Insurance - Cash Value Mechanics Explainer",
-    "blurb": "💡 **Insurance Tip: Whole Life Insurance Has a 'Cash Value' Component. Here's What That Actually Means.**\n\nIf you've ever seen a whole life policy and wondered what the cash value part actually does, here's the short version: a portion of your premium goes into an account that builds over time, and you can borrow against it or surrender the policy for that value if you ever stop paying. The tradeoff is that whole life costs significantly more than term life for the same death benefit amount. Term life covers you for a fixed window (10, 20, 30 years), has no cash value, and is generally the lower-cost option for people whose main goal is replacing income or covering debts if something happens to them. Neither is automatically better. The right one depends on what problem you're actually trying to solve.\n\nNot sure which structure makes sense for where you are right now? Your Peachy agent can walk through the tradeoffs with you — no pressure, just clarity.\n\n📖 [Learn more from NerdWallet](https://www.nerdwallet.com/insurance/life/learn/term-vs-whole-life-insurance)",
-    "summary": "Covers the cash value mechanics of whole life insurance specifically — what the cash value component is, how it builds, and how it compares functionally to term life — framed as a mechanics explainer rather than a which-should-I-buy decision framework.",
-    "source_url": "https://www.nerdwallet.com/insurance/life/learn/term-vs-whole-life-insurance",
-    "source_name": "NerdWallet",
-    "sponsor_name": "Peachy Insurance",
-    "category": "life",
-    "total_score": "21",
-    "relevance_score": "8",
-    "actionability_score": "6",
-    "timeliness_score": "7",
-    "scoring_notes": "Repeat subject of term vs. whole life (prior tip: 2026-07-27), new angle: cash value mechanics explainer rather than which-type-fits-your-life-stage decision framework. All three audiences have median ages 36-42 with family and income profiles where whole-life cash-value confusion is common. October open enrollment adds a natural hook for life insurance conversations. NerdWallet is a trusted source. Selected under hard-minimum rule after all other candidate categories were eliminated — flood (over-covered, weak source content), home review (listicle sources), auto deductibles (non-trusted sources, over-covered). Best available option with a defensible fresh angle.",
-    "date_generated": "2026-10-19",
-    "status": "pending",
-    "newsletter_name": "East_Cobb_Connect",
-    "default_winner": "yes"
   }
 ]
