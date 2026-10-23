@@ -19,7 +19,7 @@ import json
 import base64
 import hashlib
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 
 sys.path.append(os.path.dirname(__file__))
 from newsletters_config import newsletter_names, get_newsletter
@@ -393,6 +393,50 @@ def _strip_intro_addons(text: str) -> str:
     return "\n\n".join(kept).strip()
 
 
+def _newest_row_id(db_id: str, newsletter_name: str, status: str | None = None) -> str | None:
+    """Page id of the newest row (by Date Generated) for this newsletter in
+    `db_id`, optionally restricted to one Status. None when nothing matches."""
+    try:
+        pages = query_database(db_id, filters={
+            "property": "Newsletter",
+            "select": {"equals": newsletter_name}
+        })
+    except Exception:
+        pages = []
+    if status is not None:
+        pages = [p for p in pages if
+                 (p["properties"].get("Status", {}).get("select") or {}).get("name") == status]
+    if not pages:
+        return None
+    pages.sort(
+        key=lambda p: (p["properties"].get("Date Generated", {}).get("date") or {}).get("start", ""),
+        reverse=True,
+    )
+    return pages[0]["id"]
+
+
+def _rich_text_chunks(text: str) -> list[dict]:
+    """Split text into <=1900-char rich_text items (Notion caps each at 2000)."""
+    CHUNK_SIZE = 1900
+    chunks = [{"text": {"content": text[i:i + CHUNK_SIZE]}}
+              for i in range(0, len(text), CHUNK_SIZE)]
+    return chunks or [{"text": {"content": ""}}]
+
+
+def _sync_back_patch(target_id: str, properties: dict, label: str, warn_label: str) -> None:
+    """PATCH synced properties onto a DB row. Uses _notion_req so a 429 or a
+    read timeout retries instead of crashing the rebuild; any final failure is
+    logged as a warning (sync-back is best-effort)."""
+    try:
+        _notion_req("PATCH", f"https://api.notion.com/v1/pages/{target_id}",
+                    json_body={"properties": properties})
+        print(f"  🔄 Synced {label} edits back to database (marked as manually edited)")
+    except Exception as e:
+        resp = getattr(e, "response", None)
+        detail = resp.text[:200] if resp is not None else str(e)[:200]
+        print(f"  Warning: {warn_label} sync-back failed: {detail}")
+
+
 def sync_edits_back(page_id: str, newsletter_name: str) -> None:
     """Before clearing the landing page, detect manual edits in Welcome Intro and
     Local Lowdown sections and sync them back to the corresponding database rows.
@@ -421,120 +465,35 @@ def sync_edits_back(page_id: str, newsletter_name: str) -> None:
         # dedicated Preview Text / In Todays Connect fields).
         blurb = _strip_intro_addons(blurb)
 
-        try:
-            pages = query_database(NOTION_INTRO_DB_ID, filters={
-                "property": "Newsletter",
-                "select": {"equals": newsletter_name}
-            })
-        except Exception:
-            pages = []
-
-        if pages:
-            pages.sort(
-                key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
-                reverse=True,
-            )
-            target_id = pages[0]["id"]
-
-            CHUNK_SIZE = 1900
-            chunks = [{"text": {"content": blurb[i:i + CHUNK_SIZE]}}
-                      for i in range(0, len(blurb), CHUNK_SIZE)]
-            if not chunks:
-                chunks = [{"text": {"content": ""}}]
-
+        target_id = _newest_row_id(NOTION_INTRO_DB_ID, newsletter_name)
+        if target_id:
             props_update = {
-                "Blurb":            {"rich_text": chunks},
+                "Blurb":            {"rich_text": _rich_text_chunks(blurb)},
                 "Manually Edited":  {"checkbox": True},
             }
             if greeting:
                 props_update["Greeting"] = {"rich_text": [{"text": {"content": greeting}}]}
-
-            r = requests.patch(
-                f"https://api.notion.com/v1/pages/{target_id}",
-                headers=HEADERS,
-                json={"properties": props_update},
-                timeout=30,
-            )
-            if r.ok:
-                print("  🔄 Synced Welcome Intro edits back to database (marked as manually edited)")
-            else:
-                print(f"  Warning: intro sync-back failed: {r.text[:200]}")
+            _sync_back_patch(target_id, props_update, "Welcome Intro", "intro")
 
     # --- Local Lowdown ---
     lowdown_text, lowdown_edited = extract_section_text(blocks, "Local Lowdown")
     if lowdown_edited and lowdown_text and NOTION_LOWDOWN_DB_ID:
-        try:
-            pages = query_database(NOTION_LOWDOWN_DB_ID, filters={
-                "property": "Newsletter",
-                "select": {"equals": newsletter_name}
-            })
-        except Exception:
-            pages = []
-
-        if pages:
-            pages.sort(
-                key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
-                reverse=True,
-            )
-            target_id = pages[0]["id"]
-
-            CHUNK_SIZE = 1900
-            chunks = [{"text": {"content": lowdown_text[i:i + CHUNK_SIZE]}}
-                      for i in range(0, len(lowdown_text), CHUNK_SIZE)]
-            if not chunks:
-                chunks = [{"text": {"content": ""}}]
-
-            r = requests.patch(
-                f"https://api.notion.com/v1/pages/{target_id}",
-                headers=HEADERS,
-                json={"properties": {
-                    "Full Section":    {"rich_text": chunks},
-                    "Manually Edited": {"checkbox": True},
-                }},
-                timeout=30,
-            )
-            if r.ok:
-                print("  🔄 Synced Local Lowdown edits back to database (marked as manually edited)")
-            else:
-                print(f"  Warning: lowdown sync-back failed: {r.text[:200]}")
+        target_id = _newest_row_id(NOTION_LOWDOWN_DB_ID, newsletter_name)
+        if target_id:
+            _sync_back_patch(target_id, {
+                "Full Section":    {"rich_text": _rich_text_chunks(lowdown_text)},
+                "Manually Edited": {"checkbox": True},
+            }, "Local Lowdown", "lowdown")
 
     # --- Free Events ---
     free_events_text, free_events_edited = extract_section_text(blocks, "Free Event of the Week")
     if free_events_edited and free_events_text and NOTION_FREE_EVENTS_DB_ID:
-        try:
-            pages = query_database(NOTION_FREE_EVENTS_DB_ID, filters={
-                "property": "Newsletter",
-                "select": {"equals": newsletter_name}
-            })
-        except Exception:
-            pages = []
-
-        if pages:
-            pages.sort(
-                key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
-                reverse=True,
-            )
-            target_id = pages[0]["id"]
-
-            CHUNK_SIZE = 1900
-            chunks = [{"text": {"content": free_events_text[i:i + CHUNK_SIZE]}}
-                      for i in range(0, len(free_events_text), CHUNK_SIZE)]
-            if not chunks:
-                chunks = [{"text": {"content": ""}}]
-
-            r = requests.patch(
-                f"https://api.notion.com/v1/pages/{target_id}",
-                headers=HEADERS,
-                json={"properties": {
-                    "Full Section":    {"rich_text": chunks},
-                    "Manually Edited": {"checkbox": True},
-                }},
-                timeout=30,
-            )
-            if r.ok:
-                print("  🔄 Synced Free Events edits back to database (marked as manually edited)")
-            else:
-                print(f"  Warning: free events sync-back failed: {r.text[:200]}")
+        target_id = _newest_row_id(NOTION_FREE_EVENTS_DB_ID, newsletter_name)
+        if target_id:
+            _sync_back_patch(target_id, {
+                "Full Section":    {"rich_text": _rich_text_chunks(free_events_text)},
+                "Manually Edited": {"checkbox": True},
+            }, "Free Events", "free events")
 
     # --- Reader Poll ---
     poll_text, poll_edited = extract_section_text(blocks, "Reader Poll")
@@ -549,36 +508,14 @@ def sync_edits_back(page_id: str, newsletter_name: str) -> None:
             elif not new_question:
                 new_question = ln
         if new_question:
-            try:
-                pages = query_database(NOTION_POLLS_DB_ID, filters={
-                    "property": "Newsletter",
-                    "select": {"equals": newsletter_name}
-                })
-            except Exception:
-                pages = []
-            pages = [p for p in pages if
-                     (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
-            if pages:
-                pages.sort(
-                    key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
-                    reverse=True,
-                )
-                target_id = pages[0]["id"]
+            target_id = _newest_row_id(NOTION_POLLS_DB_ID, newsletter_name, status="approved")
+            if target_id:
                 options_md = "\n".join(f"- {o}" for o in new_options)
-                r = requests.patch(
-                    f"https://api.notion.com/v1/pages/{target_id}",
-                    headers=HEADERS,
-                    json={"properties": {
-                        "Question":        {"rich_text": [{"text": {"content": new_question[:2000]}}]},
-                        "Options":         {"rich_text": [{"text": {"content": options_md[:2000]}}]},
-                        "Manually Edited": {"checkbox": True},
-                    }},
-                    timeout=30,
-                )
-                if r.ok:
-                    print("  🔄 Synced Reader Poll edits back to database (marked as manually edited)")
-                else:
-                    print(f"  Warning: poll sync-back failed: {r.text[:200]}")
+                _sync_back_patch(target_id, {
+                    "Question":        {"rich_text": [{"text": {"content": new_question[:2000]}}]},
+                    "Options":         {"rich_text": [{"text": {"content": options_md[:2000]}}]},
+                    "Manually Edited": {"checkbox": True},
+                }, "Reader Poll", "poll")
 
 
 # ---------------------------------------------------------------------------
@@ -729,7 +666,10 @@ def query_database(db_id: str, filters: dict = None) -> list:
     """Query a Notion database with optional filter. On HTTP 400 from a
     filtered query (typical when a select option referenced in the filter
     hasn't yet been added to the schema — e.g. brand-new newsletter name),
-    retry once unfiltered and let the caller filter in Python."""
+    retry once unfiltered and RE-APPLY the filter in Python (same evaluator
+    notion_helper.query_database uses), so callers that only filter on the
+    query (memes, tip, poll, lowdown, in search of, sync-back) never see
+    another newsletter's rows. Rows the evaluator can't judge are kept."""
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
     payload = {"filter": filters} if filters else {}
     results = []
@@ -746,7 +686,18 @@ def query_database(db_id: str, filters: dict = None) -> list:
             if (e.response is not None and e.response.status_code == 400
                     and filters):
                 print(f"  ⚠ Notion 400 on filtered query of {db_id[:8]}… — retrying unfiltered")
-                return query_database(db_id, filters=None)
+                rows = query_database(db_id, filters=None)
+                try:
+                    from notion_helper import _eval_notion_filter
+                except Exception as ie:
+                    print(f"    ↳ could not load Python filter ({ie}); returning unfiltered rows")
+                    return rows
+                kept = [p for p in rows
+                        if _eval_notion_filter(p.get("properties", {}), filters) is not False]
+                if len(kept) != len(rows):
+                    print(f"    ↳ Python-filter kept {len(kept)}, dropped "
+                          f"{len(rows) - len(kept)} non-matching row(s)")
+                return kept
             raise
         data = r.json()
         results += data.get("results", [])
@@ -761,7 +712,7 @@ def _pet_row_to_dict(props: dict) -> dict:
         rt = props.get(key, {}).get("rich_text", [])
         return rt[0].get("text", {}).get("content", "") if rt else ""
     return {
-        "name":            props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", ""),
+        "name":            (props.get("Name", {}).get("title") or [{}])[0].get("text", {}).get("content", ""),
         "blurb":           _rt("Blurb"),
         "shelter":         _rt("Shelter"),
         "shelter_address": _rt("Shelter Address"),
@@ -829,7 +780,7 @@ def get_approved_pet(newsletter_name: str) -> dict | None:
             reverse=True,
         )
         print(f"  No approved pet for {newsletter_name} — using default winner: "
-              f"{defaults[0]['properties'].get('Name', {}).get('title', [{}])[0].get('text', {}).get('content', '')}")
+              f"{(defaults[0]['properties'].get('Name', {}).get('title') or [{}])[0].get('text', {}).get('content', '')}")
         return _pet_row_to_dict(defaults[0]["properties"])
 
     print(f"  No approved pet AND no default winner found for {newsletter_name}")
@@ -841,7 +792,7 @@ def _restaurant_row_to_dict(props: dict, status: str) -> dict:
         rt = props.get(key, {}).get("rich_text", [])
         return rt[0].get("text", {}).get("content", "") if rt else ""
     return {
-        "name":     props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", ""),
+        "name":     (props.get("Name", {}).get("title") or [{}])[0].get("text", {}).get("content", ""),
         "blurb":    _rt("Blurb"),
         "address":  _rt("Address"),
         "phone":    _rt("Phone"),
@@ -966,7 +917,7 @@ def get_latest_lowdown(newsletter_name: str) -> str | None:
         return None
     # Sort by date descending to get the latest
     pages.sort(
-        key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+        key=lambda p: (p["properties"].get("Date Generated", {}).get("date") or {}).get("start", ""),
         reverse=True
     )
     props = pages[0]["properties"]
@@ -976,8 +927,12 @@ def get_latest_lowdown(newsletter_name: str) -> str | None:
     return None
 
 
-def get_latest_free_events(newsletter_name: str) -> str | None:
-    """Get the most recent Free Events section markdown from the database."""
+def _latest_approved_free_event_props(newsletter_name: str,
+                                      verbose: bool = False) -> dict | None:
+    """`properties` of the newest approved Free Events row for this
+    newsletter, or None. Shared by get_latest_free_events (section text) and
+    get_latest_free_event_images (photos) so both always read the SAME row.
+    `verbose` prints a diagnostic line when no approved row is found."""
     if not NOTION_FREE_EVENTS_DB_ID:
         return None
     try:
@@ -1000,20 +955,28 @@ def get_latest_free_events(newsletter_name: str) -> str | None:
     pages = [p for p in pages if
              (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
     if not pages:
-        print(f"  [free-events] no approved {newsletter_name} row "
-              f"(DB returned {raw_n} row(s); {nl_n} for this newsletter; "
-              f"statuses={statuses})")
+        if verbose:
+            print(f"  [free-events] no approved {newsletter_name} row "
+                  f"(DB returned {raw_n} row(s); {nl_n} for this newsletter; "
+                  f"statuses={statuses})")
         return None
     # Sort by Date Generated, then Notion's page-level created_time as the
     # tiebreaker. Date Generated is date-only, so two same-day re-runs tie and
     # the stale row could win; created_time is a full timestamp that always
-    # picks the newest row.
+    # picks the newest row (so the GIF is built from the NEWEST row's images).
     pages.sort(
-        key=lambda p: (p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+        key=lambda p: ((p["properties"].get("Date Generated", {}).get("date") or {}).get("start", ""),
                        p.get("created_time", "")),
         reverse=True
     )
-    props = pages[0]["properties"]
+    return pages[0]["properties"]
+
+
+def get_latest_free_events(newsletter_name: str) -> str | None:
+    """Get the most recent Free Events section markdown from the database."""
+    props = _latest_approved_free_event_props(newsletter_name, verbose=True)
+    if not props:
+        return None
     section_text = props.get("Full Section", {}).get("rich_text", [])
     if section_text:
         return "".join(chunk.get("text", {}).get("content", "") for chunk in section_text)
@@ -1039,7 +1002,7 @@ def get_latest_tip(newsletter_name: str) -> dict | None:
     if not pages:
         return None
     pages.sort(
-        key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+        key=lambda p: (p["properties"].get("Date Generated", {}).get("date") or {}).get("start", ""),
         reverse=True,
     )
     winners = [p for p in pages if p["properties"].get("Default Winner", {}).get("checkbox", False)]
@@ -1064,60 +1027,15 @@ def get_latest_tip(newsletter_name: str) -> dict | None:
     }
 
 
-def get_latest_free_event_image(newsletter_name: str) -> str:
-    """Return the Image URL for the latest approved Free Event row, or "" if none."""
-    if not NOTION_FREE_EVENTS_DB_ID:
-        return ""
-    try:
-        pages = query_database(NOTION_FREE_EVENTS_DB_ID, filters={
-            "property": "Newsletter",
-            "select":   {"equals": newsletter_name}
-        })
-    except Exception:
-        return ""
-    pages = [p for p in pages if
-             (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
-    if not pages:
-        return ""
-    pages.sort(
-        key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
-        reverse=True,
-    )
-    return pages[0]["properties"].get("Image URL", {}).get("url", "") or ""
-
-
 def get_latest_free_event_images(newsletter_name: str) -> list[str]:
     """Return up to 3 image URLs for the latest approved Free Event row.
 
     Reads the `Image URLs` rich_text column (" | "-separated, written by
     save_free_events_to_notion). Falls back to the single `Image URL` field
     for legacy rows that predate the gallery column. Returns [] if none."""
-    if not NOTION_FREE_EVENTS_DB_ID:
+    props = _latest_approved_free_event_props(newsletter_name)
+    if not props:
         return []
-    try:
-        pages = query_database(NOTION_FREE_EVENTS_DB_ID, filters={
-            "property": "Newsletter",
-            "select":   {"equals": newsletter_name}
-        })
-    except Exception:
-        return []
-    # Filter by Newsletter in Python too — query_database may return UNFILTERED
-    # rows when Notion 400s the filtered query (see get_latest_free_events).
-    pages = [p for p in pages if
-             (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
-    pages = [p for p in pages if
-             (p["properties"].get("Status", {}).get("select") or {}).get("name") == "approved"]
-    if not pages:
-        return []
-    # Date Generated (date-only) ties on same-day re-runs; created_time (full
-    # timestamp) breaks the tie so the GIF is built from the NEWEST row's
-    # images, not a stale same-day row.
-    pages.sort(
-        key=lambda p: (p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
-                       p.get("created_time", "")),
-        reverse=True,
-    )
-    props = pages[0]["properties"]
     raw = "".join(t.get("plain_text", "") for t in
                   props.get("Image URLs", {}).get("rich_text", []))
     urls = [u.strip() for u in raw.split("|") if u.strip()]
@@ -1252,7 +1170,7 @@ def get_latest_poll(newsletter_name: str) -> dict | None:
     if not pages:
         return None
     pages.sort(
-        key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+        key=lambda p: (p["properties"].get("Date Generated", {}).get("date") or {}).get("start", ""),
         reverse=True,
     )
     props = pages[0]["properties"]
@@ -1331,7 +1249,7 @@ def get_latest_intro(newsletter_name: str) -> dict | None:
         return None
     # Sort by date descending to get the latest
     pages.sort(
-        key=lambda p: p["properties"].get("Date Generated", {}).get("date", {}).get("start", ""),
+        key=lambda p: (p["properties"].get("Date Generated", {}).get("date") or {}).get("start", ""),
         reverse=True
     )
     props = pages[0]["properties"]
@@ -2593,8 +2511,9 @@ def _build_in_search_of(newsletter_name: str) -> list[dict]:
             prefix = "Visit" if r.get("bonus") else "Apply"
             out.append(paragraph_block_with_markdown(f"**{prefix}:** [{domain}]({url})"))
         out.append(paragraph_block(""))  # spacer between rows
-    # Strip trailing spacer
-    if out and out[-1]["paragraph"]["rich_text"] == []:
+    # Strip trailing spacer. paragraph_block("") emits one span with empty
+    # content (not an empty rich_text list), so test the span text.
+    if out and not "".join(s["text"]["content"] for s in out[-1]["paragraph"]["rich_text"]):
         out.pop()
     return out
 

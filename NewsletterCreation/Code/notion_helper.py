@@ -259,13 +259,13 @@ def create_page(db_id: str, properties: dict) -> dict:
 
 def archive_page(page_id: str) -> dict:
     """Archive (soft-delete) a Notion page."""
-    r = requests.patch(
+    # Routed through _notion_request so bulk archive loops (weekly cleanups,
+    # archive_stale_rows) retry 429/5xx instead of crashing mid-sweep.
+    r = _notion_request(
+        "PATCH",
         f"https://api.notion.com/v1/pages/{page_id}",
-        headers=HEADERS,
-        json={"archived": True},
-        timeout=30
+        json_body={"archived": True},
     )
-    r.raise_for_status()
     return r.json()
 
 def safe_str(value) -> str:
@@ -273,6 +273,24 @@ def safe_str(value) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _has_current_manual_edit(pages: list) -> bool:
+    """True when any row is Manually Edited AND still 'current'.
+    Only block on manual edits to a row that's still 'current'
+    (status = approved/pending). Archived ('approved - old'/'rejected')
+    AND blank-status rows are treated as not-current: blank typically
+    means a legacy row pre-status-tracking, which shouldn't permanently
+    block the section. Shared by the single-row section savers
+    (Lowdown, Intro, Free Events, Poll)."""
+    def _row_is_current(p):
+        st = (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
+        return st not in ("", "approved - old", "rejected")
+    return any(
+        p["properties"].get("Manually Edited", {}).get("checkbox", False)
+        and _row_is_current(p)
+        for p in pages
+    )
     
 def setup_notion_databases():
     """Create all required properties in both Notion databases."""
@@ -1011,7 +1029,7 @@ def approve_pet_in_notion(source_url: str, newsletter_hint: str = "") -> None:
         # Match by unique Notion page id to prevent edge cases where URLs might duplicate
         new_status = "approved" if page_id == approved_page_id else "rejected"
         update_page(page_id, {"Status": {"select": {"name": new_status}}})
-        name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+        name = (props.get("Name", {}).get("title") or [{}])[0].get("text", {}).get("content", "")
         print(f"{new_status}: {name}")
         
 def get_existing_pet_urls(newsletter_name: str) -> set:
@@ -1025,20 +1043,13 @@ def get_existing_pet_urls(newsletter_name: str) -> set:
     Only `rejected` rows are excluded — those were explicitly turned down
     in the review app and shouldn't block future consideration if the
     candidate scoring/blurb changes."""
-    import requests as _r
-    try:
-        pages = query_database(NOTION_PETS_DB_ID, filters={
-            "property": "Newsletter",
-            "select":   {"equals": newsletter_name}
-        })
-    except _r.exceptions.HTTPError as e:
-        if e.response is not None and e.response.status_code == 400:
-            print(f"  ⓘ Filter failed for '{newsletter_name}' (likely select option not in schema yet) — falling back to client-side filter")
-            pages = query_database(NOTION_PETS_DB_ID)
-            pages = [p for p in pages
-                     if (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
-        else:
-            raise
+    # query_database already handles a 400 on the filtered query (select
+    # option not in schema yet) by refetching unfiltered and re-applying the
+    # Newsletter filter in Python.
+    pages = query_database(NOTION_PETS_DB_ID, filters={
+        "property": "Newsletter",
+        "select":   {"equals": newsletter_name}
+    })
     urls = set()
     for page in pages:
         props  = page["properties"]
@@ -1068,7 +1079,7 @@ def redo_pet_selection(newsletter_name: str) -> None:
         
         if status_name in ("approved", "rejected"):
             update_page(page_id, {"Status": {"select": {"name": "pending"}}})
-            name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+            name = (props.get("Name", {}).get("title") or [{}])[0].get("text", {}).get("content", "")
             print(f"  Reset to pending: {name}")
             count += 1
     print(f"Reset {count} pets to pending for {newsletter_name}")
@@ -1096,7 +1107,7 @@ def cleanup_pets_notion(approved_old_weeks: int = 8) -> None:
         status = props.get("Status", {}).get("select", {})
         status_name = status.get("name", "") if status else ""
         date_str = (props.get("Date Generated", {}).get("date") or {}).get("start", "") or ""
-        name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+        name = (props.get("Name", {}).get("title") or [{}])[0].get("text", {}).get("content", "")
 
         if status_name == "approved":
             # Flip current week's pet to 'approved - old' so it stays in the exclusion list
@@ -1122,25 +1133,10 @@ def cleanup_pets_notion(approved_old_weeks: int = 8) -> None:
 # RESTAURANTS HELPERS
 # ---------------------------------------------------------------------------
 def get_featured_place_ids(newsletter_name: str) -> set:
-    """Get ALL place IDs in Notion for this newsletter to prevent duplicates."""
-    try:
-        pages = query_database(NOTION_RESTAURANTS_DB_ID, filters={
-            "property": "Newsletter",
-            "select":   {"equals": newsletter_name}
-        })
-    except Exception:
-        return set()
-    place_ids = set()
-    for page in pages:
-        props = page["properties"]
-        # Rejected restaurants stay ELIGIBLE for future pools — keep them out
-        # of the exclusion set. Approved / approved - old / pending stay excluded.
-        status = (props.get("Status", {}).get("select") or {}).get("name", "")
-        if status == "rejected":
-            continue
-        pid = props.get("Place ID", {}).get("rich_text", [{}])
-        if pid:
-            place_ids.add(pid[0].get("text", {}).get("content", ""))
+    """Get ALL place IDs in Notion for this newsletter to prevent duplicates.
+    Same set as get_existing_place_ids (rejected rows stay eligible), plus a
+    count log line."""
+    place_ids = get_existing_place_ids(newsletter_name)
     print(f"Loaded {len(place_ids)} existing restaurants to exclude")
     return place_ids
 
@@ -1154,7 +1150,8 @@ def get_existing_place_ids(newsletter_name: str) -> set:
         place_ids = set()
         for page in pages:
             props = page["properties"]
-            # Rejected restaurants stay eligible for future pools.
+            # Rejected restaurants stay ELIGIBLE for future pools, so keep them
+            # out of the exclusion set. Approved / approved - old / pending stay excluded.
             status = (props.get("Status", {}).get("select") or {}).get("name", "")
             if status == "rejected":
                 continue
@@ -1290,7 +1287,7 @@ def approve_restaurant_in_notion(place_id: str, newsletter_hint: str = "") -> No
         # Match by unique Notion page id (place_ids can duplicate if Claude hallucinates)
         new_status = "approved" if page_id == approved_page_id else "rejected"
         update_page(page_id, {"Status": {"select": {"name": new_status}}})
-        name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+        name = (props.get("Name", {}).get("title") or [{}])[0].get("text", {}).get("content", "")
         print(f"{new_status}: {name}")
 
 def redo_restaurant_selection(newsletter_name: str) -> None:
@@ -1313,7 +1310,7 @@ def redo_restaurant_selection(newsletter_name: str) -> None:
 
         if status_name in ("approved", "rejected", "Tier 1 Winner", "Tier 2 Winner"):
             update_page(page_id, {"Status": {"select": {"name": "pending"}}})
-            name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+            name = (props.get("Name", {}).get("title") or [{}])[0].get("text", {}).get("content", "")
             print(f"  Reset to pending: {name}")
             count += 1
     print(f"Reset {count} restaurants to pending for {newsletter_name}")
@@ -1339,7 +1336,7 @@ def cleanup_old_restaurants_notion(approved_old_weeks: int = 8) -> None:
         status_obj = props.get("Status", {}).get("select") or {}
         status_name = status_obj.get("name", "") if isinstance(status_obj, dict) else ""
         date_str = (props.get("Date Generated", {}).get("date") or {}).get("start", "") or ""
-        name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+        name = (props.get("Name", {}).get("title") or [{}])[0].get("text", {}).get("content", "")
 
         if status_name in ("approved", "Tier 1 Winner", "Tier 2 Winner"):
             update_page(page_id, {"Status": {"select": {"name": "approved - old"}}})
@@ -1414,19 +1411,7 @@ def save_lowdown_to_notion(result: dict, newsletter_name: str) -> None:
             "property": "Newsletter",
             "select": {"equals": newsletter_name}
         })
-        # Only block on manual edits to a row that's still 'current'
-        # (status = approved/pending). Archived ('approved - old'/'rejected')
-        # AND blank-status rows are treated as not-current — blank typically
-        # means a legacy row pre-status-tracking, which shouldn't permanently
-        # block the section.
-        def _row_is_current(p):
-            st = (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
-            return st not in ("", "approved - old", "rejected")
-        has_manual_edit = any(
-            p["properties"].get("Manually Edited", {}).get("checkbox", False)
-            and _row_is_current(p)
-            for p in existing
-        )
+        has_manual_edit = _has_current_manual_edit(existing)
         if has_manual_edit:
             print(f"  🔒 Manually edited Local Lowdown exists for {newsletter_name} — preserving, skipping save")
             return
@@ -1634,7 +1619,7 @@ def approve_event_in_notion(source_url: str, newsletter_hint: str = "") -> None:
 
         new_status = "approved" if page_id == approved_page_id else "rejected"
         update_page(page_id, {"Status": {"select": {"name": new_status}}})
-        name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+        name = (props.get("Name", {}).get("title") or [{}])[0].get("text", {}).get("content", "")
         print(f"{new_status}: {name}")
 
 
@@ -1658,7 +1643,7 @@ def redo_event_selection(newsletter_name: str) -> None:
 
         if status_name in ("approved", "rejected"):
             update_page(page_id, {"Status": {"select": {"name": "pending"}}})
-            name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+            name = (props.get("Name", {}).get("title") or [{}])[0].get("text", {}).get("content", "")
             print(f"  Reset to pending: {name}")
             count += 1
     print(f"Reset {count} events to pending for {newsletter_name}")
@@ -1827,19 +1812,7 @@ def save_intro_to_notion(result: dict, newsletter_name: str) -> None:
             "property": "Newsletter",
             "select": {"equals": newsletter_name}
         })
-        # Only block on manual edits to a row that's still 'current'
-        # (status = approved/pending). Archived ('approved - old'/'rejected')
-        # AND blank-status rows are treated as not-current — blank typically
-        # means a legacy row pre-status-tracking, which shouldn't permanently
-        # block the section.
-        def _row_is_current(p):
-            st = (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
-            return st not in ("", "approved - old", "rejected")
-        has_manual_edit = any(
-            p["properties"].get("Manually Edited", {}).get("checkbox", False)
-            and _row_is_current(p)
-            for p in existing
-        )
+        has_manual_edit = _has_current_manual_edit(existing)
         if has_manual_edit:
             print(f"  🔒 Manually edited Welcome Intro exists for {newsletter_name} — preserving, skipping save")
             return
@@ -2185,19 +2158,7 @@ def save_free_events_to_notion(result: dict, newsletter_name: str) -> None:
         # zero approved rows and an empty Free Events section.
         existing = [p for p in existing if
                     (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
-        # Only block on manual edits to a row that's still 'current'
-        # (status = approved/pending). Archived ('approved - old'/'rejected')
-        # AND blank-status rows are treated as not-current — blank typically
-        # means a legacy row pre-status-tracking, which shouldn't permanently
-        # block the section.
-        def _row_is_current(p):
-            st = (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
-            return st not in ("", "approved - old", "rejected")
-        has_manual_edit = any(
-            p["properties"].get("Manually Edited", {}).get("checkbox", False)
-            and _row_is_current(p)
-            for p in existing
-        )
+        has_manual_edit = _has_current_manual_edit(existing)
         if has_manual_edit:
             print(f"  🔒 Manually edited Free Events exists for {newsletter_name} — preserving, skipping save")
             return
@@ -2206,12 +2167,10 @@ def save_free_events_to_notion(result: dict, newsletter_name: str) -> None:
         for page in existing:
             status = (page["properties"].get("Status", {}).get("select") or {}).get("name", "")
             if status == "approved":
-                requests.patch(
-                    f"https://api.notion.com/v1/pages/{page['id']}",
-                    headers=HEADERS,
-                    json={"properties": {"Status": {"select": {"name": "approved - old"}}}},
-                    timeout=30,
-                )
+                # update_page retries 429/5xx and raises on failure; the raw
+                # PATCH used here before ignored errors, so a throttled flip
+                # left two 'approved' rows live while still counting it.
+                update_page(page["id"], {"Status": {"select": {"name": "approved - old"}}})
                 flipped += 1
         if flipped:
             print(f"  Flipped {flipped} previous Free Events entries to 'approved - old' for {newsletter_name}")
@@ -2388,19 +2347,7 @@ def save_poll_to_notion(result: dict, newsletter_name: str) -> None:
             "property": "Newsletter",
             "select":   {"equals": newsletter_name}
         })
-        # Only block on manual edits to a row that's still 'current'
-        # (status = approved/pending). Archived ('approved - old'/'rejected')
-        # AND blank-status rows are treated as not-current — blank typically
-        # means a legacy row pre-status-tracking, which shouldn't permanently
-        # block the section.
-        def _row_is_current(p):
-            st = (p["properties"].get("Status", {}).get("select") or {}).get("name", "")
-            return st not in ("", "approved - old", "rejected")
-        has_manual_edit = any(
-            p["properties"].get("Manually Edited", {}).get("checkbox", False)
-            and _row_is_current(p)
-            for p in existing
-        )
+        has_manual_edit = _has_current_manual_edit(existing)
         if has_manual_edit:
             print(f"  🔒 Manually edited Poll exists for {newsletter_name} — preserving, skipping save")
             return
@@ -2409,12 +2356,8 @@ def save_poll_to_notion(result: dict, newsletter_name: str) -> None:
         for page in existing:
             status = (page["properties"].get("Status", {}).get("select") or {}).get("name", "")
             if status == "approved":
-                requests.patch(
-                    f"https://api.notion.com/v1/pages/{page['id']}",
-                    headers=HEADERS,
-                    json={"properties": {"Status": {"select": {"name": "approved - old"}}}},
-                    timeout=30,
-                )
+                # update_page retries + raises (see save_free_events_to_notion).
+                update_page(page["id"], {"Status": {"select": {"name": "approved - old"}}})
                 flipped += 1
         if flipped:
             print(f"  Flipped {flipped} previous Poll entries to 'approved - old' for {newsletter_name}")
@@ -2591,11 +2534,9 @@ def save_weekend_events_to_notion(results: list, newsletter_name: str,
               f"(approved / featured / rejected) — dedup will skip matching keys")
 
     saved = 0
-    url_less = 0
     for data in results:
         source_url = data.get("source_url", "")
         if not source_url:
-            url_less += 1
             print(f"  ⚠ no source_url on save for '{data.get('event_name','?')[:60]}' "
                   f"({data.get('audience','?')}/{data.get('day','?')}) — "
                   f"Notion Source URL will be blank")
