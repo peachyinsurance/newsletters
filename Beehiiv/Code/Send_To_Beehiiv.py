@@ -1206,6 +1206,10 @@ def build_replacements(client: BeehiivClient, publication_id: str,
         # back to the editorial blurb if no preview was produced yet,
         # so the section never ships empty mid-rollout.
         preview = (intro.get("preview_text") or "").strip()
+        if preview:
+            # Raw text for the email's preview line (main() passes it to
+            # create_post); {summary_text} below gets the HTML version.
+            repl["preview_text"] = preview
         blurb   = (intro.get("blurb") or "").strip()
         summary_src = preview or blurb
         if summary_src:
@@ -2194,19 +2198,28 @@ def main():
     new_body, pruned_imgs = prune_unused_image_slots(new_body, alt_swaps)
     print(f"  Image placeholders removed: {pruned_imgs}")
 
-    # Generate subject line
-    print("\n  Generating subject line…")
-    subject_ctx = {
-        "newsletter_name":   NEWSLETTER,
-        "publication_date":  datetime.today().strftime("%Y-%m-%d"),
-        "featured_event":    {k: repl.get(f"event_of_the_week_{k}", "") for k in ("headline", "description")} if repl.get("event_of_the_week_headline") else None,
-        "tier1_restaurant":  {"name": repl.get("restaurant_radar_name", "")} if repl.get("restaurant_radar_name") else None,
-        "top_news_headline": repl.get("local_lowdown1_title", ""),
-        "pet":               {"name": repl.get("PET_NAME", "")} if repl.get("PET_NAME") else None,
-        "free_event":        {"name": repl.get("free_event_title_1", "")} if repl.get("free_event_title_1") else None,
-    }
-    subject = generate_subject_line(subject_ctx)
+    # Subject line: prefer the Intro DB's "Subject Line" (written by
+    # Subject_Line.py and editable in Notion) so an editor-approved subject
+    # ships as-is. Generate one here only when that step hasn't run.
+    subject = (repl.get("headline") or "").strip()
+    if subject:
+        print("\n  Using Subject Line from the Intro DB")
+    else:
+        print("\n  No Subject Line in the Intro DB; generating one…")
+        subject_ctx = {
+            "newsletter_name":   NEWSLETTER,
+            "publication_date":  datetime.today().strftime("%Y-%m-%d"),
+            "featured_event":    {k: repl.get(f"event_of_the_week_{k}", "") for k in ("headline", "description")} if repl.get("event_of_the_week_headline") else None,
+            "tier1_restaurant":  {"name": repl.get("restaurant_radar_name", "")} if repl.get("restaurant_radar_name") else None,
+            "top_news_headline": repl.get("local_lowdown1_title", ""),
+            "pet":               {"name": repl.get("PET_NAME", "")} if repl.get("PET_NAME") else None,
+            "free_event":        {"name": repl.get("free_event_title_1", "")} if repl.get("free_event_title_1") else None,
+        }
+        subject = generate_subject_line(subject_ctx)
     print(f"  📧 Subject: {subject}")
+    preview_text = (repl.get("preview_text") or "").strip() or None
+    if preview_text:
+        print(f"  👀 Preview: {preview_text}")
 
     # Title — same as subject for v1 (Beehiiv distinguishes title vs subject_line)
     title = f"{NEWSLETTER.replace('_', ' ')} — {datetime.today().strftime('%B %d, %Y')}"
@@ -2253,6 +2266,7 @@ def main():
             cfg["publication_id"],
             title=title,
             subject_line=subject,
+            preview_text=preview_text,
             blocks=post_blocks,
             status=STATUS,
         )
@@ -2261,6 +2275,7 @@ def main():
             cfg["publication_id"],
             title=title,
             subject_line=subject,
+            preview_text=preview_text,
             content_html=new_body,
             status=STATUS,
         )
