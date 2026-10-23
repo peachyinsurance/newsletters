@@ -102,7 +102,7 @@ def main() -> int:
             print(f"  ✗ Header composite generation failed: {e}")
             return 1
         if not png_bytes:
-            print(f"  ✗ Header composite returned empty bytes")
+            print("  ✗ Header composite returned empty bytes")
             return 1
 
         # Per-event filename matches what Featured_Event.py picker writes.
@@ -129,7 +129,7 @@ def main() -> int:
 
         # 4. Save header URL to Notion
         if not patch_notion_field(page_id, "Header Image URL", header_url):
-            print(f"  ⚠ Could not save Header Image URL — continuing")
+            print("  ⚠ Could not save Header Image URL — continuing")
         else:
             print(f"  ✓ Header Image URL → {header_url}")
 

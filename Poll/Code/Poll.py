@@ -124,7 +124,7 @@ def validate_poll(result: dict, excluded_categories: set) -> dict:
     if overlapping:
         print(f"  ⚠ Recycled categories from exclusion list: {sorted(set(overlapping))}")
     else:
-        print(f"  ✓ All 4 options use fresh categories")
+        print("  ✓ All 4 options use fresh categories")
 
     # Also warn if duplicate categories across options
     flat = []
@@ -185,4 +185,4 @@ if __name__ == "__main__":
         json_file.write_text(json.dumps(result, indent=2), encoding="utf-8")
         print(f"  ✓ Saved JSON to {json_file}")
 
-    print(f"\nAll newsletters complete.")
+    print("\nAll newsletters complete.")

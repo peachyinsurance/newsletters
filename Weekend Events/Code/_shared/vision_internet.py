@@ -228,7 +228,7 @@ def run_vision_internet_tiles(
     today      = date.today()
     window_end = _upcoming_friday(today) + timedelta(days=end_window_days)
 
-    print(f"Vision Internet scraper")
+    print("Vision Internet scraper")
     print(f"  → Source:       {source_url}")
     print(f"  → Notion DB:    {db_id[:8]}…")
     print(f"  → Newsletter:   {newsletter}")

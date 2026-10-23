@@ -336,7 +336,7 @@ def fetch_avfap_pets(target_per_species: int = 3,
 
 
 def main() -> int:
-    print(f"Scraping AVFAP via Wagtopia (Apify-rendered)…")
+    print("Scraping AVFAP via Wagtopia (Apify-rendered)…")
     result = fetch_avfap_pets(target_per_species=3, max_pages=3)
     print(f"\n=== Final: {len(result['cat'])} cat(s), {len(result['dog'])} dog(s) ===")
     for species in ("cat", "dog"):

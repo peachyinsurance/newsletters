@@ -438,7 +438,7 @@ def build_event_body_gif(*, title: str = "", location_name: str = "",
         print(f"    ✗ Body template not found: {BODY_TEMPLATE_PATH}")
         return b""
     if not photo_urls:
-        print(f"    ✗ No photo URLs provided for body GIF")
+        print("    ✗ No photo URLs provided for body GIF")
         return b""
 
     template = Image.open(BODY_TEMPLATE_PATH).convert("RGB")
@@ -467,7 +467,7 @@ def build_event_body_gif(*, title: str = "", location_name: str = "",
 
     photo_bbox = field_bboxes.get("photo")
     if photo_bbox is None:
-        print(f"    ✗ photo chroma (magenta) not found in template — cannot composite")
+        print("    ✗ photo chroma (magenta) not found in template — cannot composite")
         return b""
 
     mask = _build_body_chroma_mask(template, bbox=photo_bbox)
@@ -573,7 +573,7 @@ def build_event_body_gif(*, title: str = "", location_name: str = "",
         frames.append(frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=256))
 
     if not frames:
-        print(f"    ✗ All photo fetches failed for body GIF")
+        print("    ✗ All photo fetches failed for body GIF")
         return b""
 
     buf = io.BytesIO()

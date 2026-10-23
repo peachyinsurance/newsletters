@@ -66,7 +66,7 @@ def main() -> int:
         print()
 
     print()
-    print(f"=== Summary ===")
+    print("=== Summary ===")
     print(f"  Pages walked:        {pages_seen}")
     print(f"  Raw event listings:  {raw_total}")
     print(f"  Unique Source URLs:  {len(by_url)}")
@@ -78,7 +78,7 @@ def main() -> int:
         return min(dates) if dates else "9999"
     items = sorted(by_url.items(), key=_sort_key)
 
-    print(f"=== Unique URLs (title, occurrences, dates) ===")
+    print("=== Unique URLs (title, occurrences, dates) ===")
     for url, info in items:
         n = len(info["dates"])
         # Show first 5 dates + count
@@ -101,13 +101,13 @@ def main() -> int:
             not_in_db = {u for u in by_url if u not in existing}
             in_db_but_not_calendar = existing - set(by_url)
             print()
-            print(f"=== Notion DB cross-check ===")
+            print("=== Notion DB cross-check ===")
             print(f"  In DB and visible in calendar:   {len(in_db)}")
             print(f"  In calendar but NOT in DB:        {len(not_in_db)}")
             print(f"  In DB but NOT in calendar:        {len(in_db_but_not_calendar)}")
             if not_in_db:
                 print()
-                print(f"  Calendar URLs missing from DB (would be inserted on next run):")
+                print("  Calendar URLs missing from DB (would be inserted on next run):")
                 for u in sorted(not_in_db):
                     print(f"    + {by_url[u]['title'][:60]}  →  {u}")
         except Exception as e:

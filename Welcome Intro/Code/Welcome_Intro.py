@@ -434,11 +434,11 @@ if __name__ == "__main__":
             final["review_violations"] = ", ".join(fv) if fv else ""
 
         # Save to Notion
-        print(f"\n  Saving to Notion...")
+        print("\n  Saving to Notion...")
         save_intro_to_notion(final, newsletter["name"])
 
         print(f"\n  Done with {newsletter['name']}.")
         print(f"  Final: {final['word_count']} words, score {final['review_score']}/10"
               f"{' (revised)' if was_revised else ''}")
 
-    print(f"\nAll newsletters complete.")
+    print("\nAll newsletters complete.")

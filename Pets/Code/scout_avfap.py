@@ -247,14 +247,14 @@ def main() -> int:
         print(f"  {r['sample']}")
 
     cr = data.get("container_report") or {}
-    print(f"\n=== .pets-container report ===")
+    print("\n=== .pets-container report ===")
     print(f"  selector matched:  {cr.get('selector')}")
     print(f"  found:             {cr.get('found')}")
     print(f"  direct children:   {cr.get('children_count')}")
-    print(f"\n  Most common class names inside container (count\\tclass):")
+    print("\n  Most common class names inside container (count\\tclass):")
     for line in cr.get("all_descendant_classes", [])[:25]:
         print(f"    {line}")
-    print(f"\n  First 3 child elements (outer HTML, first 1500 chars each):")
+    print("\n  First 3 child elements (outer HTML, first 1500 chars each):")
     for i, h in enumerate(cr.get("first_3_children_html", []), 1):
         print(f"\n  --- child #{i} ---")
         print(f"  {h}")

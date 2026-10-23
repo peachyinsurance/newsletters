@@ -52,8 +52,7 @@ EXCLUDED_KEYWORDS = {
     "manslaughter", "assault", "assaulted", "rape", "raped", "sexual assault",
     "domestic violence", "arson", "robbery", "robbed", "carjacking",
     "kidnapping", "kidnapped", "abduction", "abducted", "hostage",
-    "skeletal remains", "body found", "death investigation", "homicide",
-    "human trafficking", "child porn", "molested", "molestation",
+    "skeletal remains", "body found", "death investigation", "human trafficking", "child porn", "molested", "molestation",
     "abuse", "abused", "abuser", "predator", "groomed", "grooming",
     # Drugs
     "drug bust", "drug trafficking", "overdose", "fentanyl", "meth lab",
@@ -73,7 +72,7 @@ EXCLUDED_KEYWORDS = {
     "suicide", "self-harm",
     # Lawsuits / scandals
     "lawsuit", "sued", "sues", "scandal", "fraud", "embezzle", "embezzlement",
-    "scam", "scammed", "ponzi", "indicted", "investigation into",
+    "scam", "scammed", "ponzi", "investigation into",
     "misconduct", "harassment", "fired for", "resigns amid", "steps down amid",
     # Partisan politics
     "trump", "biden", "desantis", "gop", "democrat", "republican",
@@ -572,4 +571,4 @@ if __name__ == "__main__":
         save_results(result, newsletter["name"])
         print(f"\n  Done with {newsletter['name']}.")
 
-    print(f"\nAll newsletters complete.")
+    print("\nAll newsletters complete.")

@@ -331,7 +331,7 @@ def fetch_events_brave(search_areas: list[str], display_area: str,
     # spend ~2x without measurable quality loss.
     for query in queries:
         if quota_exhausted:
-            print(f"  ⏭ Skipping remaining queries — Brave quota exhausted (402)")
+            print("  ⏭ Skipping remaining queries — Brave quota exhausted (402)")
             break
         print(f"  Searching: {query}")
         try:
@@ -342,7 +342,7 @@ def fetch_events_brave(search_areas: list[str], display_area: str,
                 timeout=30,
             )
             if res.status_code == 402:
-                print(f"    Web:  HTTP 402 — Brave quota exhausted; aborting search loop")
+                print("    Web:  HTTP 402 — Brave quota exhausted; aborting search loop")
                 quota_exhausted = True
                 break
             if res.status_code != 200:
@@ -1171,4 +1171,4 @@ if __name__ == "__main__":
 
         print(f"\n  Done with {newsletter['name']}.")
 
-    print(f"\nAll newsletters complete.")
+    print("\nAll newsletters complete.")

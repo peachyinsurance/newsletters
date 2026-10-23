@@ -37,7 +37,7 @@ def main() -> int:
     # we don't need to rebuild here — that PNG is already on gh-pages.
     if event.get("header_image_url"):
         print(f"  ✓ Header already exists in Notion: {event['header_image_url']}")
-        print(f"    (Pre-built by review-app image picker — skipping rebuild)")
+        print("    (Pre-built by review-app image picker — skipping rebuild)")
         return 0
 
     title = event.get("event_name", "")

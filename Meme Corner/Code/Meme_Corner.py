@@ -82,7 +82,7 @@ def fetch_top(subreddit: str, _ignored=None,
     Empty list on Apify error or no posts. We rely on Apify's
     residential proxies to bypass Reddit's IP block on cloud egress."""
     if not APIFY_API_KEY:
-        print(f"    ✗ APIFY_API_KEY not set in env")
+        print("    ✗ APIFY_API_KEY not set in env")
         return []
 
     # `time` filter knob ('day' | 'week' | 'month' | 'year') — pass our
@@ -296,7 +296,7 @@ def scrape_for_newsletter(newsletter_name: str) -> int:
         print(f"\n  → r/{sub_url_name}")
         posts = fetch_top(sub_url_name)
         if not posts:
-            print(f"    · no posts returned")
+            print("    · no posts returned")
             continue
 
         accepted = 0

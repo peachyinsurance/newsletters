@@ -200,7 +200,7 @@ def run_mec_source(site_url: str,
     today      = date.today()
     window_end = _upcoming_friday(today) + timedelta(days=end_window_days)
 
-    print(f"MEC scraper")
+    print("MEC scraper")
     print(f"  → Site:         {site_url}")
     print(f"  → Notion DB:    {db_id[:8]}…")
     print(f"  → Newsletter:   {newsletter}")

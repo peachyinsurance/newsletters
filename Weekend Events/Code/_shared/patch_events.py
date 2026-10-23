@@ -224,7 +224,7 @@ def run_patch_source(patch_slug: str,
     today      = date.today()
     window_end = _upcoming_friday(today) + timedelta(days=end_window_days)
 
-    print(f"Patch scraper")
+    print("Patch scraper")
     print(f"  → Patch slug:   {patch_slug}")
     print(f"  → Notion DB:    {db_id[:8]}…")
     print(f"  → Newsletter:   {newsletter}")

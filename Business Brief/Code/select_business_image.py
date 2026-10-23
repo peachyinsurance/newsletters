@@ -153,7 +153,7 @@ def main() -> int:
         print(f"  Building GIF from {len(urls)} photos for {name!r}…")
         gif_bytes = create_gif_from_urls(urls, duration_ms=2200)
         if not gif_bytes:
-            print(f"  ✗ GIF build returned empty bytes")
+            print("  ✗ GIF build returned empty bytes")
             return 1
         # Publish DIRECTLY to gh-pages so the file is guaranteed live before we
         # point Notion's Photo URL at it. Also keep a local copy for debugging.

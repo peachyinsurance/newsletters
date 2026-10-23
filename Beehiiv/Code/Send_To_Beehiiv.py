@@ -180,7 +180,7 @@ def upload_remote_image(client: BeehiivClient, publication_id: str, url: str) ->
         # Disable for the rest of the run and just return original URLs.
         if "404" in str(e):
             _BEEHIIV_UPLOAD_DISABLED = True
-            print(f"    ⓘ Beehiiv media upload not available (404) — using original URLs")
+            print("    ⓘ Beehiiv media upload not available (404) — using original URLs")
         else:
             print(f"    ⚠ Beehiiv upload error for {url[:50]}: {e}")
         return url
@@ -994,7 +994,7 @@ def expand_meme_slots(html: str, memes: list[dict]) -> str:
         print(f"    · meme — no {{meme_title}} in template, skipping "
               f"({len(memes)} memes will not render)")
     elif n == 0:
-        print(f"    · meme — 0 approved memes, placeholder card removed")
+        print("    · meme — 0 approved memes, placeholder card removed")
     else:
         warn = "  ⚠ card width=1 (only title)" if width == 1 else ""
         print(f"    ✓ meme — expanded into {n} card(s) [card width: {width} block(s) each]{warn}")
@@ -1087,7 +1087,7 @@ def expand_lowdown_slots(html: str, stories: list[dict]) -> str:
         print(f"    · local_lowdown — no {{local_lowdown_title}} in template, "
               f"skipping ({len(stories)} parsed stories will not render)")
     elif n == 0:
-        print(f"    · local_lowdown — 0 stories, placeholder card removed")
+        print("    · local_lowdown — 0 stories, placeholder card removed")
     else:
         warn = "  ⚠ card width=1 (only title) — message/link not in same parent" if width == 1 else ""
         print(f"    ✓ local_lowdown — expanded into {n} card(s) [card width: {width} block(s) each]{warn}")
@@ -1179,7 +1179,7 @@ def expand_in_search_of_slots(html: str, rows: list[dict]) -> str:
         print(f"    · in_search_of — no {{in_search_of_title}} in template, "
               f"skipping ({len(rows)} listing(s) will not render)")
     elif n == 0:
-        print(f"    · in_search_of — 0 listings, placeholder card removed")
+        print("    · in_search_of — 0 listings, placeholder card removed")
     else:
         warn = "  ⚠ card width=1 (only title) — message/link not in same parent" if width == 1 else ""
         print(f"    ✓ in_search_of — expanded into {n} card(s) [card width: {width} block(s) each]{warn}")
@@ -1798,9 +1798,9 @@ def build_replacements(client: BeehiivClient, publication_id: str,
             img_url = gif_url or photo_url
             _src = "gif" if gif_url else ("photo" if photo_url else "none")
             if img_url:
-                print(f"  ⚠ [pet] no reachable image URL (HTTP 404) — it will render "
-                      f"broken in Beehiiv. Re-run the pet pipeline so the gh-pages GIF "
-                      f"is (re)published, or re-approve a pet with a live image.")
+                print("  ⚠ [pet] no reachable image URL (HTTP 404) — it will render "
+                      "broken in Beehiiv. Re-run the pet pipeline so the gh-pages GIF "
+                      "is (re)published, or re-approve a pet with a live image.")
         print(f"  [pet] image source={_src}: {img_url[:90] or '(empty)'}")
         if img_url:
             hosted = upload_remote_image(client, publication_id, img_url)
@@ -2174,11 +2174,11 @@ def main():
     if landing_page_id:
         try:
             sync_edits_back(landing_page_id, NEWSLETTER)
-            print(f"  ✓ Sync complete")
+            print("  ✓ Sync complete")
         except Exception as e:
             print(f"  ⚠ sync_edits_back failed: {e} (continuing with DB content)")
     else:
-        print(f"  ⚠ Landing page not found — using DB content as-is")
+        print("  ⚠ Landing page not found — using DB content as-is")
 
     client = BeehiivClient()
 
@@ -2395,7 +2395,7 @@ def main():
     print()
     print("  📌 MANUAL STEP: upload this thumbnail in the Beehiiv editor:")
     print(f"     {thumbnail_url}")
-    print(f"     (Open the post → top of page → Add/Change thumbnail → paste or upload)")
+    print("     (Open the post → top of page → Add/Change thumbnail → paste or upload)")
 
     # Native Beehiiv polls API is plan-locked (POST /polls returns 404).
     # We use inline HTML poll instead — the {poll_question} + {poll_option_N_*}

@@ -645,7 +645,7 @@ if __name__ == "__main__":
         source = CUSTOM_PET_SOURCES.get(newsletter["name"])
         if source == "lewisville":
             from lewisville_scraper import fetch_lewisville_pets
-            print(f"  Source: Lewisville Animal Services (Petango)")
+            print("  Source: Lewisville Animal Services (Petango)")
             ll = fetch_lewisville_pets(
                 target_per_species=TARGET_PER_SPECIES,
                 exclude_urls=approved_urls,
@@ -752,4 +752,4 @@ if __name__ == "__main__":
         save_pets_to_notion(final_results, newsletter["name"])
         print(f"Done with {newsletter['name']}. Saved {len(final_results)} rows.")
 
-    print(f"\nAll newsletters complete.")
+    print("\nAll newsletters complete.")

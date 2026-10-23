@@ -122,7 +122,7 @@ def rebuild_one_row(page: dict) -> tuple[int, int]:
                   f"{len(gif_bytes):,} bytes)")
             gif_built = 1
     else:
-        print(f"    · no photo URLs on this row — skipping body GIF")
+        print("    · no photo URLs on this row — skipping body GIF")
 
     header_built = 0
     if image_url:

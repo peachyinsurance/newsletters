@@ -136,7 +136,7 @@ def main() -> None:
     print("=" * 60)
     print(f"Archiving stale rows for: {NEWSLETTER!r}")
     if ARCHIVE_ALL:
-        print(f"Cutoff: ARCHIVE EVERYTHING (CUTOFF_DAYS=0 — full nuke)")
+        print("Cutoff: ARCHIVE EVERYTHING (CUTOFF_DAYS=0 — full nuke)")
     else:
         print(f"Cutoff: anything dated before {CUTOFF_DATE} (older than {CUTOFF_DAYS} days)")
     print("=" * 60)

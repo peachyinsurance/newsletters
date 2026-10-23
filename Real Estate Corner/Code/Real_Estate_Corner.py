@@ -921,7 +921,7 @@ if __name__ == "__main__":
         sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
         output_dir = Path(__file__).parent / "output"
         output_dir.mkdir(exist_ok=True)
-        print(f"\n  Creating listing images...")
+        print("\n  Creating listing images...")
         try:
             from re_image_maker import generate_re_images
             image_results = generate_re_images(tier_listings, newsletter["name"], str(output_dir))
@@ -976,10 +976,10 @@ if __name__ == "__main__":
                 kept_sentences.append(s)
             cleaned = " ".join(kept_sentences).strip()
             if cleaned != blurb:
-                print(f"  ↳ Cleaned price reference(s) out of Showcase blurb")
+                print("  ↳ Cleaned price reference(s) out of Showcase blurb")
                 r["blurb"] = cleaned
 
         # Save to Notion
         save_real_estate_to_notion(results, newsletter["name"])
 
-    print(f"\nAll newsletters complete.")
+    print("\nAll newsletters complete.")

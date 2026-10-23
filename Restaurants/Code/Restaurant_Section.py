@@ -733,4 +733,4 @@ if __name__ == "__main__":
 
         print(f"Done with {newsletter['name']}.")
 
-    print(f"\nAll newsletters complete.")
+    print("\nAll newsletters complete.")

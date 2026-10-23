@@ -1276,8 +1276,8 @@ Candidates:
               f"looking for a higher candidate with a photo")
 
     if winner is None and fallback is not None:
-        print(f"    ⓘ No qualifying candidate had a usable image — "
-              f"falling back to top-scored event without one")
+        print("    ⓘ No qualifying candidate had a usable image — "
+              "falling back to top-scored event without one")
         winner = fallback
 
     if not winner:
@@ -1328,7 +1328,7 @@ Candidates:
     # specific candidate. Costs one extra Claude call only when needed.
     if not ev.get("body_markdown") and winner_idx is not None:
         source_candidate = candidates_by_index.get(winner_idx, {})
-        print(f"  Writing body_markdown for winner via 2nd Claude pass...")
+        print("  Writing body_markdown for winner via 2nd Claude pass...")
         body = write_winner_body_markdown(
             winner_ev=ev,
             source_candidate=source_candidate,
@@ -1341,7 +1341,7 @@ Candidates:
             ev["body_markdown"] = body
             print(f"  ✓ body_markdown written ({len(body)} chars)")
         else:
-            print(f"  ⚠ 2nd-pass body_markdown call returned empty — output will be metadata-only")
+            print("  ⚠ 2nd-pass body_markdown call returned empty — output will be metadata-only")
 
     result["events"] = [ev]
     print(f"  🏆 Winner: {ev.get('emoji', '')} {ev.get('name', '')} "
@@ -1600,7 +1600,7 @@ Return ONLY the blurb text. No preamble, no markdown, no quotes."""
     except Exception as e:
         print(f"  ⚠ Claude blurb error: {e}")
         # Fallback to summary or a generic line
-        return pick.get("summary") or f"A neighborhood favorite worth a free visit."
+        return pick.get("summary") or "A neighborhood favorite worth a free visit."
 
 
 # ---------------------------------------------------------------------------
@@ -1742,4 +1742,4 @@ if __name__ == "__main__":
         save_results(result, newsletter["name"])
         print(f"  Done with {newsletter['name']}.")
 
-    print(f"\nAll newsletters complete.")
+    print("\nAll newsletters complete.")

@@ -346,7 +346,7 @@ def run_simpleview_tempest(sitemap_url: str, newsletter: str,
     today      = date.today()
     window_end = _upcoming_friday(today) + timedelta(days=end_window_days)
 
-    print(f"Simpleview Tempest scraper")
+    print("Simpleview Tempest scraper")
     print(f"  → Sitemap:      {sitemap_url}")
     print(f"  → Notion DB:    {db_id[:8]}…")
     print(f"  → Newsletter:   {newsletter}")

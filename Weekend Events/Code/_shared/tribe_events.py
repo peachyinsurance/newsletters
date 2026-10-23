@@ -410,7 +410,7 @@ def run_tribe_source(source_url: str, newsletter: str,
     today      = date.today()
     window_end = _upcoming_friday(today) + timedelta(days=end_window_days)
 
-    print(f"Tribe Events scraper")
+    print("Tribe Events scraper")
     print(f"  → Source:       {source_url}")
     print(f"  → Notion DB:    {db_id[:8]}…")
     print(f"  → Newsletter:   {newsletter}")

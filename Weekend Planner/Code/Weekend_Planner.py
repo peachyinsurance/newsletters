@@ -834,10 +834,10 @@ def process_pool(
     """One Notion pull, one Claude call, every event kept. Returns a flat
     list of classified picks with `audience` set on each. Day-expansion
     and within-run dedup happen in the main loop."""
-    print(f"\n  ━━━ Weekend pool ━━━")
+    print("\n  ━━━ Weekend pool ━━━")
     candidates = get_notion_pool(newsletter["name"], target_weekend)
     if not candidates:
-        print(f"    No Notion candidates for this weekend")
+        print("    No Notion candidates for this weekend")
         return []
 
     # Group same / near-same-title occurrences into one representative BEFORE
@@ -846,7 +846,7 @@ def process_pool(
 
     pool_per_day = {d: sum(1 for c in candidates if d in (c.get("days") or []))
                     for d in DAYS}
-    print(f"    Pool depth per day: " +
+    print("    Pool depth per day: " +
           ", ".join(f"{d}={pool_per_day[d]}" for d in DAYS))
     for d in DAYS:
         if pool_per_day[d] < MIN_PER_DAY:
@@ -1025,7 +1025,7 @@ if __name__ == "__main__":
             # It's also keyless/lightweight (no anthropic import).
             from event_image_scraper import fetch_event_image  # noqa: E402
             seen_imgs: set[str] = set()
-            print(f"\n  Fetching event images...")
+            print("\n  Fetching event images...")
             for ev in all_events:
                 if ev.get("image_url"):
                     continue
@@ -1176,4 +1176,4 @@ if __name__ == "__main__":
         json_file.write_text(json.dumps(all_events, indent=2), encoding="utf-8")
         print(f"  Saved JSON backup to {json_file}")
 
-    print(f"\nAll newsletters complete.")
+    print("\nAll newsletters complete.")

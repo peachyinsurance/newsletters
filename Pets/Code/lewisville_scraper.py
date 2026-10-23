@@ -295,7 +295,7 @@ def fetch_lewisville_pets(target_per_species: int = 3,
         print(f"\n━━ {species_label} ━━  fetching listing…")
         html = _fetch(list_url)
         if not html:
-            print(f"  ✗ listing fetch failed")
+            print("  ✗ listing fetch failed")
             continue
         listings = parse_list(html)
         print(f"  found {len(listings)} {species_key}(s) listed")

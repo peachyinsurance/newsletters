@@ -456,7 +456,7 @@ def sync_edits_back(page_id: str, newsletter_name: str) -> None:
                 timeout=30,
             )
             if r.ok:
-                print(f"  🔄 Synced Welcome Intro edits back to database (marked as manually edited)")
+                print("  🔄 Synced Welcome Intro edits back to database (marked as manually edited)")
             else:
                 print(f"  Warning: intro sync-back failed: {r.text[:200]}")
 
@@ -494,7 +494,7 @@ def sync_edits_back(page_id: str, newsletter_name: str) -> None:
                 timeout=30,
             )
             if r.ok:
-                print(f"  🔄 Synced Local Lowdown edits back to database (marked as manually edited)")
+                print("  🔄 Synced Local Lowdown edits back to database (marked as manually edited)")
             else:
                 print(f"  Warning: lowdown sync-back failed: {r.text[:200]}")
 
@@ -532,7 +532,7 @@ def sync_edits_back(page_id: str, newsletter_name: str) -> None:
                 timeout=30,
             )
             if r.ok:
-                print(f"  🔄 Synced Free Events edits back to database (marked as manually edited)")
+                print("  🔄 Synced Free Events edits back to database (marked as manually edited)")
             else:
                 print(f"  Warning: free events sync-back failed: {r.text[:200]}")
 
@@ -576,7 +576,7 @@ def sync_edits_back(page_id: str, newsletter_name: str) -> None:
                     timeout=30,
                 )
                 if r.ok:
-                    print(f"  🔄 Synced Reader Poll edits back to database (marked as manually edited)")
+                    print("  🔄 Synced Reader Poll edits back to database (marked as manually edited)")
                 else:
                     print(f"  Warning: poll sync-back failed: {r.text[:200]}")
 
@@ -1446,7 +1446,7 @@ def get_featured_event(newsletter_name: str) -> dict | None:
     """Get the featured event. Falls back to highest-scored pending row from
     the most recent batch when no manual approval exists."""
     if not NOTION_EVENTS_DB_ID:
-        print(f"  ⚠ NOTION_EVENTS_DB_ID is empty — Featured Event section will not render")
+        print("  ⚠ NOTION_EVENTS_DB_ID is empty — Featured Event section will not render")
         return None
     print(f"  Looking up Featured Event for {newsletter_name} (db {NOTION_EVENTS_DB_ID[:8]}…)")
     try:
@@ -1538,7 +1538,7 @@ def get_weekend_events(newsletter_name: str) -> list[dict]:
     Re-filtering here just risked dropping the current batch whenever the
     assembler's local date math disagreed with the picker's."""
     if not NOTION_WEEKEND_PLANNER_DB_ID:
-        print(f"  ⚠ NOTION_WEEKEND_PLANNER_DB_ID is empty — Weekend Planner section will not render")
+        print("  ⚠ NOTION_WEEKEND_PLANNER_DB_ID is empty — Weekend Planner section will not render")
         return []
     print(f"  Looking up Weekend Planner events for {newsletter_name} (db {NOTION_WEEKEND_PLANNER_DB_ID[:8]}…)")
     try:
@@ -1646,7 +1646,7 @@ def get_business_brief(newsletter_name: str) -> dict | None:
     highest-relevance pending row from the most recent batch when no manual
     approval exists (mirrors get_featured_event behavior)."""
     if not NOTION_BUSINESS_BRIEF_DB_ID:
-        print(f"  ⚠ NOTION_BUSINESS_BRIEF_DB_ID is empty — Business Brief section will not render")
+        print("  ⚠ NOTION_BUSINESS_BRIEF_DB_ID is empty — Business Brief section will not render")
         return None
     print(f"  Looking up Business Brief for {newsletter_name} (db {NOTION_BUSINESS_BRIEF_DB_ID[:8]}…)")
     try:
@@ -2656,7 +2656,7 @@ def build_newsletter_blocks(newsletter_name: str) -> list[dict]:
         _ev = get_featured_event(newsletter_name)
         if _ev and _ev.get("header_image_url"):
             blocks.append(image_block(_ev["header_image_url"]))
-            print(f"  [build] hero header image: 1 block")
+            print("  [build] hero header image: 1 block")
     except Exception as e:
         import traceback
         print(f"  ⚠ [build] hero header image failed: {e}")
@@ -2763,14 +2763,14 @@ if __name__ == "__main__":
         cfg = get_newsletter(newsletter_name) or {}
         page_id = cfg.get("landing_page_id") or notion_search_page(page_title)
         if not page_id:
-            print(f"  Creating new page...")
+            print("  Creating new page...")
             page_id = notion_create_page(page_title, NOTION_PARENT_PAGE_ID)
             print(f"  Created page: {page_id}")
             # New page — must do a full rebuild regardless of partial mode
             blocks = build_newsletter_blocks(newsletter_name)
             print(f"  Writing {len(blocks)} blocks...")
             notion_append_blocks(page_id, blocks)
-            print(f"  ✓ Done")
+            print("  ✓ Done")
             continue
 
         print(f"  Found existing page: {page_id}")
@@ -2778,16 +2778,16 @@ if __name__ == "__main__":
         if is_partial:
             # Update only the specified section — leaves other sections (and any in-progress edits) alone
             ok = update_one_section(page_id, newsletter_name, section_arg)
-            print(f"  ✓ Done" if ok else "  ✗ Section update failed")
+            print("  ✓ Done" if ok else "  ✗ Section update failed")
         else:
             # Full rebuild — sync edits back, clear, rebuild
-            print(f"  Checking for manual edits to sync back...")
+            print("  Checking for manual edits to sync back...")
             sync_edits_back(page_id, newsletter_name)
-            print(f"  Clearing old content...")
+            print("  Clearing old content...")
             notion_clear_page(page_id)
             blocks = build_newsletter_blocks(newsletter_name)
             print(f"  Writing {len(blocks)} blocks...")
             notion_append_blocks(page_id, blocks)
-            print(f"  ✓ Done")
+            print("  ✓ Done")
 
-    print(f"\nAll landing pages updated.")
+    print("\nAll landing pages updated.")

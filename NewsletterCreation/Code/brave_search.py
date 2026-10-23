@@ -73,7 +73,7 @@ def search_web(
                 timeout=30,
             )
             if res.status_code == 402:
-                print(f"    Brave API quota exhausted (402) — aborting remaining queries")
+                print("    Brave API quota exhausted (402) — aborting remaining queries")
                 break
             if res.status_code != 200:
                 print(f"    Brave API status {res.status_code} — {res.text[:160]}")
@@ -145,7 +145,7 @@ def search_images(query: str, api_key: str, max_results: int = 5,
             timeout=timeout,
         )
         if r.status_code == 402:
-            print(f"    Brave Image Search quota exhausted (402) — skipping")
+            print("    Brave Image Search quota exhausted (402) — skipping")
             return []
         if r.status_code != 200:
             print(f"    Brave Image Search status {r.status_code} — {r.text[:160]}")

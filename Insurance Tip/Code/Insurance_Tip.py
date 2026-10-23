@@ -407,4 +407,4 @@ relevance_score, actionability_score, timeliness_score, scoring_notes).
     json_file.write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(f"  Saved JSON to {json_file}")
 
-    print(f"\nAll newsletters complete.")
+    print("\nAll newsletters complete.")

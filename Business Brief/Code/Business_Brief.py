@@ -565,4 +565,4 @@ if __name__ == "__main__":
         json_file.write_text(json.dumps(validated, indent=2), encoding="utf-8")
         print(f"  Saved JSON backup to {json_file}")
 
-    print(f"\nAll newsletters complete.")
+    print("\nAll newsletters complete.")
