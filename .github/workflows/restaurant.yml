@@ -37,12 +37,12 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -85,7 +85,17 @@ jobs:
             git add gifs/
             git commit -m "update restaurant GIFs" || true
             git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/peachyinsurance/newsletters.git
-            git push origin gh-pages
+            # Retry on "fetch first" rejection: other workflows (and the review
+            # app deploy) push to gh-pages too, so rebase onto the latest tip.
+            push_ok=0
+            for attempt in 1 2 3; do
+              if git push origin gh-pages; then push_ok=1; break; fi
+              [ "$attempt" -lt 3 ] || break
+              echo "gh-pages push rejected (attempt $attempt); rebasing and retrying"
+              sleep $((attempt * 5))
+              git pull --rebase origin gh-pages || { git rebase --abort || true; break; }
+            done
+            [ "$push_ok" -eq 1 ] || { echo "::error::Could not push to gh-pages"; false; }
             git checkout main
             git stash pop || true
             echo "✓ Restaurant GIFs published"

@@ -42,12 +42,14 @@ permissions:
 jobs:
   generate:
     runs-on: ubuntu-latest
+    # Typical run is ~5 min (longer with data_source=scrape); cap a hung step well short of the 6h default.
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 

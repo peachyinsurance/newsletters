@@ -26,10 +26,10 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -56,7 +56,7 @@ jobs:
           cp in_search_of.json ../../review-app/public/in_search_of.json
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'npm'
@@ -83,10 +83,23 @@ jobs:
       # weekend_planner, …); the deploy only manages the review-app build.
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+        id: deploy
+        # The section workflows (and the review app's own approve clicks)
+        # also push to gh-pages, so this push is occasionally rejected with
+        # "fetch first". The retry step below re-clones and pushes again.
+        continue-on-error: true
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./review-app/dist
           # Don't wipe files absent from publish_dir — preserves gifs/ images
           # published by the content workflows so their Notion URLs don't 404.
+          keep_files: true
+
+      - name: Deploy to GitHub Pages (retry after push race)
+        if: ${{ steps.deploy.outcome == 'failure' }}
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./review-app/dist
           keep_files: true

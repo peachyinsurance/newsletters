@@ -104,12 +104,14 @@ jobs:
   in_search_of:
     needs: pick-runner
     runs-on: ${{ needs.pick-runner.outputs.label }}
+    # Typical run is ~5-20 min; cap a hung scrape well short of the 6h default.
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: runner.environment == 'github-hosted'   # macOS self-hosted: use the Mac's own Python
         with:
           python-version: '3.11'

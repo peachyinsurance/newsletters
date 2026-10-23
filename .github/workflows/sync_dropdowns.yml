@@ -33,7 +33,7 @@ jobs:
           fi
           echo "✓ RUNNER_PAT is present"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # MUST be a PAT with the `workflow` scope (fine-grained: Workflows
           # read+write). The default GITHUB_TOKEN is a GitHub App token, which
@@ -42,7 +42,7 @@ jobs:
           # persists this token, so the `git push` below authenticates with it.
           token: ${{ secrets.RUNNER_PAT }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 

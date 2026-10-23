@@ -42,9 +42,11 @@ permissions:
 jobs:
   generate:
     runs-on: ubuntu-latest
+    # Typical run is ~15-18 min; cap a hung step well short of the 6h default.
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - run: |
@@ -166,7 +168,6 @@ jobs:
       - name: Generate Weekend Planner
         env:
           CLAUDE_API_KEY:               ${{ secrets.CLAUDE_API_KEY }}
-          BRAVE_NEWS_API_KEY:           ${{ secrets.BRAVE_NEWS_API_KEY }}
           NOTION_API_KEY:               ${{ secrets.NOTION_API_KEY }}
           NOTION_WEEKEND_PLANNER_DB_ID: ${{ secrets.NOTION_WEEKEND_PLANNER_DB_ID }}
           NOTION_WEEKEND_EVENTS_DB_ID:  ${{ secrets.NOTION_WEEKEND_EVENTS_DB_ID }}
@@ -206,7 +207,17 @@ jobs:
             echo "No image changes to publish"
           else
             git commit -m "publish weekend planner images [skip ci]"
-            git push origin gh-pages
+            # Retry on "fetch first" rejection: other workflows (and the review
+            # app deploy) push to gh-pages too, so rebase onto the latest tip.
+            push_ok=0
+            for attempt in 1 2 3; do
+              if git push origin gh-pages; then push_ok=1; break; fi
+              [ "$attempt" -lt 3 ] || break
+              echo "gh-pages push rejected (attempt $attempt); rebasing and retrying"
+              sleep $((attempt * 5))
+              git pull --rebase origin gh-pages || { git rebase --abort || true; break; }
+            done
+            [ "$push_ok" -eq 1 ] || { echo "::error::Could not push to gh-pages"; false; }
             echo "✓ Published $count Weekend Planner image(s)"
           fi
           git checkout main

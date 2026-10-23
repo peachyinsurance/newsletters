@@ -126,9 +126,11 @@ jobs:
   weekend_events:
     needs: pick-runner
     runs-on: ${{ needs.pick-runner.outputs.label }}
+    # Typical run is ~15-25 min; cap a hung scraper well short of the 6h default.
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         if: runner.environment == 'github-hosted'   # macOS self-hosted: use the Mac's own Python (setup-python's prebuilt mac Python hardcodes /Users/runner and stalls)
         with:
           python-version: '3.11'

@@ -18,13 +18,19 @@ on:
 permissions:
   contents: write
 
+# Only the newest poll-count snapshot matters; collapse overlapping runs so
+# they don't race each other on the gh-pages push.
+concurrency:
+  group: update-poll-counts
+  cancel-in-progress: true
+
 jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -38,6 +44,9 @@ jobs:
           NOTION_POLLS_DB_ID:         ${{ secrets.NOTION_POLLS_DB_ID }}
           NOTION_PETS_DB_ID:          ${{ secrets.NOTION_PETS_DB_ID }}
           NOTION_RESTAURANTS_DB_ID:   ${{ secrets.NOTION_RESTAURANTS_DB_ID }}
+          # Required at import time: update_poll_counts imports
+          # assemble_newsletter_page, which reads os.environ["NOTION_PARENT_PAGE_ID"].
+          NOTION_PARENT_PAGE_ID:      ${{ secrets.NOTION_PARENT_PAGE_ID }}
         run: python Beehiiv/Code/update_poll_counts.py
 
       - name: Stage poll-counts.json for gh-pages
@@ -47,7 +56,7 @@ jobs:
           echo "Staged $(ls -la /tmp/poll_staging/)"
 
       - name: Publish to gh-pages (keep_files preserves existing site)
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: /tmp/poll_staging

@@ -25,8 +25,8 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - run: |
@@ -69,7 +69,17 @@ jobs:
             echo "No composite changes to publish"
           else
             git commit -m "update featured event header [skip ci]"
-            git push origin gh-pages
+            # Retry on "fetch first" rejection: other workflows (and the review
+            # app deploy) push to gh-pages too, so rebase onto the latest tip.
+            push_ok=0
+            for attempt in 1 2 3; do
+              if git push origin gh-pages; then push_ok=1; break; fi
+              [ "$attempt" -lt 3 ] || break
+              echo "gh-pages push rejected (attempt $attempt); rebasing and retrying"
+              sleep $((attempt * 5))
+              git pull --rebase origin gh-pages || { git rebase --abort || true; break; }
+            done
+            [ "$push_ok" -eq 1 ] || { echo "::error::Could not push to gh-pages"; false; }
             echo "✓ Header composite published to gh-pages/gifs/"
           fi
           git checkout main
