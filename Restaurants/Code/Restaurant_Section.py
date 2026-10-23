@@ -10,9 +10,8 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 
 import json
-import math
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from notion_helper import (
@@ -20,7 +19,7 @@ from notion_helper import (
     query_database, update_page, NOTION_RESTAURANTS_DB_ID,
 )
 from url_validator import filter_valid_items
-from newsletters_config import NEWSLETTERS, filter_by_env
+from newsletters_config import filter_by_env
 
 import requests
 import anthropic
@@ -39,10 +38,8 @@ SEARCH_RADIUS_METERS    = 8047  # 5 miles in meters (default starting radius)
 RADIUS_EXPANSIONS_METERS = [12070, 16093]  # 7.5 mi, 10 mi
 MIN_QUALIFIED_RESTAURANTS = 5
 SIT_DOWN_CHAIN_MIN_RATING = 4.0  # threshold for the sit-down chain fallback
-MAX_CANDIDATES          = 30    # fetch before filtering
 TARGET_TOP_5            = 5
 MAX_SAME_CUISINE        = 2
-LOOKBACK_WEEKS          = 8
 
 # ---------------------------------------------------------------------------
 # 2. KNOWN CHAINS TO EXCLUDE
@@ -119,11 +116,6 @@ def get_festive_score(cuisine_type: str, boosts: list[dict]) -> tuple[int, str]:
     return 5, "No upcoming holiday boost"
 
 # ---------------------------------------------------------------------------
-# 4. GOOGLE AUTH
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
 # 5. LOAD SKILL PROMPT
 # ---------------------------------------------------------------------------
 def load_skill_prompt() -> str:
@@ -197,8 +189,8 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
             unique_places.append(place)
 
     print(f"Found {len(unique_places)} unique restaurants from Places API")
-    # ... rest of function stays the same, just replace `places` with `unique_places`
     restaurants = []
+    photos_raw: list[list[dict]] = []  # parallel to `restaurants`
     for place in unique_places:
         place_id = place.get("id", "")
         name     = place.get("displayName", {}).get("text", "")
@@ -242,25 +234,9 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
         # Get cuisine type
         cuisine = place.get("primaryTypeDisplayName", {}).get("text", "Restaurant")
 
-        # Get up to 3 photo URLs -- resolve to direct CDN URLs
-        photos_raw = place.get("photos", [])
-        photo_urls = []
-        for photo_entry in photos_raw[:3]:
-            photo_ref = photo_entry.get("name", "")
-            if photo_ref:
-                try:
-                    photo_api_url = f"https://places.googleapis.com/v1/{photo_ref}/media?maxHeightPx=800&skipHttpRedirect=true&key={GOOGLE_PLACES_API_KEY}"
-                    photo_res = requests.get(photo_api_url, timeout=10)
-                    if photo_res.status_code == 200:
-                        resolved = photo_res.json().get("photoUri", "")
-                        if resolved:
-                            photo_urls.append(resolved)
-                except Exception:
-                    pass
-        photo_url = photo_urls[0] if photo_urls else ""
-        if photo_urls:
-            print(f"    ✓ {len(photo_urls)} photos resolved")
-                    
+        # Photo references are resolved to CDN URLs after the loop (in parallel)
+        photos_raw.append(place.get("photos", []))
+
         # Get hours
         hours_data = place.get("regularOpeningHours", {})
         hours      = ", ".join(hours_data.get("weekdayDescriptions", [])) if hours_data else ""
@@ -283,16 +259,45 @@ def fetch_restaurants(lat: float, lng: float, excluded_place_ids: set, newslette
             "rating":          rating,
             "review_count":    reviews,
             "price_level":     place.get("priceLevel", ""),
-            "photo_url":       photo_url,
-            "photo_urls":      photo_urls,
+            "photo_url":       "",
+            "photo_urls":      [],
             "hours":           hours,
             "summary":         summary,
             "newsletter_name": newsletter_name
         })
         print(f"  ✓ {name} | {cuisine} | {rating}★ ({reviews} reviews)")
 
+    # Resolve up to 3 photos per restaurant. Each is a separate HTTP call, so
+    # doing them one after another dominated runtime on large pools.
+    if restaurants:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            resolved = list(pool.map(_resolve_place_photos, photos_raw))
+        for r, photo_urls in zip(restaurants, resolved, strict=True):
+            r["photo_urls"] = photo_urls
+            r["photo_url"]  = photo_urls[0] if photo_urls else ""
+            if photo_urls:
+                print(f"    ✓ {r['name']}: {len(photo_urls)} photos resolved")
+
     print(f"Qualified restaurants: {len(restaurants)}")
     return restaurants
+
+
+def _resolve_place_photos(photos: list[dict]) -> list[str]:
+    """Resolve up to 3 Places photo references to direct CDN URLs."""
+    photo_urls = []
+    for photo_entry in (photos or [])[:3]:
+        photo_ref = photo_entry.get("name", "")
+        if photo_ref:
+            try:
+                photo_api_url = f"https://places.googleapis.com/v1/{photo_ref}/media?maxHeightPx=800&skipHttpRedirect=true&key={GOOGLE_PLACES_API_KEY}"
+                photo_res = requests.get(photo_api_url, timeout=10)
+                if photo_res.status_code == 200:
+                    resolved = photo_res.json().get("photoUri", "")
+                    if resolved:
+                        photo_urls.append(resolved)
+            except Exception:
+                pass
+    return photo_urls
 
 # ---------------------------------------------------------------------------
 # 8. ENFORCE CUISINE DIVERSITY
@@ -695,10 +700,8 @@ if __name__ == "__main__":
         # Generate GIFs for each restaurant (3 photos per restaurant)
         print(f"\n  Creating GIFs for {len(results)} restaurants...")
         try:
-            sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
             from gif_maker import create_gif_from_urls
-            from pathlib import Path as _Path
-            output_dir = _Path(__file__).parent / "output"
+            output_dir = Path(__file__).parent / "output"
             output_dir.mkdir(exist_ok=True)
 
             # Build photo_urls map from the original restaurant data (by place_id AND name)

@@ -88,15 +88,19 @@ def _fetch_article_text(url: str) -> str:
 
 def enrich_candidates_with_full_text(candidates: list[dict], max_concurrent: int = 8) -> list[dict]:
     """In-place: attach `full_text` to each candidate by fetching its URL.
-    Failures fall through silently (candidate keeps its Brave summary only)."""
+    Failures fall through silently (candidate keeps its Brave summary only).
+    Candidates that already carry `full_text` (Notion rows pre-populate it
+    with their Description) are skipped, so their body isn't re-fetched or
+    blanked by a failed fetch."""
     if not candidates:
         return candidates
 
     def _enrich_one(c: dict) -> None:
         c["full_text"] = _fetch_article_text(c.get("url", ""))
 
+    todo = [c for c in candidates if not c.get("full_text")]
     with ThreadPoolExecutor(max_workers=max_concurrent) as pool:
-        list(pool.map(_enrich_one, candidates))
+        list(pool.map(_enrich_one, todo))
 
     fetched = sum(1 for c in candidates if c.get("full_text"))
     print(f"  Fetched full text for {fetched}/{len(candidates)} candidates")
@@ -141,6 +145,10 @@ def _absolutize(url: str, base_url: str) -> str:
         from urllib.parse import urlparse
         p = urlparse(base_url)
         return f"{p.scheme}://{p.netloc}{url}"
+    if base_url:
+        # Bare relative path ("images/hero.jpg") resolves against the page URL.
+        from urllib.parse import urljoin
+        return urljoin(base_url, url)
     return url  # leave alone if we can't resolve
 
 
@@ -168,99 +176,58 @@ def _image_dedup_key(url: str) -> str:
     return base or path.lower()
 
 
-def fetch_event_image(source_url: str, _allow_root_fallback: bool = True) -> str:
-    """Pull a reliable hero image URL from the source page. Tries (in order):
+# Image-scrape filters used by fetch_event_images.
+_IMAGE_SKIP_TOKENS = ("logo", "favicon", "sprite", "icon-", "/icons/",
+                      "placeholder", "spacer", "tracker", "pixel.gif",
+                      "1x1", "blank.gif", "transparent.png",
+                      # Affiliate / ad-network CDNs that get embedded as
+                      # widgets on many event pages; the og:image picked up
+                      # is the SAME ad image across all those pages, which
+                      # then gets wrongly mapped to multiple different events.
+                      "grouponcdn.com", "groupon.com/image",
+                      "jdoqocy.com", "dpbolvw.net", "tkqlhce.com",
+                      "anrdoezrs.net", "kqzyfj.com",
+                      "amazon-adsystem", "doubleclick",
+                      "googlesyndication", "googleadservices",
+                      "rakuten.com/img", "shareasale.com/image",
+                      "impactradius", "linksynergy.com")
+
+# Meta tags (og:image, twitter:image, image_src).
+# Match both `property="og:image"` (OpenGraph standard) AND the
+# non-standard `name="og:image"` form. Cobb County's Next.js site
+# uses the `name=` variant; without this pattern, every cobbcounty.gov
+# event's clean canonical image gets missed and we fall back to the
+# Next.js image-optimization proxy URL, which validates inconsistently.
+_META_IMAGE_PATTERNS = [
+    r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']',
+    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::secure_url)?["\']',
+    r'<meta[^>]+name=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']',
+    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']og:image(?::secure_url)?["\']',
+    r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
+    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
+    r'<link[^>]+rel=["\']image_src["\'][^>]+href=["\']([^"\']+)["\']',
+]
+
+# Reasonably-large <img> in the page body: <img ... width="N" ... src="...">
+# where N >= 400 (large enough to be a hero photo, not an icon).
+_BODY_IMG_PATTERNS = [
+    r'<img[^>]+width=["\']?(\d+)["\']?[^>]+src=["\']([^"\']+)["\']',
+    r'<img[^>]+src=["\']([^"\']+)["\'][^>]+width=["\']?(\d+)["\']?',
+]
+
+
+def _extract_image_candidates(html: str) -> list[str]:
+    """Raw (unvalidated) image URLs scraped from a page, in priority order:
        1. og:image / twitter:image / image_src meta tags
        2. JSON-LD structured data (schema.org Event.image)
-       3. First reasonably-large <img> in the page body (>= 400px width)
-       4. If `_allow_root_fallback` and nothing found, retry once against the
-          site's root URL — e.g. a deep ticket page like
-          `dreamhack.com/atlanta/tickets/` falls back to `dreamhack.com/`,
-          which often hosts the event/site banner as its own og:image.
-
-    Each candidate is HEAD-validated to confirm it actually serves an image
-    >5 KB before returning. Skips obvious logos, favicons, trackers, etc.
-    Best-effort; returns empty string if nothing reliable is found.
-    """
-    if not source_url:
-        return ""
-
-    # Helper used twice: once for primary fetch, once for root fallback after
-    # a hard fetch failure (page 404, timeout, etc.).
-    def _try_root_fallback(reason: str) -> str:
-        if not _allow_root_fallback:
-            return ""
-        try:
-            from urllib.parse import urlparse, urlunparse
-            parsed = urlparse(source_url)
-            host = (parsed.hostname or "").lower().removeprefix("www.")
-            MARKETPLACE_HOSTS = (
-                "eventbrite.com", "ticketmaster.com", "axs.com", "stubhub.com",
-                "seatgeek.com", "meetup.com", "allevents.in", "facebook.com",
-                "ticketweb.com", "bigtickets.com", "etix.com", "vivenu.com",
-                "tixr.com", "freshtix.com",
-            )
-            if host and not any(host == m or host.endswith("." + m) for m in MARKETPLACE_HOSTS):
-                root = urlunparse((parsed.scheme, parsed.netloc, "/", "", "", ""))
-                if root and root != source_url:
-                    print(f"      ↳ {reason} — retrying root-domain fallback: {root}")
-                    return fetch_event_image(root, _allow_root_fallback=False)
-        except Exception as e:
-            print(f"      ⚠ root fallback skipped: {e}")
-        return ""
-
-    try:
-        r = requests.get(
-            source_url,
-            timeout=10,
-            headers={"User-Agent": "Mozilla/5.0 (newsletter-automation)"},
-            allow_redirects=True,
-        )
-        if r.status_code != 200 or not r.text:
-            return _try_root_fallback(f"primary fetch returned HTTP {r.status_code}")
-        html = r.text
-    except Exception as e:
-        return _try_root_fallback(f"primary fetch error: {e}")
-
-    SKIP_TOKENS = ("logo", "favicon", "sprite", "icon-", "/icons/",
-                   "placeholder", "spacer", "tracker", "pixel.gif",
-                   "1x1", "blank.gif", "transparent.png",
-                   # Affiliate / ad-network CDNs that get embedded as
-                   # widgets on many event pages — the og:image picked up
-                   # is the SAME ad image across all those pages, which
-                   # then gets wrongly mapped to multiple different events.
-                   "grouponcdn.com", "groupon.com/image",
-                   "jdoqocy.com", "dpbolvw.net", "tkqlhce.com",
-                   "anrdoezrs.net", "kqzyfj.com",
-                   "amazon-adsystem", "doubleclick",
-                   "googlesyndication", "googleadservices",
-                   "rakuten.com/img", "shareasale.com/image",
-                   "impactradius", "linksynergy.com")
-
+       3. Body <img> tags with width >= 400 (last-resort fallback)"""
     candidates: list[str] = []
 
-    # 1. Meta tags (og:image, twitter:image, image_src)
-    # Match both `property="og:image"` (OpenGraph standard) AND the
-    # non-standard `name="og:image"` form. Cobb County's Next.js site
-    # uses the `name=` variant — without this pattern, every cobbcounty.gov
-    # event's clean canonical image gets missed and we fall back to the
-    # Next.js image-optimization proxy URL, which validates inconsistently.
-    head = html[:200_000]  # meta tags live in <head> — cap for speed
-    meta_patterns = [
-        r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']',
-        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::secure_url)?["\']',
-        r'<meta[^>]+name=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']',
-        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']og:image(?::secure_url)?["\']',
-        r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
-        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
-        r'<link[^>]+rel=["\']image_src["\'][^>]+href=["\']([^"\']+)["\']',
-    ]
-    for pat in meta_patterns:
-        m = _re.search(pat, head, _re.IGNORECASE)
-        if m:
+    head = html[:200_000]  # meta tags live in <head>; cap for speed
+    for pat in _META_IMAGE_PATTERNS:
+        for m in _re.finditer(pat, head, _re.IGNORECASE):
             candidates.append(m.group(1).strip())
 
-    # 2. JSON-LD: schema.org Event objects often carry an `image` field
     for ld_match in _re.finditer(
         r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.+?)</script>',
         html, _re.IGNORECASE | _re.DOTALL,
@@ -285,14 +252,7 @@ def fetch_event_image(source_url: str, _allow_root_fallback: bool = True) -> str
             elif isinstance(img, dict) and isinstance(img.get("url"), str):
                 candidates.append(img["url"])
 
-    # 3. First reasonably-large <img> in the page body — last-resort fallback
-    #    when meta tags are absent. Match <img ... width="N" ... src="...">
-    #    where N >= 400 (large enough to be a hero photo, not an icon).
-    body_img_patterns = [
-        r'<img[^>]+width=["\']?(\d+)["\']?[^>]+src=["\']([^"\']+)["\']',
-        r'<img[^>]+src=["\']([^"\']+)["\'][^>]+width=["\']?(\d+)["\']?',
-    ]
-    for pat in body_img_patterns:
+    for pat in _BODY_IMG_PATTERNS:
         for m in _re.finditer(pat, html, _re.IGNORECASE):
             groups = m.groups()
             # Different group order in the two patterns
@@ -307,27 +267,7 @@ def fetch_event_image(source_url: str, _allow_root_fallback: bool = True) -> str
             if w >= 400:
                 candidates.append(url_str)
 
-    # Validate each candidate (in priority order) until one passes
-    seen: set = set()
-    for url in candidates:
-        # Decode entity-escaped ampersands (&amp;) from regex-scraped HTML —
-        # signed CDN URLs 400/404 with mangled query params.
-        url = _html_lib.unescape((url or "").strip())
-        if not url or url in seen:
-            continue
-        seen.add(url)
-        if url.startswith("data:"):
-            continue
-        url = _absolutize(url, source_url)
-        ul = url.lower()
-        if any(skip in ul for skip in SKIP_TOKENS):
-            continue
-        if _image_looks_real(url):
-            print(f"      ✓ free-event image: {url[:80]}…")
-            return url
-
-    print(f"      · no reliable free-event image found ({len(candidates)} candidates rejected)")
-    return _try_root_fallback(f"no usable image on {source_url}")
+    return candidates
 
 
 # Generic Battery template graphics that stand in for real event art on the
@@ -389,12 +329,12 @@ def _upgrade_battery_free_event_images(source_url: str,
 
 def fetch_event_images(source_url: str, max_results: int = 8,
                        _allow_root_fallback: bool = True) -> list[str]:
-    """Like `fetch_event_image()` but returns a deduped list of every plausible
-    image URL on the page, in priority order, capped at `max_results`.
+    """Return a deduped list of every plausible image URL on the page (meta
+    tags, JSON-LD, large body <img>), in priority order, capped at `max_results`.
 
     Used by Featured Event to give reviewers a gallery of candidates to pick
     from. Validates each candidate (HEAD + content-type + min size); skips
-    affiliate-CDN / logo / tracker URLs via the same SKIP_TOKENS list.
+    affiliate-CDN / logo / tracker URLs via _IMAGE_SKIP_TOKENS.
     """
     if not source_url:
         return []
@@ -411,75 +351,7 @@ def fetch_event_images(source_url: str, max_results: int = 8,
     except Exception:
         return []
 
-    SKIP_TOKENS = ("logo", "favicon", "sprite", "icon-", "/icons/",
-                   "placeholder", "spacer", "tracker", "pixel.gif",
-                   "1x1", "blank.gif", "transparent.png",
-                   "grouponcdn.com", "groupon.com/image",
-                   "jdoqocy.com", "dpbolvw.net", "tkqlhce.com",
-                   "anrdoezrs.net", "kqzyfj.com",
-                   "amazon-adsystem", "doubleclick",
-                   "googlesyndication", "googleadservices",
-                   "rakuten.com/img", "shareasale.com/image",
-                   "impactradius", "linksynergy.com")
-
-    raw: list[str] = []
-
-    # Meta tags
-    head = html[:200_000]
-    meta_patterns = [
-        r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']',
-        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::secure_url)?["\']',
-        r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
-        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
-        r'<link[^>]+rel=["\']image_src["\'][^>]+href=["\']([^"\']+)["\']',
-    ]
-    for pat in meta_patterns:
-        for m in _re.finditer(pat, head, _re.IGNORECASE):
-            raw.append(m.group(1).strip())
-
-    # JSON-LD
-    for ld_match in _re.finditer(
-        r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.+?)</script>',
-        html, _re.IGNORECASE | _re.DOTALL,
-    ):
-        try:
-            blob = json.loads(ld_match.group(1).strip())
-        except Exception:
-            continue
-        items = blob if isinstance(blob, list) else [blob]
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            img = item.get("image")
-            if isinstance(img, str):
-                raw.append(img)
-            elif isinstance(img, list):
-                for x in img:
-                    if isinstance(x, str):
-                        raw.append(x)
-                    elif isinstance(x, dict) and isinstance(x.get("url"), str):
-                        raw.append(x["url"])
-            elif isinstance(img, dict) and isinstance(img.get("url"), str):
-                raw.append(img["url"])
-
-    # Article-body <img> tags (width >= 400)
-    body_img_patterns = [
-        r'<img[^>]+width=["\']?(\d+)["\']?[^>]+src=["\']([^"\']+)["\']',
-        r'<img[^>]+src=["\']([^"\']+)["\'][^>]+width=["\']?(\d+)["\']?',
-    ]
-    for pat in body_img_patterns:
-        for m in _re.finditer(pat, html, _re.IGNORECASE):
-            groups = m.groups()
-            if pat.startswith(r'<img[^>]+width'):
-                w_str, url_str = groups[0], groups[1]
-            else:
-                url_str, w_str = groups[0], groups[1]
-            try:
-                w = int(w_str)
-            except ValueError:
-                continue
-            if w >= 400:
-                raw.append(url_str)
+    raw = _extract_image_candidates(html)
 
     # Validate and dedup
     valid: list[str] = []
@@ -496,7 +368,7 @@ def fetch_event_images(source_url: str, max_results: int = 8,
             continue
         url = _absolutize(url, source_url)
         ul = url.lower()
-        if any(skip in ul for skip in SKIP_TOKENS):
+        if any(skip in ul for skip in _IMAGE_SKIP_TOKENS):
             continue
         # Collapse near-duplicate variants of the same picture (og:image vs
         # twitter:image vs resized body <img>). We only record the key once an
@@ -922,6 +794,9 @@ def merge_dedup_by_title(primary: list[dict], secondary: list[dict]) -> list[dic
     return out
 
 
+_STATE_NAMES = {"GA": "Georgia", "TX": "Texas"}
+
+
 def fetch_candidates(search_areas: list[str], excluded_urls: set | None = None) -> list[dict]:
     """Build a pool of free-event candidates from multiple targeted queries.
     Brave queries have -site: operators appended to exclude paywall + aggregator domains.
@@ -931,12 +806,20 @@ def fetch_candidates(search_areas: list[str], excluded_urls: set | None = None) 
 
     queries = []
     for area in search_areas:
-        # Strip " GA" / " Atlanta" suffixes so we can quote the city/area name directly
+        # Strip the trailing state code (" GA" / " TX") and " Atlanta" so we can
+        # quote the city/area name directly, and pair it with the matching
+        # state name (Lewisville TX areas must not be searched as Georgia).
+        state = "Georgia"
+        for code, name in _STATE_NAMES.items():
+            if area.endswith(f" {code}"):
+                state = name
+                area = area[:-len(code) - 1]
+                break
         city = area.replace(" GA", "").replace(" Atlanta", "").strip()
         # Quote the area to force it as a required phrase in results
-        queries.append(f'"free" events "{city}" Georgia')
+        queries.append(f'"free" events "{city}" {state}')
         queries.append(f'"free" things to do "{city}"')
-        queries.append(f'"free" family "{city}" Georgia')
+        queries.append(f'"free" family "{city}" {state}')
 
     seen = set()
     candidates = []
@@ -1145,7 +1028,6 @@ Candidates:
         if idx_v is not None and ev_obj.get("body_markdown"):
             body_by_idx[idx_v] = ev_obj["body_markdown"]
 
-    from datetime import date, timedelta
     try:
         pub = datetime.strptime(pub_date, "%Y-%m-%d").date()
     except Exception:
@@ -1194,6 +1076,7 @@ Candidates:
 
         scoreboard.append({
             "ev":            ev,
+            "source":        source,
             "source_url":    url,
             "source_host":   host,
             "time_score":    time_score,
@@ -1240,13 +1123,7 @@ Candidates:
             print(f"    ✗ Skipping '{ev.get('name', '?')}': outside 14-day window ({ev_date})")
             continue
         # Article text looks like a recap — likely Claude hallucinated a future date
-        idx = None
-        # Find the index we used when building this scoreboard entry so we can re-look up the source
-        for i, c in candidates_by_index.items():
-            if c.get("url", "") == s["source_url"]:
-                idx = i
-                break
-        src = candidates_by_index.get(idx) if idx else None
+        src = s["source"]
         if src:
             past_marker = _looks_past_tense(src)
             if past_marker:
@@ -1263,7 +1140,7 @@ Candidates:
         # (carried as _notion_image) instead of re-fetching the source page.
         # The scrape's image is already curated/upgraded (e.g. Battery's CTA
         # hero), so this is both faster and more accurate than a fresh fetch.
-        notion_img = (src or {}).get("_notion_image", "") if src else ""
+        notion_img = src.get("_notion_image", "")
         if notion_img:
             imgs = [notion_img]
         else:
@@ -1674,9 +1551,16 @@ if __name__ == "__main__":
             excluded.update(past_urls)
             # Title-dedup Brave results against what we already have
             # (Notion pulls + earlier Brave rounds win on title collisions).
+            pool_before = len(candidates)
             candidates = merge_dedup_by_title(candidates, kept)
             print(f"  ↳ pool size after round {round_idx}: {len(candidates)}")
             if len(candidates) >= MIN_VALID_CANDIDATES:
+                break
+            # The queries are identical every round, so a round that added
+            # nothing new means the next one would just re-spend the same
+            # Brave calls for the same results.
+            if len(candidates) == pool_before:
+                print("  ⏭ Round added no new candidates; stopping retries")
                 break
 
         if not candidates:

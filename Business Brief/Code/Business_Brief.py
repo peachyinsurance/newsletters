@@ -23,13 +23,12 @@ from pathlib import Path
 import requests
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
-from brave_search import search_web, domain_of
+from brave_search import domain_of
 from claude_json import call_with_json_output
 from notion_helper import (
     save_business_briefs_to_notion,
     get_existing_business_brief_urls,
 )
-from url_validator import filter_valid_items
 from newsletters_config import NEWSLETTERS, filter_by_env
 
 # ---------------------------------------------------------------------------
@@ -304,32 +303,6 @@ def fetch_businesses_from_places(newsletter: dict, excluded_urls: set) -> list[d
 
 
 # ---------------------------------------------------------------------------
-# 4. FILTERS (legacy — kept for compatibility but no longer in the active path)
-# ---------------------------------------------------------------------------
-def is_aggregator(url: str) -> bool:
-    return False
-
-
-def is_chain(url: str) -> bool:
-    return False
-
-
-def is_restaurant_directory(url: str) -> bool:
-    return False
-
-
-def filter_candidates(candidates: list[dict]) -> list[dict]:
-    """Drop aggregator/chain/restaurant-directory hostnames before sending to Claude."""
-    kept = []
-    for c in candidates:
-        url = c.get("url", "")
-        if is_aggregator(url) or is_chain(url) or is_restaurant_directory(url):
-            continue
-        kept.append(c)
-    return kept
-
-
-# ---------------------------------------------------------------------------
 # 5. CLAUDE PROMPT BUILDER
 # ---------------------------------------------------------------------------
 def build_claude_user_prompt(newsletter: dict, candidates: list[dict]) -> str:
@@ -448,13 +421,6 @@ def fetch_google_places_photos(business_name: str, city: str = "",
     except Exception as e:
         print(f"    · Places photo fetch error for {business_name!r}: {e}")
         return []
-
-
-def fetch_google_places_photo(business_name: str, city: str = "",
-                              address: str = "") -> str:
-    """Single-photo convenience wrapper — kept for backwards compat."""
-    urls = fetch_google_places_photos(business_name, city, address, max_photos=1)
-    return urls[0] if urls else ""
 
 
 # ---------------------------------------------------------------------------

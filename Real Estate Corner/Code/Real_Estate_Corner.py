@@ -32,8 +32,8 @@ import anthropic
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
 from notion_helper import create_page, query_database, safe_str, HEADERS as NOTION_HEADERS
-from url_validator import validate_url, filter_valid_items
-from newsletters_config import NEWSLETTERS, filter_by_env
+from url_validator import validate_url
+from newsletters_config import filter_by_env
 
 # ---------------------------------------------------------------------------
 # 1. ENVIRONMENT & CONFIG
@@ -565,6 +565,10 @@ Listings:
 NOTION_RE_DB_ID = os.environ.get("NOTION_RE_DB_ID", "")
 
 
+def _newsletter_filter(newsletter_name: str) -> dict:
+    return {"property": "Newsletter", "select": {"equals": newsletter_name}}
+
+
 def get_used_listing_keys(newsletter_name: str) -> dict:
     """Get the listing URLs AND normalized addresses already used for this
     newsletter, so a previously-featured high-value home doesn't repeat.
@@ -582,7 +586,9 @@ def get_used_listing_keys(newsletter_name: str) -> dict:
     if not NOTION_RE_DB_ID:
         return keys
     try:
-        pages = query_database(NOTION_RE_DB_ID)
+        # Server-side newsletter filter: approved-old rows are kept forever, so
+        # an unfiltered scan pages through every newsletter's history.
+        pages = query_database(NOTION_RE_DB_ID, filters=_newsletter_filter(newsletter_name))
         for page in pages:
             props = page["properties"]
             nl = (props.get("Newsletter", {}).get("select") or {}).get("name", "")
@@ -627,7 +633,7 @@ def cleanup_old_re_listings() -> None:
         # Permanent retention for anything ever featured.
         if status in ("approved", "approved - old"):
             continue
-        name = props.get("Name", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+        name = (props.get("Name", {}).get("title") or [{}])[0].get("text", {}).get("content", "")
         archive_page(page["id"])
         print(f"  Archived stale candidate: {name} (status: '{status}')")
         count += 1
@@ -722,7 +728,7 @@ def save_real_estate_to_notion(results: list[dict], newsletter_name: str) -> Non
     # Manually edited rows are preserved with their current status.
     protected_tiers = set()
     try:
-        existing = query_database(NOTION_RE_DB_ID)
+        existing = query_database(NOTION_RE_DB_ID, filters=_newsletter_filter(newsletter_name))
         existing = [p for p in existing if
                     (p["properties"].get("Newsletter", {}).get("select") or {}).get("name") == newsletter_name]
         flipped = 0
@@ -918,7 +924,6 @@ if __name__ == "__main__":
         results = validated_results
 
         # Generate template images (animated GIF with border overlay)
-        sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
         output_dir = Path(__file__).parent / "output"
         output_dir.mkdir(exist_ok=True)
         print("\n  Creating listing images...")

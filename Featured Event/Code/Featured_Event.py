@@ -61,10 +61,6 @@ MAX_RESULTS_PER_QUERY = 10
 TOP_N_TITLES          = 10
 CANDIDATE_EVENTS      = 8   # ask Claude for up to this many in pass 2
 TARGET_EVENTS         = CANDIDATE_EVENTS  # legacy alias used in the prompt
-FINAL_EVENTS          = 3   # keep this many after the date-floor filter
-# Hard floor on picks per newsletter. Section is never empty — if the
-# initial Claude call returns fewer, we re-call with relaxed guardrails.
-MIN_PICKS_PER_NL      = 3
 # Date window for Notion event lookup: upcoming Friday → +14 days.
 DATE_WINDOW_DAYS      = 14
 
@@ -278,13 +274,11 @@ def build_search_queries(display_area: str, search_areas: list[str]) -> list[str
     # Compute the upcoming Fri-Sat-Sun. If today is past Fri (Sat/Sun/Mon),
     # we jump to the NEXT Friday. Most weekly newsletters target the
     # upcoming weekend not the current one.
-    from datetime import timedelta
     weekday = today.weekday()   # Mon=0..Sun=6
     days_to_fri = (4 - weekday) % 7
     if days_to_fri == 0:
         days_to_fri = 7         # already on Friday → use NEXT Friday
     next_fri = today + timedelta(days=days_to_fri)
-    next_sat = next_fri + timedelta(days=1)
     next_sun = next_fri + timedelta(days=2)
     fri_label = next_fri.strftime("%B %-d")    # e.g. "May 22"
     sun_label = next_sun.strftime("%-d, %Y")   # e.g. "24, 2026"
@@ -617,7 +611,7 @@ Candidates:
             "band", "festival", "event", "events", "show", "shows", "tour",
             "live", "music", "concert", "concerts", "party", "annual",
             "weekend", "evening", "night", "presents", "feat", "ticket",
-            "tickets", "presents",
+            "tickets",
             # Venue-type words
             "theatre", "theater", "arena", "stadium", "venue", "center",
             "centre", "park", "fest",
@@ -855,7 +849,7 @@ if __name__ == "__main__":
         #            Brave subscription ($0.005/request).
         try:
             sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'Free Events', 'Code'))
-            from Free_Events import fetch_event_image, fetch_event_images, _image_looks_real
+            from Free_Events import fetch_event_images, _image_looks_real
             from brave_search import search_images
 
             BRAVE_IMAGE_SKIP_HOSTS = (
@@ -868,14 +862,9 @@ if __name__ == "__main__":
                 "tkqlhce.com", "anrdoezrs.net",
             )
 
-            def _brave_image_fallback(event_name: str) -> str:
-                """Last-resort image find via Brave Image Search. Returns first OK URL."""
-                imgs = _brave_image_candidates(event_name, max_results=5)
-                return imgs[0] if imgs else ""
-
             def _brave_image_candidates(event_name: str, max_results: int = 8) -> list[str]:
-                """Brave Image Search → list of usable image URLs. Same filter as
-                the singular fallback but returns all that pass."""
+                """Brave Image Search → list of usable image URLs (stock /
+                affiliate hosts skipped, each URL validated as a real image)."""
                 if not BRAVE_NEWS_API_KEY:
                     return []
                 query = f"{event_name} {newsletter['display_area']}"
@@ -1013,6 +1002,9 @@ if __name__ == "__main__":
         # Pre-build the Canva header composite for every event so the
         # review app shows a preview immediately (no reviewer click needed).
         # The picker can regenerate later if the reviewer swaps images.
+        # Filenames built here are remembered so the active-row refresh
+        # below doesn't download + composite the same photos a second time.
+        built_header_files: set[str] = set()
         try:
             from header_image_maker import build_header_image
             from pathlib import Path as _Path
@@ -1034,6 +1026,7 @@ if __name__ == "__main__":
                 safe = "".join(c if c.isalnum() else "_" for c in title)[:40] or f"event_{idx}"
                 fname = f"Newsletter_Header_image_{newsletter['name']}_{safe}.png"
                 (header_out_dir / fname).write_bytes(png)
+                built_header_files.add(fname)
                 # Cache-bust so browsers/Notion don't serve a stale composite
                 # when the same filename gets rewritten on subsequent runs.
                 cache_bust = int(datetime.today().timestamp())
@@ -1145,6 +1138,11 @@ if __name__ == "__main__":
                     img_url = (props.get("Image URL", {}).get("url") or "").strip()
                     if not ev_name or not img_url:
                         continue
+                    safe = "".join(c if c.isalnum() else "_"
+                                   for c in ev_name)[:40] or "event"
+                    fname = f"Newsletter_Header_image_{newsletter['name']}_{safe}.png"
+                    if fname in built_header_files:
+                        continue  # just built above from the same photo
                     try:
                         png = _build_hdr(title=ev_name, photo_url=img_url)
                     except Exception as e:
@@ -1152,9 +1150,6 @@ if __name__ == "__main__":
                         continue
                     if not png:
                         continue
-                    safe = "".join(c if c.isalnum() else "_"
-                                   for c in ev_name)[:40] or "event"
-                    fname = f"Newsletter_Header_image_{newsletter['name']}_{safe}.png"
                     (hdr_out / fname).write_bytes(png)
                     refreshed += 1
                 print(f"  ↳ Rebuilt {refreshed} header PNG(s) "
