@@ -9,19 +9,22 @@ To add a new newsletter, just add an entry to NEWSLETTERS with search terms.
 No hardcoded news sources needed — Google News finds them automatically.
 """
 import os
+import re
 import sys
 import json
 import time
+import traceback
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 
 import requests
 import anthropic
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'NewsletterCreation', 'Code'))
-from notion_helper import HEADERS as NOTION_HEADERS, save_lowdown_to_notion
+from notion_helper import save_lowdown_to_notion
 from url_validator import validate_url
-from newsletters_config import NEWSLETTERS, filter_by_env
+from newsletters_config import filter_by_env
 from event_date_filter import brave_freshness_for_issue, effective_today
 
 NOTION_API_KEY = os.environ["NOTION_API_KEY"]
@@ -79,6 +82,15 @@ EXCLUDED_KEYWORDS = {
     "partisan", "impeach",
 }
 
+# Keywords must start at a word boundary: a plain substring test let "sues"
+# match "issues" and "sued" match "issued", which dropped school-closure and
+# weather-advisory stories. Suffixes still match ("murder" -> "murdered").
+EXCLUDED_KEYWORDS_RE = re.compile(
+    r"(?<![a-z0-9])("
+    + "|".join(sorted((re.escape(kw) for kw in EXCLUDED_KEYWORDS), key=len, reverse=True))
+    + ")"
+)
+
 # Domains we never source from: metered/soft paywalls that slip past automated
 # detection, plus low-quality news AGGREGATORS that republish others' reporting
 # (we want original local sources, not rewrites).
@@ -123,9 +135,12 @@ def load_skill_prompt() -> str:
 # ---------------------------------------------------------------------------
 # 3. FETCH NEWS VIA BRAVE SEARCH API
 # ---------------------------------------------------------------------------
+@lru_cache(maxsize=None)
 def is_paywalled(url: str) -> bool:
     """Check if a URL is behind a paywall.
-    Detects: hard paywalls (403), soft paywalls (JS popups), and metered paywalls."""
+    Detects: hard paywalls (403), soft paywalls (JS popups), and metered paywalls.
+    Cached per run: every kept article is re-checked when its sources are
+    rebuilt after the Claude pass, and retry rounds re-see the same URLs."""
     try:
         r = requests.get(url, timeout=8, allow_redirects=True,
                          headers={"User-Agent": "Mozilla/5.0 (compatible; newsletter-bot)"})
@@ -210,8 +225,9 @@ def fetch_news_brave(search_terms: list[str]) -> list[dict]:
                 title = item.get("title", "")
                 desc = item.get("description", "")
                 text_to_check = f"{title} {desc}".lower()
-                matched_keyword = next((kw for kw in EXCLUDED_KEYWORDS if kw in text_to_check), None)
-                if matched_keyword:
+                keyword_match = EXCLUDED_KEYWORDS_RE.search(text_to_check)
+                if keyword_match:
+                    matched_keyword = keyword_match.group(1)
                     print(f"    ✗ Skipping excluded topic ({matched_keyword}): {title[:60]}")
                     continue
 
@@ -281,7 +297,7 @@ def write_local_lowdown(articles: list[dict], newsletter_name: str, display_area
         try:
             response = client.messages.create(
                 model="claude-sonnet-4-6",
-                max_tokens=4000,
+                max_tokens=8000,
                 system=with_voice(skill_prompt),
                 messages=[{
                     "role": "user",
@@ -315,6 +331,13 @@ Articles:
             else:
                 raise
 
+    # A truncated reply surfaces as an opaque "Unterminated string" JSONDecodeError,
+    # so name the real cause.
+    if response.stop_reason == "max_tokens":
+        raise RuntimeError(
+            f"Claude hit max_tokens for {newsletter_name} ({len(articles)} articles in); "
+            "reply was truncated"
+        )
     raw = next(block.text for block in response.content if block.type == "text")
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip()
     result = json.loads(clean)
@@ -379,98 +402,8 @@ Articles:
 
 
 # ---------------------------------------------------------------------------
-# 5. WRITE TO NOTION CURRENT EDITION PAGE
+# 5. SAVE RESULTS
 # ---------------------------------------------------------------------------
-
-def notion_search_page(title: str) -> str | None:
-    """Search for an existing page by title. Returns page_id or None."""
-    r = requests.post(
-        "https://api.notion.com/v1/search",
-        headers=NOTION_HEADERS,
-        json={"query": title, "filter": {"value": "page", "property": "object"}},
-        timeout=30,
-    )
-    r.raise_for_status()
-    for result in r.json().get("results", []):
-        page_title = result.get("properties", {}).get("title", {}).get("title", [])
-        if page_title and page_title[0].get("text", {}).get("content", "") == title:
-            if not result.get("archived", False):
-                return result["id"]
-    return None
-
-
-def notion_get_blocks(page_id: str) -> list[dict]:
-    """Get all child blocks of a page."""
-    blocks = []
-    has_more = True
-    cursor = None
-    while has_more:
-        url = f"https://api.notion.com/v1/blocks/{page_id}/children?page_size=100"
-        if cursor:
-            url += f"&start_cursor={cursor}"
-        r = requests.get(url, headers=NOTION_HEADERS, timeout=30)
-        r.raise_for_status()
-        data = r.json()
-        blocks += data.get("results", [])
-        has_more = data.get("has_more", False)
-        cursor = data.get("next_cursor")
-    return blocks
-
-
-def find_section_and_replace(page_id: str, heading_text: str, new_blocks: list[dict]) -> bool:
-    """Find a section by heading text, clear its content, insert new blocks."""
-    blocks = notion_get_blocks(page_id)
-
-    found_heading = False
-    heading_id = None
-    section_block_ids = []
-
-    for block in blocks:
-        block_type = block.get("type", "")
-        if not found_heading:
-            if block_type.startswith("heading_"):
-                rich_text = block.get(block_type, {}).get("rich_text", [])
-                text = "".join(t.get("text", {}).get("content", "") for t in rich_text)
-                if heading_text.lower() in text.lower():
-                    found_heading = True
-                    heading_id = block["id"]
-                    continue
-        else:
-            if block_type.startswith("heading_") or block_type == "divider":
-                break
-            section_block_ids.append(block["id"])
-
-    if not heading_id:
-        print(f"  Could not find heading '{heading_text}' on page")
-        return False
-
-    # Delete old content
-    for bid in section_block_ids:
-        requests.delete(f"https://api.notion.com/v1/blocks/{bid}", headers=NOTION_HEADERS, timeout=30)
-
-    # Insert new blocks after the heading
-    if new_blocks:
-        r = requests.patch(
-            f"https://api.notion.com/v1/blocks/{page_id}/children",
-            headers=NOTION_HEADERS,
-            json={"children": new_blocks, "after": heading_id},
-            timeout=30,
-        )
-        if not r.ok:
-            print(f"  Failed to insert blocks: {r.text[:300]}")
-            return False
-
-    return True
-
-
-def paragraph_block(text: str, bold: bool = False) -> dict:
-    annotations = {"bold": bold} if bold else {}
-    return {
-        "object": "block", "type": "paragraph",
-        "paragraph": {"rich_text": [{"type": "text", "text": {"content": text}, "annotations": annotations}]},
-    }
-
-
 def save_results(result: dict, newsletter_name: str) -> None:
     """Save to Notion database. The assembler handles writing to the Current Edition page."""
     # Save to database (assembler reads from here)
@@ -487,88 +420,102 @@ def save_results(result: dict, newsletter_name: str) -> None:
 # ---------------------------------------------------------------------------
 # 6. MAIN
 # ---------------------------------------------------------------------------
+def run_newsletter(newsletter: dict, skill_prompt: str, pub_date: str) -> None:
+    print(f"\n{'='*60}")
+    print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
+    print(f"{'='*60}")
+
+    # Search for local news via Brave — retry with broader terms if not enough
+    articles = fetch_news_brave(newsletter["lowdown_search_terms"])
+
+    if len(articles) < MIN_ARTICLES:
+        retry_terms = newsletter.get("lowdown_retry_terms", [])
+        for attempt in range(1, MAX_RETRIES + 1):
+            if len(articles) >= MIN_ARTICLES or not retry_terms:
+                break
+            print(f"\n  Retry {attempt}/{MAX_RETRIES} — only {len(articles)} eligible articles, need {MIN_ARTICLES}")
+            # Use next batch of retry terms
+            extra_terms = retry_terms[:RETRY_TERMS_PER_ROUND]
+            retry_terms = retry_terms[RETRY_TERMS_PER_ROUND:]
+            print(f"  Broadening search with: {extra_terms}")
+            extra_articles = fetch_news_brave(extra_terms)
+            # Deduplicate against what we already have
+            existing_urls = {a["url"] for a in articles}
+            existing_titles = {a["title"].lower().strip() for a in articles}
+            for a in extra_articles:
+                if a["url"] not in existing_urls and a["title"].lower().strip() not in existing_titles:
+                    articles.append(a)
+                    existing_urls.add(a["url"])
+                    existing_titles.add(a["title"].lower().strip())
+            print(f"  Now have {len(articles)} eligible articles")
+
+    if not articles:
+        print(f"  No articles found for {newsletter['name']}. Skipping.")
+        return
+
+    # Add coverage area to each article for Claude
+    for a in articles:
+        a["coverage_area"] = newsletter["name"]
+
+    # Claude selects and writes — retry with more articles if too few stories selected
+    result = None
+    retry_terms = newsletter.get("lowdown_retry_terms", [])[:]
+    for claude_attempt in range(MAX_RETRIES + 1):
+        print(f"\n  Sending {len(articles)} articles to Claude...")
+        result = write_local_lowdown(
+            articles=articles,
+            newsletter_name=newsletter["name"],
+            display_area=newsletter["display_area"],
+            skill_prompt=skill_prompt,
+            pub_date=pub_date,
+        )
+
+        stories_count = len(result.get("stories", []))
+        if stories_count >= MIN_STORIES:
+            break
+
+        if claude_attempt >= MAX_RETRIES or not retry_terms:
+            print(f"  Warning: only {stories_count} stories after all retries, saving anyway")
+            break
+
+        print(f"\n  Only {stories_count} stories selected (need {MIN_STORIES}), fetching more articles...")
+        extra_terms = retry_terms[:RETRY_TERMS_PER_ROUND]
+        retry_terms = retry_terms[RETRY_TERMS_PER_ROUND:]
+        print(f"  Broadening search with: {extra_terms}")
+        extra_articles = fetch_news_brave(extra_terms)
+        existing_urls = {a["url"] for a in articles}
+        existing_titles = {a["title"].lower().strip() for a in articles}
+        added = 0
+        for a in extra_articles:
+            if a["url"] not in existing_urls and a["title"].lower().strip() not in existing_titles:
+                a["coverage_area"] = newsletter["name"]
+                articles.append(a)
+                existing_urls.add(a["url"])
+                existing_titles.add(a["title"].lower().strip())
+                added += 1
+        print(f"  Added {added} new articles, total now {len(articles)}")
+
+    # Save
+    save_results(result, newsletter["name"])
+    print(f"\n  Done with {newsletter['name']}.")
+
+
 if __name__ == "__main__":
     print(f"Starting Local Lowdown automation — {datetime.today().strftime('%Y-%m-%d')}")
     skill_prompt = load_skill_prompt()
     pub_date = effective_today().strftime("%Y-%m-%d")  # honors ISSUE_DATE
 
+    # One newsletter's failure shouldn't cost the others their section; still
+    # exit non-zero at the end so the run shows red.
+    failed = []
     for newsletter in filter_by_env():
-        print(f"\n{'='*60}")
-        print(f"Processing: {newsletter['name']} ({newsletter['display_area']})")
-        print(f"{'='*60}")
+        try:
+            run_newsletter(newsletter, skill_prompt, pub_date)
+        except Exception:
+            traceback.print_exc()
+            print(f"\n  ✗ {newsletter['name']} failed, continuing with the next newsletter")
+            failed.append(newsletter["name"])
 
-        # Search for local news via Brave — retry with broader terms if not enough
-        articles = fetch_news_brave(newsletter["lowdown_search_terms"])
-
-        if len(articles) < MIN_ARTICLES:
-            retry_terms = newsletter.get("lowdown_retry_terms", [])
-            for attempt in range(1, MAX_RETRIES + 1):
-                if len(articles) >= MIN_ARTICLES or not retry_terms:
-                    break
-                print(f"\n  Retry {attempt}/{MAX_RETRIES} — only {len(articles)} eligible articles, need {MIN_ARTICLES}")
-                # Use next batch of retry terms
-                extra_terms = retry_terms[:RETRY_TERMS_PER_ROUND]
-                retry_terms = retry_terms[RETRY_TERMS_PER_ROUND:]
-                print(f"  Broadening search with: {extra_terms}")
-                extra_articles = fetch_news_brave(extra_terms)
-                # Deduplicate against what we already have
-                existing_urls = {a["url"] for a in articles}
-                existing_titles = {a["title"].lower().strip() for a in articles}
-                for a in extra_articles:
-                    if a["url"] not in existing_urls and a["title"].lower().strip() not in existing_titles:
-                        articles.append(a)
-                        existing_urls.add(a["url"])
-                        existing_titles.add(a["title"].lower().strip())
-                print(f"  Now have {len(articles)} eligible articles")
-
-        if not articles:
-            print(f"  No articles found for {newsletter['name']}. Skipping.")
-            continue
-
-        # Add coverage area to each article for Claude
-        for a in articles:
-            a["coverage_area"] = newsletter["name"]
-
-        # Claude selects and writes — retry with more articles if too few stories selected
-        result = None
-        retry_terms = newsletter.get("lowdown_retry_terms", [])[:]
-        for claude_attempt in range(MAX_RETRIES + 1):
-            print(f"\n  Sending {len(articles)} articles to Claude...")
-            result = write_local_lowdown(
-                articles=articles,
-                newsletter_name=newsletter["name"],
-                display_area=newsletter["display_area"],
-                skill_prompt=skill_prompt,
-                pub_date=pub_date,
-            )
-
-            stories_count = len(result.get("stories", []))
-            if stories_count >= MIN_STORIES:
-                break
-
-            if claude_attempt >= MAX_RETRIES or not retry_terms:
-                print(f"  Warning: only {stories_count} stories after all retries, saving anyway")
-                break
-
-            print(f"\n  Only {stories_count} stories selected (need {MIN_STORIES}), fetching more articles...")
-            extra_terms = retry_terms[:RETRY_TERMS_PER_ROUND]
-            retry_terms = retry_terms[RETRY_TERMS_PER_ROUND:]
-            print(f"  Broadening search with: {extra_terms}")
-            extra_articles = fetch_news_brave(extra_terms)
-            existing_urls = {a["url"] for a in articles}
-            existing_titles = {a["title"].lower().strip() for a in articles}
-            added = 0
-            for a in extra_articles:
-                if a["url"] not in existing_urls and a["title"].lower().strip() not in existing_titles:
-                    a["coverage_area"] = newsletter["name"]
-                    articles.append(a)
-                    existing_urls.add(a["url"])
-                    existing_titles.add(a["title"].lower().strip())
-                    added += 1
-            print(f"  Added {added} new articles, total now {len(articles)}")
-
-        # Save
-        save_results(result, newsletter["name"])
-        print(f"\n  Done with {newsletter['name']}.")
-
+    if failed:
+        sys.exit(f"Local Lowdown failed for: {', '.join(failed)}")
     print("\nAll newsletters complete.")
