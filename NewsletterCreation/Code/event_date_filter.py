@@ -21,7 +21,7 @@ Public API:
     parse_event_date(text, today=None)        -> date | None
     extract_dates_from_text(text, today=None) -> list[date]
     filter_candidates_by_date(candidates, floor) -> (kept, dropped_urls)
-    filter_past_events(events, floor)         -> kept events
+    filter_events_to_window(events, floor, ceiling=None) -> kept events
 """
 import os
 import re
@@ -71,7 +71,7 @@ def parse_issue_date(arg: str | None) -> date | None:
         ) from None
 
 
-def section_date_window(default_days: int = 14) -> tuple[date, date | None]:
+def section_date_window() -> tuple[date, date | None]:
     """Returns (floor, ceiling) for a section's date window.
 
     With ISSUE_DATE set: (issue_date, issue_date + 6 days). That's
@@ -80,7 +80,7 @@ def section_date_window(default_days: int = 14) -> tuple[date, date | None]:
 
     Without ISSUE_DATE: (upcoming_friday(), None). Ceiling is None so
     sections can apply their own default upper bound (typically
-    floor + default_days for the Notion query) without enforcing it
+    floor + N days for the Notion query) without enforcing it
     as a hard post-Claude filter — preserves current 'this week-ish'
     behavior.
 
@@ -110,9 +110,8 @@ def filter_events_to_window(events: list[dict], floor: date,
                             date_key: str = "date") -> list[dict]:
     """Unified post-Claude date-window filter. Drops events whose
     `date_key` parses outside [floor, ceiling]. When ceiling is None,
-    only the floor is enforced (equivalent to filter_past_events).
-    Events with unparseable dates are KEPT (same convention as the
-    other filters — pre-Claude is the primary gate).
+    only the floor is enforced. Events with unparseable dates are KEPT
+    (same convention as the other filters — pre-Claude is the primary gate).
 
     Replaces the floor-only vs floor+ceiling branching that FE / Free
     Events previously had inline."""
@@ -309,8 +308,7 @@ def _recover_date_via_page_fetch(url: str, max_chars: int = 60_000) -> list[date
         if resp.status_code != 200 or not resp.text:
             return []
         # Strip tags cheaply — we just need body text
-        import re as _re
-        body = _re.sub(r"<[^>]+>", " ", resp.text[:max_chars])
+        body = re.sub(r"<[^>]+>", " ", resp.text[:max_chars])
         return extract_dates_from_text(body)
     except Exception:
         return []
@@ -341,8 +339,9 @@ def filter_candidates_by_date(candidates: list[dict], floor: date,
         text = " ".join(str(c.get(k, "") or "") for k in text_keys)
         dates = extract_dates_from_text(text)
         # Try page-fetch recovery for candidates with NO parseable dates.
-        if not dates and recover_missing and fetches_used < max_page_fetches:
-            url = c.get("url") or c.get("source_url") or ""
+        url = c.get("url") or c.get("source_url") or ""
+        # URL-less candidates can't be fetched, so they don't spend the budget.
+        if not dates and recover_missing and url and fetches_used < max_page_fetches:
             dates = _recover_date_via_page_fetch(url)
             fetches_used += 1
             if dates:
@@ -354,49 +353,12 @@ def filter_candidates_by_date(candidates: list[dict], floor: date,
             print(f"    ✗ past-only candidate dropped: "
                   f"{(c.get('title') or c.get('event_name') or '')[:70]!r} "
                   f"(dates={[d.isoformat() for d in dates]})")
-            dropped_urls.append(c.get("url") or c.get("source_url") or "")
+            dropped_urls.append(url)
             continue
         kept.append(c)
     if fetches_used:
         print(f"    [date-recovery] fetched {fetches_used} page(s) to look for missing dates")
     return kept, [u for u in dropped_urls if u]
-
-
-def filter_past_events(events: list[dict], floor: date,
-                       date_key: str = "date") -> list[dict]:
-    """Post-Claude filter: drop events whose `date_key` field parses to a
-    date < floor. Events with unparseable dates are kept."""
-    kept = []
-    for e in events:
-        parsed = parse_event_date(e.get(date_key, ""))
-        if parsed and parsed < floor:
-            print(f"  ✗ Dropping past-dated event: "
-                  f"{e.get('event_name', e.get('title','?'))} "
-                  f"({e.get(date_key, '?')} → {parsed})")
-            continue
-        kept.append(e)
-    return kept
-
-
-def filter_events_in_date_range(events: list[dict], start: date, end: date,
-                                date_key: str = "date") -> list[dict]:
-    """Post-Claude filter: drop events whose `date_key` field parses to a
-    date OUTSIDE [start, end] inclusive. Events with unparseable dates are
-    KEPT (same convention as filter_past_events) — the candidate-side
-    pre-filter is the primary date gate, this is belt-and-suspenders.
-
-    Used by Featured Event + Free Events when an issue_date override pins
-    the section to a specific Thu..next-Wed window."""
-    kept = []
-    for e in events:
-        parsed = parse_event_date(e.get(date_key, ""))
-        if parsed and not (start <= parsed <= end):
-            print(f"  ✗ Dropping out-of-range event: "
-                  f"{e.get('event_name', e.get('title','?'))} "
-                  f"({e.get(date_key, '?')} → {parsed}; window {start}..{end})")
-            continue
-        kept.append(e)
-    return kept
 
 
 def filter_candidates_in_date_range(candidates: list[dict],

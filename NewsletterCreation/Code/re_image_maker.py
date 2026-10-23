@@ -13,7 +13,6 @@ If multiple photos are provided, the result is an animated GIF that cycles
 through photos in the photo box while keeping the template background static.
 """
 import io
-import os
 from pathlib import Path
 
 import requests
@@ -218,7 +217,8 @@ def _draw_listing_overlay(base: Image.Image, cfg: dict, price: int, beds: int,
     if lot_str:
         lines.append(f"•  {lot_str}")
     bx = cfg["bullet_x"]
-    for line, by in zip(lines, cfg["bullet_y"]):
+    # Non-strict: fewer bullet lines than slots is normal (missing data).
+    for line, by in zip(lines, cfg["bullet_y"], strict=False):
         draw.text((bx, by), line, fill=(20, 20, 20), font=bullet_font)
 
     # --- 2. White-out the $ area and redraw the full price ---
@@ -316,7 +316,6 @@ def create_listing_image(
     address: str,
     listing_url: str = "",
     lot_info: str = "",
-    photo_right: bool = False,  # kept for backwards compat — now determined by tier
 ) -> bytes:
     """Return PNG (single photo) or GIF (multiple photos) bytes for the listing."""
     cfg = LAYOUTS.get(tier)
@@ -404,8 +403,10 @@ def generate_re_images(listings: list[dict], newsletter_name: str, output_dir: s
 
         slug = tier.lower().replace(" ", "_")
         # Multi-photo case is encoded as animated GIF (universal email support);
-        # single-photo case is a static PNG.
-        ext = "gif" if len(photo_urls) > 1 else "png"
+        # single-photo case is a static PNG. Decide from the bytes, not the URL
+        # count: if all but one photo fetch fails, create_listing_image
+        # returns a PNG even though several URLs were passed.
+        ext = "gif" if img_bytes[:6] in (b"GIF87a", b"GIF89a") else "png"
         filename = f"re_{newsletter_name}_{slug}_template_{datetime.datetime.today().strftime('%Y%m%d')}.{ext}"
         filepath = out / filename
         filepath.write_bytes(img_bytes)

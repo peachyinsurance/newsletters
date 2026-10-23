@@ -51,7 +51,11 @@ def _try_parse_json(s: str):
 
     # Salvage: find the first balanced {...} object or [...] array in the text.
     # Greedy regex grabs from the first opener to the last closer of the same kind.
-    for opener, closer in (("[", "]"), ("{", "}")):
+    # Try whichever opener appears FIRST: otherwise prose + `{"events": [...]}`
+    # would salvage the inner list instead of the outer object.
+    pairs = [("[", "]"), ("{", "}")]
+    pairs.sort(key=lambda p: cleaned.find(p[0]) if p[0] in cleaned else len(cleaned))
+    for opener, closer in pairs:
         pattern = re.escape(opener) + r"[\s\S]*" + re.escape(closer)
         m = re.search(pattern, cleaned)
         if m:

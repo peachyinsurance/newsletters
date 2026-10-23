@@ -210,20 +210,22 @@ def _image_looks_real(url: str) -> bool:
     if not url:
         return False
     try:
-        r = requests.get(
+        # `with` closes the streamed response so the pooled connection isn't
+        # left half-read after we only consume the first chunk.
+        with requests.get(
             url, timeout=8, allow_redirects=True, stream=True,
             headers={"User-Agent": USER_AGENT},
-        )
-        if r.status_code != 200:
-            return False
-        ct = (r.headers.get("Content-Type") or "").lower()
-        chunk = next(r.iter_content(8192), b"")
-        # Accept a genuine image even when the CDN mislabels its Content-Type
-        # (e.g. cdn.evbuc.com → binary/octet-stream).
-        if not (ct.startswith("image/") or _looks_like_image_bytes(chunk)):
-            return False
-        size = int(r.headers.get("Content-Length") or 0) or len(chunk)
-        return size >= 5_000
+        ) as r:
+            if r.status_code != 200:
+                return False
+            ct = (r.headers.get("Content-Type") or "").lower()
+            chunk = next(r.iter_content(8192), b"")
+            # Accept a genuine image even when the CDN mislabels its Content-Type
+            # (e.g. cdn.evbuc.com → binary/octet-stream).
+            if not (ct.startswith("image/") or _looks_like_image_bytes(chunk)):
+                return False
+            size = int(r.headers.get("Content-Length") or 0) or len(chunk)
+            return size >= 5_000
     except Exception:
         return False
 

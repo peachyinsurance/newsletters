@@ -50,13 +50,15 @@ def render_options(names: list[str]) -> str:
 def sync_file(path: Path, names: list[str]) -> bool:
     """Rewrite a workflow file's newsletter dropdown options. Returns True
     if the file was modified."""
-    text = path.read_text()
+    # Explicit UTF-8: workflows contain non-ASCII (✓, emoji) and the
+    # platform default (cp1252 on Windows) can't round-trip them.
+    text = path.read_text(encoding="utf-8")
     if "      newsletter:" not in text:
         return False
     new_options = render_options(names)
     new_text, n = PATTERN.subn(lambda m: m.group(1) + new_options, text)
     if n and new_text != text:
-        path.write_text(new_text)
+        path.write_text(new_text, encoding="utf-8")
         return True
     return False
 

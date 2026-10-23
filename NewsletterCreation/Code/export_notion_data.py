@@ -196,7 +196,6 @@ def export_business_briefs():
     if not db_id:
         print("⚠ NOTION_BUSINESS_BRIEF_DB_ID empty — skipping business briefs export")
         return
-    from notion_helper import query_database  # noqa: E402
     pages = query_database(db_id)
     briefs = []
     for page in pages:
@@ -248,7 +247,6 @@ def export_memes():
     if not db_id:
         print("⚠ NOTION_MEMES_DB_ID empty — skipping memes export")
         return
-    from notion_helper import query_database  # local import (avoid top-of-file change)
     pages = query_database(db_id)
     memes = []
     for page in pages:
@@ -281,7 +279,6 @@ def export_insurance_tips():
     if not db_id:
         print("⚠ NOTION_TIPS_DB_ID empty — skipping insurance tips export")
         return
-    from notion_helper import query_database  # local import (avoid top-of-file change)
     pages = query_database(db_id)
     tips = []
     for page in pages:
@@ -325,7 +322,6 @@ def export_in_search_of():
         # deploy's cp step never fails and the review app shows "no candidates".
         print("⚠ NOTION_IN_SEARCH_OF_DB_ID empty — writing empty in_search_of.json")
     else:
-        from notion_helper import query_database  # local import (avoid top-of-file change)
         pages = query_database(db_id)
     for page in pages:
         props = page["properties"]

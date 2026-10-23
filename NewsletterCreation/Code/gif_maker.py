@@ -124,7 +124,7 @@ def _crop_to_aspect(img: Image.Image, target_w: int, target_h: int, keep_top: bo
 
 def _add_label(img: Image.Image, text: str) -> Image.Image:
     """Add a text label bar at the bottom of the image."""
-    from PIL import ImageDraw, ImageFont
+    from PIL import ImageFont
 
     draw = ImageDraw.Draw(img)
     bar_height = 40

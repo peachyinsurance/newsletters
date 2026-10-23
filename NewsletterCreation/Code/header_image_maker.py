@@ -31,7 +31,6 @@ TEMPLATE_PATH = REPO_ROOT / "Featured Event" / "Template" / "feature_event_image
 # (1200x630). Update if the template changes.
 BLOB_BBOX  = (650, 78, 1122, 552)   # rectangle that fully contains the chroma blob
 TITLE_BOX  = (40, 80, 600, 360)     # rectangle the title should fill (left side)
-TITLE_FILL = (255, 255, 255)        # white text reads cleanly on red bg
 
 # ── Body GIF template (used for build_event_body_gif) ──
 # Photo blob is the rounded square on the LEFT, text placeholders fill
@@ -111,8 +110,9 @@ def _find_chroma_bbox(im: Image.Image, target_rgb: tuple[int, int, int],
     bbox = mask.getbbox()
     if bbox is None:
         return None
-    # Reject tiny noise (anti-alias bleed from a different color)
-    pixel_count = sum(1 for p in mask.getdata() if p > 0)
+    # Reject tiny noise (anti-alias bleed from a different color).
+    # histogram()[0] is the zero-pixel count; far faster than a Python loop.
+    pixel_count = mask.width * mask.height - mask.histogram()[0]
     if pixel_count < 30:
         return None
     return bbox
@@ -154,30 +154,12 @@ def _build_blob_mask(template_rgb: Image.Image) -> Image.Image:
     Pure-Pillow. Works against a solid-fill placeholder color
     (e.g., #FF00FF magenta) — far more reliable than the old multi-color
     sky/cloud/grass detection.
+
+    Restricted to BLOB_BBOX, which kills any stray pixels of the key color
+    elsewhere on the template (logo, decorations, etc.). Same chroma +
+    dilate/blur pipeline as the body template's mask.
     """
-    R, G, B = template_rgb.split()
-    kr, kg, kb = CHROMA_KEY_RGB
-    tol = CHROMA_TOLERANCE
-
-    def _within(channel: Image.Image, target: int) -> Image.Image:
-        lo, hi = max(0, target - tol), min(255, target + tol)
-        return channel.point(lambda p, lo=lo, hi=hi: 255 if lo <= p <= hi else 0)
-
-    mask = ImageChops.multiply(
-        ImageChops.multiply(_within(R, kr), _within(G, kg)),
-        _within(B, kb),
-    )
-
-    # Restrict to blob bbox — kills any stray pixels of the key color
-    # elsewhere on the template (logo, decorations, etc.).
-    bbox_mask = Image.new("L", template_rgb.size, 0)
-    ImageDraw.Draw(bbox_mask).rectangle(BLOB_BBOX, fill=255)
-    mask = ImageChops.multiply(mask, bbox_mask)
-
-    # Small dilation + blur to swallow any 1-2px anti-aliased edge ring
-    # between the chroma fill and the blob outline.
-    mask = mask.filter(ImageFilter.MaxFilter(size=3))
-    return mask.filter(ImageFilter.GaussianBlur(radius=1.0))
+    return _build_body_chroma_mask(template_rgb, bbox=BLOB_BBOX)
 
 
 def _load_font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
@@ -371,7 +353,6 @@ def _draw_body_field(base: Image.Image, text: str,
     Wrapping: if max_lines > 1, text may wrap up to that many lines
     within `right_boundary`."""
     x1, y1, x2, y2 = bbox
-    box_w, box_h = x2 - x1, y2 - y1
     draw = ImageDraw.Draw(base)
 
     # 1. ALWAYS cover the chroma placeholder with the surrounding bg
@@ -488,6 +469,53 @@ def build_event_body_gif(*, title: str = "", location_name: str = "",
     field_values = {"title": title, "location": location_name,
                     "address": address, "date": date}
 
+    # Text overlays are the same on every frame, so the font sizing is
+    # computed once here rather than per photo.
+    # Determine a UNIFORM shrink ratio across all fields so the
+    # design hierarchy (title > location/date > address) is preserved
+    # even when long text would otherwise force a single field to
+    # shrink way more than the others.
+    #
+    # Fields with max_lines > 1 (title) can WRAP to avoid shrinking.
+    # They only contribute to the shrink ratio if even wrapping to
+    # max_lines doesn't fit within the allowed width.
+    right_padding = 8
+    shrink_ratio = 1.0
+    # Measurement only (textlength); drawing nothing on the template.
+    tmp_draw = ImageDraw.Draw(template)
+    for fname in ("title", "location", "address", "date"):
+        bb = field_bboxes.get(fname)
+        if bb is None:
+            continue
+        text = field_values.get(fname, "")
+        if not text:
+            continue
+        bbox_h = bb[3] - bb[1]
+        design_size = max(12, int(round(bbox_h / CAP_HEIGHT_RATIO)))
+        allowed_w = container_right - bb[0] - right_padding
+        max_lines = BODY_FIELD_MAX_LINES.get(fname, 1)
+        font = _load_font(design_size, bold=BODY_FIELD_BOLD.get(fname, True))
+
+        if max_lines > 1:
+            # Field can wrap — only force shrink if even wrapping fits too few lines.
+            lines = _wrap_text(text, font, tmp_draw, allowed_w)
+            if len(lines) <= max_lines:
+                continue   # wraps cleanly at design size, no shrink needed
+            # Even wrapping isn't enough — find the size where it does fit
+            # in max_lines, contribute that ratio to the global shrink.
+            trial = design_size
+            while trial > 12:
+                trial = max(12, int(trial * 0.95))
+                trial_font = _load_font(trial, bold=BODY_FIELD_BOLD.get(fname, True))
+                if len(_wrap_text(text, trial_font, tmp_draw, allowed_w)) <= max_lines:
+                    break
+            shrink_ratio = min(shrink_ratio, trial / design_size)
+        else:
+            # Single-line field — must fit on one line.
+            text_w = tmp_draw.textlength(text, font=font)
+            if text_w > allowed_w:
+                shrink_ratio = min(shrink_ratio, allowed_w / text_w)
+
     frames: list[Image.Image] = []
     for url in photo_urls[:6]:
         photo = _fetch_photo(url)
@@ -503,52 +531,8 @@ def build_event_body_gif(*, title: str = "", location_name: str = "",
         outline_layer = Image.new("RGB", template.size, OUTLINE_COLOR)
         frame = Image.composite(outline_layer, frame, outline_mask)
 
-        # Text overlays — same on every frame, each one painted over its
-        # auto-detected chroma rectangle.
-        # Determine a UNIFORM shrink ratio across all fields so the
-        # design hierarchy (title > location/date > address) is preserved
-        # even when long text would otherwise force a single field to
-        # shrink way more than the others.
-        #
-        # Fields with max_lines > 1 (title) can WRAP to avoid shrinking.
-        # They only contribute to the shrink ratio if even wrapping to
-        # max_lines doesn't fit within the allowed width.
-        right_padding = 8
-        shrink_ratio = 1.0
-        tmp_draw = ImageDraw.Draw(frame)
-        for fname in ("title", "location", "address", "date"):
-            bb = field_bboxes.get(fname)
-            if bb is None:
-                continue
-            text = field_values.get(fname, "")
-            if not text:
-                continue
-            bbox_h = bb[3] - bb[1]
-            design_size = max(12, int(round(bbox_h / CAP_HEIGHT_RATIO)))
-            allowed_w = container_right - bb[0] - right_padding
-            max_lines = BODY_FIELD_MAX_LINES.get(fname, 1)
-            font = _load_font(design_size, bold=BODY_FIELD_BOLD.get(fname, True))
-
-            if max_lines > 1:
-                # Field can wrap — only force shrink if even wrapping fits too few lines.
-                lines = _wrap_text(text, font, tmp_draw, allowed_w)
-                if len(lines) <= max_lines:
-                    continue   # wraps cleanly at design size, no shrink needed
-                # Even wrapping isn't enough — find the size where it does fit
-                # in max_lines, contribute that ratio to the global shrink.
-                trial = design_size
-                while trial > 12:
-                    trial = max(12, int(trial * 0.95))
-                    trial_font = _load_font(trial, bold=BODY_FIELD_BOLD.get(fname, True))
-                    if len(_wrap_text(text, trial_font, tmp_draw, allowed_w)) <= max_lines:
-                        break
-                shrink_ratio = min(shrink_ratio, trial / design_size)
-            else:
-                # Single-line field — must fit on one line.
-                text_w = tmp_draw.textlength(text, font=font)
-                if text_w > allowed_w:
-                    shrink_ratio = min(shrink_ratio, allowed_w / text_w)
-
+        # Text overlays: each one painted over its auto-detected chroma
+        # rectangle, using the shrink ratio computed above.
         for fname in ("title", "location", "address", "date"):
             bb = field_bboxes.get(fname)
             if bb is None:

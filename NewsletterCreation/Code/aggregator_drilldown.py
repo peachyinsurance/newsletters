@@ -224,12 +224,11 @@ def find_primary_url(aggregator_url: str, title: str = "") -> str | None:
     else:
         body = soup
 
-    title_tokens = {t for t in re.findall(r"\w+", (title or "").lower())
-                    if len(t) > 3 and not t.isdigit()}
-
     def _tokens_of(text: str) -> set[str]:
         return {t for t in re.findall(r"\w+", (text or "").lower())
                 if len(t) > 3 and not t.isdigit()}
+
+    title_tokens = _tokens_of(title)
 
     def _overlap(other_tokens: set[str]) -> int:
         return len(title_tokens & other_tokens) if title_tokens else 0
@@ -239,16 +238,10 @@ def find_primary_url(aggregator_url: str, title: str = "") -> str | None:
     # label; links share heading-context if they fall under the same one.
 
     def _section_heading_for(elem) -> str:
-        """Walk previous siblings/parents to find the nearest preceding
-        heading. Returns the heading text (or '')."""
-        # Try previous siblings first (typical listicle: <h2>X</h2><p>...<a>...</a>)
-        cur = elem
-        for _ in range(50):  # cap walk depth
-            prev = cur.find_previous(HEADING_TAGS)
-            if prev:
-                return prev.get_text(strip=True)
-            break
-        return ""
+        """Find the nearest preceding heading in document order (typical
+        listicle: <h2>X</h2><p>...<a>...</a>). Returns the heading text (or '')."""
+        prev = elem.find_previous(HEADING_TAGS)
+        return prev.get_text(strip=True) if prev else ""
 
     candidates: list[tuple[int, str, str, str]] = []  # (score, url, anchor, heading)
     seen_urls: set[str] = set()

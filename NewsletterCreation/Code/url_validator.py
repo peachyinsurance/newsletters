@@ -51,8 +51,10 @@ def validate_url(url: str, timeout: int = DEFAULT_TIMEOUT) -> bool:
             return True
         # Some servers reject HEAD — fallback to GET
         if r.status_code in (405, 403, 406):
-            r = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True, stream=True)
-            return r.status_code < 400
+            # stream=True skips the body; `with` releases the connection.
+            with requests.get(url, headers=headers, timeout=timeout,
+                              allow_redirects=True, stream=True) as r:
+                return r.status_code < 400
         return False
     except (requests.RequestException, Exception):
         return False

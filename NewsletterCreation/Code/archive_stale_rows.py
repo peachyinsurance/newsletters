@@ -112,7 +112,9 @@ def archive_stale_in_db(db_id: str, label: str) -> tuple[int, int]:
             # Rows with no date — treat as stale (legacy / orphan rows)
             if date_str:
                 try:
-                    row_date = date.fromisoformat(date_str)
+                    # [:10]: a date with "Include time" on is a full
+                    # datetime string, which date.fromisoformat rejects.
+                    row_date = date.fromisoformat(date_str[:10])
                 except ValueError:
                     row_date = None
                 if row_date and row_date >= CUTOFF_DATE:
