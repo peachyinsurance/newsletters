@@ -130,10 +130,13 @@
 
     // Build the return URL from the email's UTM params so readers go back to
     // the SAME issue rather than the publication home page.
+    // utm_source comes straight from the query string, so only accept our own
+    // newsletter hosts; anything else would make this page an open redirect.
+    const KNOWN_HOSTS = ['www.eastcobbconnect.com', 'www.perimeterpost.com', 'www.lewisvillelakelookout.com'];
     function buildReturnUrl() {
       const utmCampaign = params.get('utm_campaign') || '';
       const utmSource   = (params.get('utm_source')  || '').toLowerCase();
-      const fallbackHost = utmSource.startsWith('www.') ? utmSource : 'www.eastcobbconnect.com';
+      const fallbackHost = KNOWN_HOSTS.includes(utmSource) ? utmSource : 'www.eastcobbconnect.com';
       if (utmCampaign && /^[a-z0-9-]+$/i.test(utmCampaign)) {
         return 'https://' + fallbackHost + '/p/' + utmCampaign;
       }

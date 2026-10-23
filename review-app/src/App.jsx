@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import "./styles.css";
 import { isOddWeek, checkPassword, decodeBase64Utf8 } from "./helpers";
 import PetTile from "./PetTile";
@@ -13,6 +13,66 @@ import MemeTile from "./MemeTile";
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 const GITHUB_OWNER = "peachyinsurance";
 const GITHUB_REPO  = "newsletters";
+const GITHUB_API   = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}`;
+
+// ── GITHUB API HELPERS ───────────────────────────────────────────────────────
+function ghHeaders(token) {
+  return { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" };
+}
+
+// Read-modify-write a section's JSON file on gh-pages. `mutate(rows)` edits
+// the rows in place. The PUT carries the file's blob sha, so a concurrent
+// write (another editor, or Deploy Review App re-exporting the file) is
+// rejected with 409 instead of being silently overwritten; in that case we
+// re-read the fresh file and re-apply the change once before giving up.
+async function updateDataFile(token, dataFile, message, mutate) {
+  const headers = ghHeaders(token);
+  for (let attempt = 1; ; attempt++) {
+    const fileUrl = `${GITHUB_API}/contents/${dataFile}?ref=gh-pages&_=${Date.now()}`;
+    const fileRes = await fetch(fileUrl, { headers, cache: "no-store" });
+    if (!fileRes.ok) throw new Error("Could not fetch data file from gh-pages");
+    const fileInfo = await fileRes.json();
+    const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));
+    mutate(rows);
+    const commitRes = await fetch(fileUrl, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        message,
+        content: btoa(unescape(encodeURIComponent(JSON.stringify(rows, null, 2)))),
+        sha: fileInfo.sha,
+        branch: "gh-pages",
+      }),
+    });
+    if (commitRes.ok) return rows;
+    if (commitRes.status === 409 && attempt < 2) continue;
+    throw new Error("Could not update data file on gh-pages");
+  }
+}
+
+// Dispatch a workflow on main. Throws on a non-2xx response so callers can
+// tell the editor when the Notion sync never started (bad/expired token,
+// missing workflow, unknown input).
+async function dispatchWorkflow(token, workflowFile, inputs) {
+  const res = await fetch(`${GITHUB_API}/actions/workflows/${workflowFile}/dispatches`, {
+    method: "POST",
+    headers: ghHeaders(token),
+    body: JSON.stringify(inputs ? { ref: "main", inputs } : { ref: "main" }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+// Map each row's status onto the `_localStatus` flag the tiles render from.
+function withLocalStatus(rows, config) {
+  const aLower = config.approvedStatus.toLowerCase();
+  const rLower = config.rejectedStatus.toLowerCase();
+  return rows.map(row => {
+    const s = (row.status || "").toLowerCase();
+    if (s === aLower) return { ...row, _localStatus: "approved" };
+    if (s === rLower) return { ...row, _localStatus: "rejected" };
+    return { ...row, _localStatus: undefined };
+  });
+}
 
 // ── SECTIONS CONFIG ───────────────────────────────────────────────────────────
 const SECTIONS = {
@@ -327,42 +387,37 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
     return map;
   });
 
-  const pollRef    = useRef(null);
-  const timeoutRef = useRef(null);
-
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
-  }, []);
-
+  // Mount-only load. ReviewPage is keyed by the active tab, so switching tabs
+  // remounts it and refetches; re-running on every render would refetch
+  // in a loop because fetchData closes over fresh props each render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchData(); }, []);
+
+  // Notion sync runs in the background after the gh-pages write. If the
+  // dispatch itself is rejected, say so instead of failing silently.
+  function syncInBackground(workflowFile, inputs) {
+    dispatchWorkflow(token, workflowFile, inputs).catch(e => {
+      setError(`Saved in the review app, but the Notion sync workflow (${workflowFile}) did not start: ${e.message}. Try again, or check your token.`);
+    });
+  }
 
   async function fetchData() {
     setLoading(true);
     setError("");
     try {
       // Fetch via GitHub Contents API — always returns latest committed data, no caching
-      const ghHeaders = token
+      const headers = token
         ? { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" }
         : { Accept: "application/vnd.github+json" };
-      const fileUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${config.dataFile}?ref=gh-pages&_=${Date.now()}`;
-      const res = await fetch(fileUrl, { headers: ghHeaders, cache: "no-store" });
+      const fileUrl = `${GITHUB_API}/contents/${config.dataFile}?ref=gh-pages&_=${Date.now()}`;
+      const res = await fetch(fileUrl, { headers, cache: "no-store" });
       if (!res.ok) throw new Error("Could not fetch data");
       const fileInfo = await res.json();
       const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));
 
       const allNames = [...new Set(rows.map(r => r.newsletter_name).filter(Boolean))];
 
-      const approvedLower = config.approvedStatus.toLowerCase();
-      const rejectedLower = config.rejectedStatus.toLowerCase();
-      const withStatus = rows.map(item => {
-        const s = (item.status || "").toLowerCase();
-        if (s === approvedLower) return { ...item, _localStatus: "approved" };
-        if (s === rejectedLower) return { ...item, _localStatus: "rejected" };
-        return item;
-      });
+      const withStatus = withLocalStatus(rows, config);
 
       // Build approvedMap purely from data (source of truth).
       // For multi-select sections (memes) the value is an ARRAY of ids;
@@ -395,7 +450,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
       if (allNames.length > 0) setNewsletter(prev => prev || allNames[0]);
       setItems(withStatus);
       onNewslettersLoaded(allNames);
-    } catch (e) {
+    } catch {
       setError("Could not load data.");
     } finally {
       setLoading(false);
@@ -407,41 +462,25 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
     const itemId = item[config.idField];
     setApproving(itemId);
     setError("");
-    const ghHeaders = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" };
     try {
-      // 1. Fetch current JSON from gh-pages
-      const fileUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${config.dataFile}?ref=gh-pages&_=${Date.now()}`;
-      const fileRes = await fetch(fileUrl, { headers: ghHeaders, cache: "no-store" });
-      if (!fileRes.ok) throw new Error("Could not fetch data file from gh-pages");
-      const fileInfo = await fileRes.json();
-      const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));
-
-      // 2. Set statuses for this newsletter (uses section-specific status names).
+      // 1-3. Fetch current JSON from gh-pages, set statuses for this
+      // newsletter (uses section-specific status names), commit it back.
       // Multi-select: ONLY flip the clicked row to approved; leave other
       // pending rows alone so additional selections can still happen.
       // Single-select: clicked row → approved, other pending → rejected.
-      for (const row of rows) {
-        if (row.newsletter_name !== selectedNewsletter) continue;
-        if (row[config.idField] === itemId) {
-          row.status = config.approvedStatus;
-        } else if (!config.multiSelect &&
-                   (row.status === "pending" || row.status === "Pending")) {
-          row.status = config.rejectedStatus;
-        }
-      }
-
-      // 3. Commit updated JSON back to gh-pages
-      const commitRes = await fetch(fileUrl, {
-        method: "PUT",
-        headers: ghHeaders,
-        body: JSON.stringify({
-          message: `approve: ${item[config.nameField]} for ${selectedNewsletter}`,
-          content: btoa(unescape(encodeURIComponent(JSON.stringify(rows, null, 2)))),
-          sha: fileInfo.sha,
-          branch: "gh-pages",
-        }),
-      });
-      if (!commitRes.ok) throw new Error("Could not update data file on gh-pages");
+      const rows = await updateDataFile(token, config.dataFile,
+        `approve: ${item[config.nameField]} for ${selectedNewsletter}`,
+        (fileRows) => {
+          for (const row of fileRows) {
+            if (row.newsletter_name !== selectedNewsletter) continue;
+            if (row[config.idField] === itemId) {
+              row.status = config.approvedStatus;
+            } else if (!config.multiSelect &&
+                       (row.status === "pending" || row.status === "Pending")) {
+              row.status = config.rejectedStatus;
+            }
+          }
+        });
 
       // 4. Update local state immediately. Multi-select appends; single
       //    overwrites.
@@ -466,21 +505,11 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
         savedApprovals[selectedNewsletter] = itemId;
       }
       localStorage.setItem(config.storageKey, JSON.stringify(savedApprovals));
-      const aLower = config.approvedStatus.toLowerCase();
-      const rLower = config.rejectedStatus.toLowerCase();
-      setItems(rows.map(row => {
-        const s = (row.status || "").toLowerCase();
-        if (s === aLower) return { ...row, _localStatus: "approved" };
-        if (s === rLower) return { ...row, _localStatus: "rejected" };
-        return { ...row, _localStatus: undefined };
-      }));
+      setItems(withLocalStatus(rows, config));
       onApprove(selectedNewsletter);
 
-      // 5. Fire-and-forget: dispatch Action to sync Notion in the background
-      fetch(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${config.approveWorkflow}/dispatches`,
-        { method: "POST", headers: ghHeaders, body: JSON.stringify({ ref: "main", inputs: config.approveInputs(item) }) }
-      ).catch(() => {}); // Notion sync is best-effort
+      // 5. Dispatch Action to sync Notion in the background
+      syncInBackground(config.approveWorkflow, config.approveInputs(item));
     } catch (e) {
       setError(`Approval failed: ${e.message}`);
     } finally {
@@ -517,58 +546,29 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
     setSubmitting(true);
     setError("");
     const ids = Array.isArray(approvedMap[selectedNewsletter]) ? approvedMap[selectedNewsletter] : [];
-    const ghHeaders = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" };
     try {
-      const fileUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${config.dataFile}?ref=gh-pages&_=${Date.now()}`;
-      const fileRes = await fetch(fileUrl, { headers: ghHeaders, cache: "no-store" });
-      if (!fileRes.ok) throw new Error("Could not fetch data file from gh-pages");
-      const fileInfo = await fileRes.json();
-      const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));
       const aLower = config.approvedStatus.toLowerCase();
-      for (const row of rows) {
-        if (row.newsletter_name !== selectedNewsletter) continue;
-        const isSel = ids.includes(row[config.idField]);
-        if (isSel) row.status = config.approvedStatus;
-        else if ((row.status || "").toLowerCase() === aLower) row.status = "pending";
-      }
-      const commitRes = await fetch(fileUrl, {
-        method: "PUT",
-        headers: ghHeaders,
-        body: JSON.stringify({
-          message: `submit selection: ${ids.length} ${config.redoSection} for ${selectedNewsletter}`,
-          content: btoa(unescape(encodeURIComponent(JSON.stringify(rows, null, 2)))),
-          sha: fileInfo.sha,
-          branch: "gh-pages",
-        }),
-      });
-      if (!commitRes.ok) throw new Error("Could not update data file on gh-pages");
+      const rows = await updateDataFile(token, config.dataFile,
+        `submit selection: ${ids.length} ${config.redoSection} for ${selectedNewsletter}`,
+        (fileRows) => {
+          for (const row of fileRows) {
+            if (row.newsletter_name !== selectedNewsletter) continue;
+            const isSel = ids.includes(row[config.idField]);
+            if (isSel) row.status = config.approvedStatus;
+            else if ((row.status || "").toLowerCase() === aLower) row.status = "pending";
+          }
+        });
 
-      const rLower = config.rejectedStatus.toLowerCase();
-      setItems(rows.map(row => {
-        const s = (row.status || "").toLowerCase();
-        if (s === aLower) return { ...row, _localStatus: "approved" };
-        if (s === rLower) return { ...row, _localStatus: "rejected" };
-        return { ...row, _localStatus: undefined };
-      }));
+      setItems(withLocalStatus(rows, config));
       if (ids.length > 0) onApprove(selectedNewsletter); else onUnapprove(selectedNewsletter);
       setSuccess({ newsletter: selectedNewsletter, name: `${ids.length} listing(s) submitted` });
 
       // One dispatch: SET_SELECTION makes the list the exact approved set.
-      fetch(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${config.approveWorkflow}/dispatches`,
-        {
-          method: "POST",
-          headers: ghHeaders,
-          body: JSON.stringify({
-            ref: "main",
-            inputs: {
-              newsletter:          selectedNewsletter,
-              set_selection:       "true",
-              approved_permalinks: ids.join(","),
-            },
-          }),
-        }
-      ).catch(() => {});
+      syncInBackground(config.approveWorkflow, {
+        newsletter:          selectedNewsletter,
+        set_selection:       "true",
+        approved_permalinks: ids.join(","),
+      });
     } catch (e) {
       setError(`Submit failed: ${e.message}`);
     } finally {
@@ -580,60 +580,35 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
     if (!token) return;
     setError("");
     setRedoing(true);
-    const ghHeaders = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" };
     try {
-      // 1. Fetch current JSON from gh-pages
-      const fileUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${config.dataFile}?ref=gh-pages&_=${Date.now()}`;
-      const fileRes = await fetch(fileUrl, { headers: ghHeaders, cache: "no-store" });
-      if (!fileRes.ok) throw new Error("Could not fetch data file from gh-pages");
-      const fileInfo = await fileRes.json();
-      const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));
-
-      // 2. Reset statuses and default_winner for this newsletter to pending
-      let changed = 0;
-      for (const item of rows) {
-        if (item.newsletter_name === selectedNewsletter) {
-          if (["approved", "rejected", "Approved", "Rejected", "Tier 1 Winner", "Tier 2 Winner"].includes(item.status)) {
-            item.status = "pending";
-            changed++;
+      // 1-3. Fetch current JSON from gh-pages, reset statuses and
+      // default_winner for this newsletter to pending, commit it back.
+      const rows = await updateDataFile(token, config.dataFile,
+        `redo: reset ${selectedNewsletter} ${config.redoSection} to pending`,
+        (fileRows) => {
+          for (const item of fileRows) {
+            if (item.newsletter_name === selectedNewsletter) {
+              if (["approved", "rejected", "Approved", "Rejected", "Tier 1 Winner", "Tier 2 Winner"].includes(item.status)) {
+                item.status = "pending";
+              }
+              item.default_winner = "";
+            }
           }
-          item.default_winner = "";
-        }
-      }
+        });
 
-      // 3. Commit updated JSON back to gh-pages
-      const commitRes = await fetch(fileUrl, {
-        method: "PUT",
-        headers: ghHeaders,
-        body: JSON.stringify({
-          message: `redo: reset ${selectedNewsletter} ${config.redoSection} to pending`,
-          content: btoa(unescape(encodeURIComponent(JSON.stringify(rows, null, 2)))),
-          sha: fileInfo.sha,
-          branch: "gh-pages",
-        }),
-      });
-      if (!commitRes.ok) throw new Error("Could not update data file on gh-pages");
-
-      // 4. Update local state immediately
+      // 4. Update local state immediately (and drop the stale "Approved!"
+      //    banner from the selection that was just reset).
       setApprovedMap(prev => { const next = { ...prev }; delete next[selectedNewsletter]; return next; });
+      setSuccess("");
       onUnapprove(selectedNewsletter);
       const savedApprovals = JSON.parse(localStorage.getItem(config.storageKey) || "{}");
       delete savedApprovals[selectedNewsletter];
       localStorage.setItem(config.storageKey, JSON.stringify(savedApprovals));
-      setItems(rows.map(item => {
-        const s = (item.status || "").toLowerCase();
-        if (s === "approved") return { ...item, _localStatus: "approved" };
-        if (s === "rejected") return { ...item, _localStatus: "rejected" };
-        return { ...item, _localStatus: undefined };
-      }));
+      setItems(withLocalStatus(rows, config));
       setRedoing(false);
 
-      // 5. Fire-and-forget: dispatch Action to sync Notion in the background
-      const workflowFile = config.redoWorkflow(selectedNewsletter);
-      fetch(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${workflowFile}/dispatches`,
-        { method: "POST", headers: ghHeaders, body: JSON.stringify({ ref: "main", inputs: { section: config.redoSection } }) }
-      ).catch(() => {}); // Notion sync is best-effort
+      // 5. Dispatch Action to sync Notion in the background
+      syncInBackground(config.redoWorkflow(selectedNewsletter), { section: config.redoSection });
     } catch (e) {
       setError(`Redo failed: ${e.message}`);
       setRedoing(false);
@@ -676,58 +651,28 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
     if (!token || !config.multiSelect) return;
     setError("");
     setRedoing(true);
-    const ghHeaders = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" };
     try {
       // 1. Local JSON: flip every pending row for this newsletter to rejected.
-      const fileUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${config.dataFile}?ref=gh-pages&_=${Date.now()}`;
-      const fileRes = await fetch(fileUrl, { headers: ghHeaders, cache: "no-store" });
-      if (!fileRes.ok) throw new Error("Could not fetch data file from gh-pages");
-      const fileInfo = await fileRes.json();
-      const rows = JSON.parse(decodeBase64Utf8(fileInfo.content));
-      for (const row of rows) {
-        if (row.newsletter_name !== selectedNewsletter) continue;
-        if (row.status === "pending" || row.status === "Pending") {
-          row.status = config.rejectedStatus;
-        }
-      }
-      const commitRes = await fetch(fileUrl, {
-        method: "PUT",
-        headers: ghHeaders,
-        body: JSON.stringify({
-          message: `reject-rest: ${selectedNewsletter} ${config.redoSection}`,
-          content: btoa(unescape(encodeURIComponent(JSON.stringify(rows, null, 2)))),
-          sha: fileInfo.sha,
-          branch: "gh-pages",
-        }),
-      });
-      if (!commitRes.ok) throw new Error("Could not update data file on gh-pages");
+      const rows = await updateDataFile(token, config.dataFile,
+        `reject-rest: ${selectedNewsletter} ${config.redoSection}`,
+        (fileRows) => {
+          for (const row of fileRows) {
+            if (row.newsletter_name !== selectedNewsletter) continue;
+            if (row.status === "pending" || row.status === "Pending") {
+              row.status = config.rejectedStatus;
+            }
+          }
+        });
 
       // 2. Update local items.
-      const aLower = config.approvedStatus.toLowerCase();
-      const rLower = config.rejectedStatus.toLowerCase();
-      setItems(rows.map(row => {
-        const s = (row.status || "").toLowerCase();
-        if (s === aLower) return { ...row, _localStatus: "approved" };
-        if (s === rLower) return { ...row, _localStatus: "rejected" };
-        return { ...row, _localStatus: undefined };
-      }));
+      setItems(withLocalStatus(rows, config));
 
-      // 3. Fire-and-forget Notion sync.
-      fetch(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${config.rejectRemainingWorkflow}/dispatches`,
-        {
-          method: "POST",
-          headers: ghHeaders,
-          body: JSON.stringify({
-            ref: "main",
-            inputs: {
-              newsletter:           selectedNewsletter,
-              reject_remaining:     "true",
-              approved_permalinks:  approvedIdsArr.join(","),
-            },
-          }),
-        }
-      ).catch(() => {});
+      // 3. Background Notion sync.
+      syncInBackground(config.rejectRemainingWorkflow, {
+        newsletter:           selectedNewsletter,
+        reject_remaining:     "true",
+        approved_permalinks:  approvedIdsArr.join(","),
+      });
     } catch (e) {
       setError(`Reject-the-rest failed: ${e.message}`);
     } finally {
@@ -810,7 +755,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
 
       {config.multiSelect && !config.deferredSubmit && approvedCount > 0 && (
         <div style={{textAlign: "center", margin: "16px 0 24px"}}>
-          <button className="btn btn-redo" onClick={handleRejectRest} disabled={redoing}>
+          <button className="btn btn-redo" onClick={handleRejectRest} disabled={redoing || !!approving}>
             {redoing ? "⏳ Rejecting…" : "✗ Reject the rest"}
           </button>
           <div style={{marginTop: 8, fontSize: 13, color: "#6B5744"}}>
@@ -825,7 +770,7 @@ function ReviewPage({ config, token, onApprove, onUnapprove, approvedSections, o
             <strong>{"\u2705"} Winner selected{approvedTile ? `: ${approvedTile[config.nameField]}` : ""}!</strong> — approved and sent to Notion
           </div>
           <div style={{textAlign: "center", marginBottom: 24}}>
-            <button className="btn btn-redo" onClick={handleRedo} disabled={redoing}>
+            <button className="btn btn-redo" onClick={handleRedo} disabled={redoing || !!approving}>
               {redoing ? "\u23F3 Resetting candidates..." : "\uD83D\uDD04 Redo Selection"}
             </button>
             {redoing && <p style={{marginTop: 12, fontSize: 13, color: "#6B5744"}}>Updating Notion and refreshing data, this may take a minute...</p>}
