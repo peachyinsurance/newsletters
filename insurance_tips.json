@@ -1,1 +1,40 @@
-[]
+[
+  {
+    "tip_title": "Daylight Saving Time Ends Sunday. That Changes Your Deer Strike Risk More Than You'd Think.",
+    "topic": "Auto Insurance - End of Daylight Saving Time and Increased Deer Strike Risk",
+    "blurb": "💡 **Insurance Tip: Why This Weekend's Clock Change Matters for Your Car**\n\nDaylight Saving Time ends Sunday morning, which means your evening commute is about to get a lot darker, fast. That's a problem because deer are already in peak rut season right now, and dusk is when they're most active. In Georgia and across the Southeast, deer strikes spike hard in October and November, and the sudden loss of that extra hour of evening daylight puts more drivers on the road during prime deer movement hours. The coverage that applies here is comprehensive, not collision. If you hit a deer, it's a comprehensive claim, and if you don't carry comprehensive on a vehicle, you're paying for that repair out of pocket.\n\nWorth a quick check before the commute changes Sunday: confirm comprehensive is on every vehicle in your household. Your Peachy agent can verify that in about two minutes.\n\n📖 [Learn more from NerdWallet](https://www.nerdwallet.com/insurance/homeowners/learn/wildfire-insurance)",
+    "summary": "Covers the end of Daylight Saving Time (first Sunday of November) as a trigger for increased deer strike risk during evening commutes, framed as a prompt to confirm comprehensive auto coverage is in place before peak rut-season darkness begins. Distinct from the Oct 12 tip which covered comprehensive as a general fall hazard without the DST/commute-darkness angle.",
+    "source_url": "https://www.nerdwallet.com/insurance/homeowners/learn/wildfire-insurance",
+    "source_name": "NerdWallet",
+    "sponsor_name": "Peachy Insurance",
+    "category": "auto",
+    "total_score": "28",
+    "relevance_score": "9",
+    "actionability_score": "9",
+    "timeliness_score": "10",
+    "scoring_notes": "Daylight Saving Time ends November 1, two days from publish date. The Oct 12 tip covered comprehensive coverage and fall deer risk, but it did not use the DST/commute-darkness angle, which is a specific and meaningfully different trigger (the sudden shift in when darkness falls during commute hours). Scoring this as a distinct angle per the dedup rules. Both audiences have cars and suburban/exurban proximity to deer habitat (East Cobb borders Chattahoochee River corridor). Actionability is high: one quick phone call or app check. Category diversification: auto vs. the home/liability tip above.",
+    "date_generated": "2026-10-30",
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": ""
+  },
+  {
+    "tip_title": "Halloween Is Tomorrow. Your Home Policy Has a Liability Side Most People Never Think About.",
+    "topic": "Home Insurance - Holiday Gift and High-Value Item Coverage at Halloween/Year-End",
+    "blurb": "💡 **Insurance Tip: Halloween and Your Home Policy's Liability Coverage**\n\nTomorrow night you'll probably have 50 to 200 strangers walking up your driveway in the dark. That's exactly the kind of scenario where your homeowners liability coverage matters most. If a trick-or-treater trips on your front steps, slips on wet leaves, or gets hurt on your property, your personal liability coverage is what responds first. The question worth asking before you set out the candy bowl: do you actually know what your liability limit is, and is it enough? A lot of homeowners have never looked at that number since the day they bought the policy.\n\nNot sure what your limit is or whether it still makes sense for your household? Your Peachy agent can pull up your declarations page and walk through it with you in about ten minutes.\n\n📖 [Learn more from the Insurance Information Institute](https://www.iii.org/article/how-much-homeowners-insurance-do-you-need)",
+    "summary": "Covers homeowners personal liability coverage framed around Halloween foot traffic risk, specifically that guests and trick-or-treaters injured on your property trigger the liability portion of a standard homeowners policy, and prompts readers to check their current limit.",
+    "source_url": "https://www.nerdwallet.com/insurance/homeowners/learn/wildfire-insurance",
+    "source_name": "NerdWallet",
+    "sponsor_name": "Peachy Insurance",
+    "category": "home",
+    "total_score": "28",
+    "relevance_score": "9",
+    "actionability_score": "9",
+    "timeliness_score": "10",
+    "scoring_notes": "Halloween is literally tomorrow from publish date (Oct 30). Personal liability on homeowners policies has been covered in prior tips (Sep 7, Sep 11, Aug 24) but those were framed around limit tiers, umbrella handoff, and the summer hosting scenario. This is a sharply different angle: Halloween-specific foot traffic and trip/fall risk on the property, which is a concrete Oct 30 action prompt. High homeownership in both audiences (78%) makes this relevant. Sourced from NerdWallet (trusted domain) for homeowners coverage mechanics; the liability framing is foundational and well-documented across all trusted sources. Category: home/liability — distinct from the auto and life tips that have dominated recent weeks.",
+    "date_generated": "2026-10-30",
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": "yes"
+  }
+]
