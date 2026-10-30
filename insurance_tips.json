@@ -17,24 +17,5 @@
     "status": "approved",
     "newsletter_name": "East_Cobb_Connect",
     "default_winner": ""
-  },
-  {
-    "tip_title": "Halloween Is Tomorrow. Your Home Policy Has a Liability Side Most People Never Think About.",
-    "topic": "Home Insurance - Holiday Gift and High-Value Item Coverage at Halloween/Year-End",
-    "blurb": "💡 **Insurance Tip: Halloween and Your Home Policy's Liability Coverage**\n\nTomorrow night you'll probably have 50 to 200 strangers walking up your driveway in the dark. That's exactly the kind of scenario where your homeowners liability coverage matters most. If a trick-or-treater trips on your front steps, slips on wet leaves, or gets hurt on your property, your personal liability coverage is what responds first. The question worth asking before you set out the candy bowl: do you actually know what your liability limit is, and is it enough? A lot of homeowners have never looked at that number since the day they bought the policy.\n\nNot sure what your limit is or whether it still makes sense for your household? Your Peachy agent can pull up your declarations page and walk through it with you in about ten minutes.\n\n📖 [Learn more from the Insurance Information Institute](https://www.iii.org/article/how-much-homeowners-insurance-do-you-need)",
-    "summary": "Covers homeowners personal liability coverage framed around Halloween foot traffic risk, specifically that guests and trick-or-treaters injured on your property trigger the liability portion of a standard homeowners policy, and prompts readers to check their current limit.",
-    "source_url": "https://www.nerdwallet.com/insurance/homeowners/learn/wildfire-insurance",
-    "source_name": "NerdWallet",
-    "sponsor_name": "Peachy Insurance",
-    "category": "home",
-    "total_score": "28",
-    "relevance_score": "9",
-    "actionability_score": "9",
-    "timeliness_score": "10",
-    "scoring_notes": "Halloween is literally tomorrow from publish date (Oct 30). Personal liability on homeowners policies has been covered in prior tips (Sep 7, Sep 11, Aug 24) but those were framed around limit tiers, umbrella handoff, and the summer hosting scenario. This is a sharply different angle: Halloween-specific foot traffic and trip/fall risk on the property, which is a concrete Oct 30 action prompt. High homeownership in both audiences (78%) makes this relevant. Sourced from NerdWallet (trusted domain) for homeowners coverage mechanics; the liability framing is foundational and well-documented across all trusted sources. Category: home/liability — distinct from the auto and life tips that have dominated recent weeks.",
-    "date_generated": "2026-10-30",
-    "status": "approved",
-    "newsletter_name": "East_Cobb_Connect",
-    "default_winner": "yes"
   }
 ]
