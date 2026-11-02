@@ -1,1 +1,27 @@
-[]
+[
+  {
+    "source_url": "https://app.acuityscheduling.com/schedule.php?owner=22856407",
+    "business_name": "Sevyn Cosmetics",
+    "city": "Sandy Springs",
+    "blurb": "If you've been on the fence about a silk press, Sevyn Cosmetics in Sandy Springs might be the place that finally tips you over. One reviewer put it plainly: this was probably one of the best hair services she'd ever had in Atlanta. That's a strong statement in a city with no shortage of salons.\n\nWhat sets this spot apart isn't just the styling. The stylist actually teaches you what she's doing and why, which is rare. Clients with natural, curly hair who are heat-sensitive have come in nervous and walked out genuinely converted. The scalp treatments get mentioned in review after review, described as something close to a full reset for your head and scalp.\n\nThis is a boutique, appointment-based setup, so you're not waiting around or getting shuffled through a crowded floor. You're getting real attention and real results. For anyone who's been burned by stylists who don't understand textured or natural hair, this is the kind of place worth calling about.",
+    "price_level": "$$",
+    "hours": "Mon–Wed Closed, Thu–Sat 5:00 AM – 10:00 PM, Sun Closed",
+    "address": "8500 Mount Vernon Hwy NE, Sandy Springs, GA 30328, USA",
+    "source_domain": "app.acuityscheduling.com",
+    "image_url": "https://lh3.googleusercontent.com/grass-cs/AABkmLdMs83Dw3boIbs6tzH8QO4rLGB3P1mR37-hnihy2tYOvYxbiYoJ55DKX19MiHc5P2bUXYI5s3IJiJHWGZchh4FmYtV7oQKlcBY3jZorVlqY19x1IGdf_BnCWTYA5rTXvJL0khvEnw=s4800-h800",
+    "image_candidates": [
+      "https://lh3.googleusercontent.com/grass-cs/AABkmLdMs83Dw3boIbs6tzH8QO4rLGB3P1mR37-hnihy2tYOvYxbiYoJ55DKX19MiHc5P2bUXYI5s3IJiJHWGZchh4FmYtV7oQKlcBY3jZorVlqY19x1IGdf_BnCWTYA5rTXvJL0khvEnw=s4800-h800",
+      "https://lh3.googleusercontent.com/grass-cs/AABkmLdbBpvifYfCNXGm84TRygh_xGgGEpCUTpgNCULQNFmt19QI5cOrA9gcnBJSWNS3jMvsyM4nxBCVsl6Cfzzc5ZKImLLTeM_N2yxAVoAIzZcKU7TGDrZAseLN9vOHSGv_GPjvhsnUZlR8_AKm=s4800-h800",
+      "https://lh3.googleusercontent.com/grass-cs/AABkmLfyBA0bGf4OAqzKU9s4o1_r-2w1BIYhm_X_yGRwMi5xX5BobRhGvbdwajE17nmD3j4I9qz-ROI95j2WxyMv_Kf_VuH_geRq8RfYhyCoe6KO5x0Z46pPaP2In_JnGBVaRwZI37jjRw=s4800-h800",
+      "https://lh3.googleusercontent.com/grass-cs/AABkmLeH104mOd80vhkyE8YGtHiTkSI9Q0yjrhdiB1ywq-N4t_YN4M6JR72idUFOCzPTxzEPM5LfNy27b-H7Fih2QIWkbNRpgBVIh8Ta_tn-XIUkODuXhSF3szevlLOZleIsFqkwHjFchA=s4800-h800",
+      "https://lh3.googleusercontent.com/grass-cs/AABkmLe20JrvIO0Gp8uBdjbTq-OY6TTDJe_vQvcdmMmhBT9rei6lCHvRAC4hUMfeywUUs8ODA6StMurYfyfJaUXpLUK0SPBV6Wc8r4IjKfAPRbqs8j79sF5pcyTrmSYlswqfyLjSB3HN6w=s4800-h800"
+    ],
+    "scoring_notes": "Strong fit for a community newsletter audience, solid five-star rating, and specific reviewer praise around a clear specialty, but thin review count limits confidence.",
+    "relevance_score": "74",
+    "total_score": "74",
+    "date_generated": "2026-11-02",
+    "status": "pending",
+    "newsletter_name": "Perimeter_Post",
+    "default_winner": "yes"
+  }
+]
