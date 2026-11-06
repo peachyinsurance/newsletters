@@ -1,1 +1,21 @@
-[]
+[
+  {
+    "tip_title": "Your Home Policy Has Two Ways to Pay for Damaged Belongings. Most People Don't Know Which One They Have.",
+    "topic": "Home Insurance - Personal Property Settlement Method (ACV vs. Replacement Cost)",
+    "blurb": "💡 **Insurance Tip: Your Home Policy Has Two Ways to Pay for Damaged Belongings. Most People Don't Know Which One They Have.**\n\nWhen something inside your home gets damaged or destroyed — furniture, electronics, clothing, whatever — your policy pays out in one of two ways. Actual cash value (ACV) pays you what the item is worth today, after depreciation. Replacement cost coverage pays you what it actually costs to buy that item new. The difference on a five-year-old laptop or a sofa isn't trivial. A couch that cost $1,200 might have an ACV of $400 and a replacement cost of $1,400. If you've got ACV coverage on your personal property, that gap comes out of your pocket. With the holidays coming and people bringing home new gifts and gear, this is worth a quick check on your declarations page — look for \"personal property settlement method\" and see which one applies to your policy.\n\nNot sure what your policy says? Your Peachy agent can pull that up and walk you through it in a few minutes.\n\n📖 [Learn more from NerdWallet](https://www.nerdwallet.com/insurance/homeowners/learn/actual-cash-value-vs-replacement-cost)",
+    "summary": "Covers the ACV vs. replacement cost distinction specifically for personal property (contents) on a homeowners policy, framed around the out-of-pocket gap at claim time and the November holiday purchase season as a prompt to check the settlement method on your declarations page.",
+    "source_url": "https://www.nerdwallet.com/insurance/homeowners/learn/actual-cash-value-vs-replacement-cost",
+    "source_name": "NerdWallet",
+    "sponsor_name": "Peachy Insurance",
+    "category": "home",
+    "total_score": "22",
+    "relevance_score": "8",
+    "actionability_score": "7",
+    "timeliness_score": "7",
+    "scoring_notes": "Repeat subject (ACV vs. RCV was covered July 6), but prior tip covered the general homeowners claim payout mechanic and dwelling/structural framing. This tip takes a contents-only angle — specifically the personal property settlement method and the dollar gap it creates at claim time — with a November hook around holiday purchases and winter events like pipe bursts that damage belongings. Both audiences are 78% homeowners with families accumulating goods. Trusted source (nerdwallet.com). Best available candidate given the remaining field.",
+    "date_generated": "2026-11-06",
+    "status": "pending",
+    "newsletter_name": "East_Cobb_Connect",
+    "default_winner": "yes"
+  }
+]
