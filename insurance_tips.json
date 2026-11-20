@@ -74,43 +74,5 @@
     "status": "pending",
     "newsletter_name": "Perimeter_Post",
     "default_winner": ""
-  },
-  {
-    "tip_title": "Two Winter Home Risks Your Policy Handles Differently Than You'd Expect",
-    "topic": "Home Insurance - Winter Storm Pipe Freeze and Space Heater Coverage",
-    "blurb": "💡 **Insurance Tip: Two Winter Home Risks Your Policy Handles Differently Than You'd Expect**\n\nStandard homeowners insurance covers sudden freeze damage to pipes when you've taken reasonable steps to maintain heat in the home. But if you let the heat drop and pipes burst as a result, that's often treated as a maintenance issue and denied. Space heater fires follow a similar logic: the fire damage itself is typically covered, but your insurer will look at whether the heater was used safely and whether it was left unattended. The practical takeaway for both is the same: document that you were doing the right things before anything goes wrong.\n\nNot sure how your policy handles these scenarios? Your Peachy agent can walk you through exactly where the lines are drawn.\n\n📖 [Learn more from Insurance.com](https://www.insurance.com/home-and-renters-insurance/natural-disasters/winter-homeowners-insurance-claims.html)",
-    "summary": "Covers how homeowners policies treat two specific winter risks — pipe freeze damage and space heater fires — with emphasis on the maintenance-vs-sudden distinction that determines whether a claim gets paid or denied.",
-    "source_url": "https://www.insurance.com/home-and-renters-insurance/natural-disasters/winter-homeowners-insurance-claims.html",
-    "source_name": "Insurance.com",
-    "sponsor_name": "Peachy Insurance",
-    "category": "seasonal",
-    "total_score": "25",
-    "relevance_score": "8",
-    "actionability_score": "8",
-    "timeliness_score": "9",
-    "scoring_notes": "Mid-November is exactly when this tip lands: cold weather is arriving in both Georgia and North Texas, and both audiences have high homeownership rates (78% East Cobb, 55% Perimeter, 65% Lewisville). The pipe freeze/maintenance exclusion angle has been covered in prior tips (Oct 12 sudden-vs-gradual, Oct 2 winter storm readiness) but those framed it as plumbing maintenance broadly — this tip pairs it specifically with the space heater fire scenario, which is a fresh combination that's genuinely November-relevant and hasn't appeared in the previous-tip log. Source is insurance.com, not on the preferred list, but the content is substantively accurate and consistent with iii.org guidance. Flagged: preferred source would be iii.org, but no iii.org winter storm candidate was provided. Using insurance.com as best available. Dedup note: prior Oct 12 tip covered frozen pipes and the sudden-vs-gradual rule; this tip adds the space heater angle and frames both as paired November action items, which is a meaningfully different combination.",
-    "date_generated": "2026-11-16",
-    "status": "pending",
-    "newsletter_name": "East_Cobb_Connect",
-    "default_winner": ""
-  },
-  {
-    "tip_title": "November Is Prime Season for Auto Theft and Break-Ins. One Coverage Check Worth Making.",
-    "topic": "Auto Insurance - Holiday Season Theft and Comprehensive Coverage",
-    "blurb": "💡 **Insurance Tip: November Is Prime Season for Auto Theft and Break-Ins. One Coverage Check Worth Making.**\n\nAuto theft and smash-and-grab break-ins spike during the holiday shopping season — and both fall under comprehensive coverage, not collision. Comprehensive is the part of your auto policy that covers non-collision events: theft, vandalism, weather damage, animal strikes. If you dropped comprehensive to save money at some point, now is a reasonable time to revisit that decision, especially if you're parking in busy shopping areas or leaving gifts in your car. The deductible you'd owe out of pocket matters here too — a $1,000 deductible on a stolen laptop bag is a bad trade.\n\nNot sure if comprehensive is on your current policy or what your deductible looks like? Your Peachy agent can pull that up in about two minutes.\n\n📖 [Learn more from NerdWallet](https://www.nerdwallet.com/insurance/auto/learn/comprehensive-and-collision-insurance)",
-    "summary": "Covers comprehensive auto coverage as the protection that applies to holiday-season vehicle theft and break-ins, framed as a November action item to confirm comprehensive is in place and to review the deductible before peak shopping season parking begins.",
-    "source_url": "https://www.nerdwallet.com/insurance/auto/learn/comprehensive-and-collision-insurance",
-    "source_name": "NerdWallet",
-    "sponsor_name": "Peachy Insurance",
-    "category": "auto",
-    "total_score": "27",
-    "relevance_score": "9",
-    "actionability_score": "9",
-    "timeliness_score": "9",
-    "scoring_notes": "High relevance across all three audiences — all have meaningful vehicle ownership and holiday shopping activity. Timeliness is strong: Thanksgiving is two weeks out and holiday retail traffic is ramping up now. Prior comprehensive tips (Oct 12, Sept 14, June 14, June 29) all used fall hazard or summer road-trip framing; none used the holiday theft/shopping-season angle. This is a substantively different seasonal hook. Actionability is high: readers can check their declarations page immediately or call their agent. Source is nerdwallet.com, which is on the trusted source list. Dedup note: new angle — prior comprehensive tips focused on deer strikes, hail, and weather damage; this tip centers on theft and break-ins during holiday shopping season, which is a distinct scenario and a distinct reader action.",
-    "date_generated": "2026-11-16",
-    "status": "pending",
-    "newsletter_name": "East_Cobb_Connect",
-    "default_winner": "yes"
   }
 ]
